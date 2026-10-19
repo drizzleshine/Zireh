@@ -41,6 +41,7 @@ interface RunSlot {
   run?: Run;
   running: boolean;
   abort?: AbortController;
+  draft?: { task: string; level: PrivacyLevel; contextIds: string[] };
 }
 const slots = new Map<string, RunSlot>();
 const slotListeners = new Set<() => void>();
@@ -64,10 +65,15 @@ function useSlot(caseId: string): RunSlot {
 
 export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Props) {
   const rec = useStore((s) => s.cases[caseId])!;
-  const [task, setTask] = useState("");
-  const [level, setLevel] = useState<PrivacyLevel>(rec.case.privacy);
-  const [contextIds, setContextIds] = useState<string[]>([]);
-  const { run, running, abort } = useSlot(caseId);
+  const { run, running, abort, draft } = useSlot(caseId);
+  const task = draft?.task ?? "";
+  const level = draft?.level ?? rec.case.privacy;
+  const contextIds = draft?.contextIds ?? [];
+  const setDraft = (patch: Partial<NonNullable<RunSlot["draft"]>>) =>
+    setSlot(caseId, (s) => ({ ...s, draft: { task, level, contextIds, ...s.draft, ...patch } }));
+  const setTask = (t: string) => setDraft({ task: t });
+  const setLevel = (l: PrivacyLevel) => setDraft({ level: l });
+  const setContextIds = (fn: (ids: string[]) => string[]) => setDraft({ contextIds: fn(contextIds) });
   const setRun = (next: Run | undefined | ((r: Run | undefined) => Run | undefined)) =>
     setSlot(caseId, (s) => {
       const value = typeof next === "function" ? next(s.run) : next;
