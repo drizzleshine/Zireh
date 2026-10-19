@@ -1,6 +1,6 @@
 import { newObservation } from "@zireh/cases";
 import type { DaemonStatus, PlannedPiece, PrivacyLevel, Pseudonym, ResearchEvent, TraceStep } from "@zireh/schema";
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useState, useSyncExternalStore } from "react";
 import { formatUsd, research } from "../api.ts";
 import { myMemberId, save, savePseudonyms, useStore } from "../store.ts";
 import { LEVEL_COPY } from "./levels.ts";
@@ -33,22 +33,54 @@ interface Props {
   onTopUp: () => void;
 }
 
+/**
+ * The latest run per case lives outside the component, so it survives tab switches and keeps
+ * receiving events while another tab is open.
+ */
+interface RunSlot {
+  run?: Run;
+  running: boolean;
+  abort?: AbortController;
+}
+const slots = new Map<string, RunSlot>();
+const slotListeners = new Set<() => void>();
+const getSlot = (caseId: string): RunSlot => slots.get(caseId) ?? { running: false };
+function setSlot(caseId: string, update: (s: RunSlot) => RunSlot) {
+  slots.set(caseId, update(getSlot(caseId)));
+  for (const l of slotListeners) l();
+}
+function useSlot(caseId: string): RunSlot {
+  return useSyncExternalStore(
+    (l) => {
+      slotListeners.add(l);
+      return () => {
+        slotListeners.delete(l);
+      };
+    },
+    () => getSlot(caseId),
+  );
+}
+
 export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Props) {
   const rec = useStore((s) => s.cases[caseId])!;
   const [task, setTask] = useState("");
   const [level, setLevel] = useState<PrivacyLevel>(rec.case.privacy);
   const [contextIds, setContextIds] = useState<string[]>([]);
-  const [run, setRun] = useState<Run | undefined>();
-  const [running, setRunning] = useState(false);
-  const abort = useRef<AbortController | undefined>(undefined);
+  const { run, running, abort } = useSlot(caseId);
+  const setRun = (next: Run | undefined | ((r: Run | undefined) => Run | undefined)) =>
+    setSlot(caseId, (s) => {
+      const value = typeof next === "function" ? next(s.run) : next;
+      return value ? { ...s, run: value } : { running: s.running, ...(s.abort ? { abort: s.abort } : {}) };
+    });
+  const setRunning = (running: boolean) => setSlot(caseId, (s) => ({ ...s, running }));
 
   const ready = status?.localModel.ok && (level === "local" || (status.relay.ok && (status.transport === "direct" || status.tor.ready)));
 
   async function start() {
     const current: Run = { task, level, steps: [], table: [], pieces: [], blocked: [] };
+    const controller = new AbortController();
     setRun(current);
-    setRunning(true);
-    abort.current = new AbortController();
+    setSlot(caseId, (s) => ({ ...s, running: true, abort: controller }));
     const update = (fn: (r: Run) => void) =>
       setRun((r) => {
         if (!r) return r;
@@ -89,7 +121,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
             onBalanceChange();
           } else if (e.type === "error") update((r) => (r.error = e.message));
         },
-        abort.current.signal,
+        controller.signal,
       );
     } catch (err) {
       update((r) => (r.error = (err as Error).message));
@@ -143,7 +175,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
           <span className="level-note">{LEVEL_COPY[level].note}</span>
           <span className="spacer" />
           {running ? (
-            <button className="btn" onClick={() => abort.current?.abort()}>
+            <button className="btn" onClick={() => abort?.abort()}>
               Stop
             </button>
           ) : (
