@@ -1,0 +1,16 @@
+{
+  "name": "@zireh/tor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "zireh": {
+    "layer": 4
+  },
+  "dependencies": {
+    "@zireh/crypto": "workspace:*",
+    "@zireh/schema": "workspace:*",
+    "fetch-socks": "^1.3.3",
+    "undici": "^8.12.2"
+  }
+}

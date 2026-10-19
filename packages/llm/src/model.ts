@@ -1,4 +1,6 @@
-import type { ChatMessage, ChatResult } from "@zireh/schema";
+import type { ChatMessage, ChatResult, FetchLike } from "@zireh/schema";
+
+export type { FetchLike };
 
 export interface ChatOptions {
   readonly maxTokens: number;
@@ -11,8 +13,6 @@ export interface ChatModel {
   readonly id: string;
   chat(messages: readonly ChatMessage[], options: ChatOptions): Promise<ChatResult>;
 }
-
-export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export class ModelError extends Error {
   constructor(
