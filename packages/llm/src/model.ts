@@ -29,6 +29,8 @@ interface OpenAiConfig {
   readonly model: string;
   readonly apiKey?: string;
   readonly fetch?: FetchLike;
+  /** Provider-specific request fields, e.g. `{ reasoning_effort: "none" }` for a fast local model. */
+  readonly extraBody?: Readonly<Record<string, unknown>>;
 }
 
 /** Any OpenAI-compatible `/chat/completions` endpoint (Ollama, Token Factory, …). */
@@ -44,7 +46,7 @@ export function openAiCompatible(config: OpenAiConfig): ChatModel {
           "content-type": "application/json",
           ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}),
         },
-        body: JSON.stringify({ model: config.model, messages, max_tokens: maxTokens, temperature }),
+        body: JSON.stringify({ ...config.extraBody, model: config.model, messages, max_tokens: maxTokens, temperature }),
         ...(signal ? { signal } : {}),
       });
       if (!res.ok) throw new ModelError(`${config.model}: HTTP ${res.status} ${await res.text()}`, res.status);

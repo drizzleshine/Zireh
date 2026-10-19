@@ -43,6 +43,7 @@ describe("openAiCompatible", () => {
       baseUrl: "https://example.test/v1/",
       model: "nvidia/test",
       apiKey: "k",
+      extraBody: { reasoning_effort: "none" },
       fetch: async (url, init) => {
         seen = { url, init };
         return Response.json({
@@ -55,7 +56,7 @@ describe("openAiCompatible", () => {
     const result = await model.chat(user("hello"), { maxTokens: 16 });
     expect(seen!.url).toBe("https://example.test/v1/chat/completions");
     expect((seen!.init!.headers as Record<string, string>).authorization).toBe("Bearer k");
-    expect(JSON.parse(seen!.init!.body as string)).toMatchObject({ model: "nvidia/test", max_tokens: 16 });
+    expect(JSON.parse(seen!.init!.body as string)).toMatchObject({ model: "nvidia/test", max_tokens: 16, reasoning_effort: "none" });
     expect(result).toEqual({ content: "hi", model: "nvidia/test", usage: { prompt_tokens: 7, completion_tokens: 2 } });
   });
 
