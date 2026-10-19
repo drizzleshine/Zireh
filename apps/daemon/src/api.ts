@@ -4,7 +4,7 @@ import type { Ledger } from "@zireh/ledger";
 import type { ChatModel } from "@zireh/llm";
 import { redactText } from "@zireh/redact";
 import { PrivacyLevel, Pseudonym, TopupQuote, type DaemonStatus } from "@zireh/schema";
-import { Envelope, SyncClient } from "@zireh/sync";
+import { Envelope, SyncClient, SyncError } from "@zireh/sync";
 import { InsufficientFunds, type Wallet } from "@zireh/wallet";
 import { z } from "zod";
 import { runResearch, type ResearchEvent } from "./research.ts";
@@ -161,6 +161,7 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
       return await route(req, url);
     } catch (err) {
       if (err instanceof z.ZodError) return json(400, { error: "bad request", issues: err.issues.map((i) => `${i.path.join(".")}: ${i.message}`) });
+      if (err instanceof SyncError) return json(err.status, { error: "sync", message: err.message }); // keep 403/404 meaningful
       if (err instanceof InsufficientFunds) return json(402, { error: "insufficient_funds", message: err.message });
       if (err instanceof RelayCallError) return json(err.code === "insufficient_funds" ? 402 : 502, { error: err.code, message: err.message });
       return json(500, { error: "internal", message: (err as Error).message.slice(0, 300) });

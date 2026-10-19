@@ -41,7 +41,8 @@ export function App() {
 
   useEffect(() => {
     const ids = caseIds ? caseIds.split(",") : [];
-    if (!selected && !home && ids.length) setSelectedRaw(ids[ids.length - 1]);
+    if (selected && !ids.includes(selected)) setSelectedRaw(undefined); // e.g. a join that was rolled back
+    else if (!selected && !home && ids.length) setSelectedRaw(ids[ids.length - 1]);
   }, [caseIds, selected, home]);
 
   return (

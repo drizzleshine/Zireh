@@ -179,7 +179,7 @@ export async function joinCase(invite: Invite, memberName: string): Promise<stri
   if (state.workspaces.some((w) => w.caseId === invite.caseId)) return invite.caseId;
   const member: Member = newMember(memberName);
   state.workspaces.push({ caseId: invite.caseId, caseKey: invite.caseKey, memberId: member.id, cursor: 0, outbox: [] });
-  await syncCase(invite.caseId);
+  for (let attempt = 0; attempt < 3 && !state.cases[invite.caseId]; attempt++) await syncCase(invite.caseId);
   if (!state.cases[invite.caseId]) {
     state.workspaces = state.workspaces.filter((w) => w.caseId !== invite.caseId);
     emit();
@@ -201,35 +201,19 @@ export const inviteLink = (caseId: string): string => {
 
 export const myMemberId = (caseId: string): string => workspace(caseId).memberId;
 
-const syncing = new Set<string>();
-
-/** Queue a sealed copy of every record we hold, so a fresh sync host can be rebuilt from this device. */
-async function reseed(caseId: string) {
-  const rec = state.cases[caseId];
-  const w = workspace(caseId);
-  if (!rec) return;
-  const all: Envelope[] = [await sealRecord(w.caseKey, "cases", rec.case)];
-  const lists: [CollectionName, readonly { id: string }[]][] = [
-    ["members", rec.members],
-    ["evidence", rec.evidence],
-    ["observations", rec.observations],
-    ["findings", rec.findings],
-    ["reviews", rec.reviews],
-    ["comments", rec.comments],
-    ["links", rec.links],
-    ["conclusions", rec.conclusions],
-  ];
-  for (const [collection, items] of lists) for (const item of items) all.push(await sealRecord(w.caseKey, collection, item as never));
-  if (rec.pseudonyms.length) all.push(await sealRecord(w.caseKey, "pseudonyms", { id: caseId, caseId, entries: rec.pseudonyms }));
-  if (Object.keys(rec.board).length) all.push(await sealRecord(w.caseKey, "board", { id: caseId, caseId, positions: rec.board }));
-  w.outbox = all;
-  w.cursor = 0;
-}
+/** One sync per case at a time; concurrent callers share the in-flight one. */
+const syncing = new Map<string, Promise<void>>();
 
 /** Push queued envelopes, then pull and apply everything new. */
-export async function syncCase(caseId: string) {
-  if (syncing.has(caseId)) return;
-  syncing.add(caseId);
+export function syncCase(caseId: string): Promise<void> {
+  const running = syncing.get(caseId);
+  if (running) return running;
+  const task = syncOnce(caseId).finally(() => syncing.delete(caseId));
+  syncing.set(caseId, task);
+  return task;
+}
+
+async function syncOnce(caseId: string) {
   const w = workspace(caseId);
   const token = caseToken(w.caseKey);
   try {
@@ -237,23 +221,20 @@ export async function syncCase(caseId: string) {
       const batch = w.outbox.slice(0, 200);
       const { cursor } = await api.push(caseId, token, batch);
       w.outbox = w.outbox.slice(batch.length);
-      // The host has fewer records than we've already seen: it was reset or replaced. Re-upload.
-      if (cursor < w.cursor) await reseed(caseId);
+      // The host has fewer records than we've already seen: it was reset or replaced.
+      if (cursor < w.cursor) queueMicrotask(() => void repairHost(caseId));
     }
     let pulled;
     try {
       pulled = await api.pull(caseId, token, w.cursor);
     } catch (err) {
       if ((err as { status?: number }).status === 404 && state.cases[caseId]) {
-        await reseed(caseId); // host doesn't know this case at all
+        queueMicrotask(() => void repairHost(caseId)); // host doesn't know this case at all
         return;
       }
       throw err;
     }
-    if (pulled.head < w.cursor) {
-      await reseed(caseId); // host is behind what we've already seen: it was reset or replaced
-      return;
-    }
+    if (pulled.head < w.cursor) queueMicrotask(() => void repairHost(caseId)); // host fell behind us
     for (const env of pulled.records) {
       const opened = await openRecord(w.caseKey, env);
       if (!opened) continue; // tampered or foreign: ignore
@@ -271,17 +252,72 @@ export async function syncCase(caseId: string) {
   } catch (err) {
     w.syncError = (err as Error).message;
   } finally {
-    syncing.delete(caseId);
     emit();
     await persist(caseId);
   }
-  if (w.outbox.length && !w.syncError) void syncCase(caseId); // a reseed queued more work
+
+}
+
+/** Every record this device holds for a case, as (collection, record) pairs. */
+function allRecords(caseId: string): [CollectionName, { id: string }][] {
+  const rec = state.cases[caseId];
+  if (!rec) return [];
+  const out: [CollectionName, { id: string }][] = [["cases", rec.case]];
+  const lists: [CollectionName, readonly { id: string }[]][] = [
+    ["members", rec.members],
+    ["evidence", rec.evidence],
+    ["observations", rec.observations],
+    ["findings", rec.findings],
+    ["reviews", rec.reviews],
+    ["comments", rec.comments],
+    ["links", rec.links],
+    ["conclusions", rec.conclusions],
+  ];
+  for (const [collection, items] of lists) for (const item of items) out.push([collection, item]);
+  if (rec.pseudonyms.length) out.push(["pseudonyms", { id: caseId, caseId, entries: rec.pseudonyms } as { id: string }]);
+  if (Object.keys(rec.board).length) out.push(["board", { id: caseId, caseId, positions: rec.board } as { id: string }]);
+  return out;
+}
+
+/**
+ * Anti-entropy: list the ids the sync host holds for this case and re-upload (sealed) any
+ * record it is missing. Repairs a host that was reset, replaced, or missed a push.
+ */
+async function repairHost(caseId: string) {
+  const w = workspace(caseId);
+  const token = caseToken(w.caseKey);
+  const onHost = new Set<string>();
+  let after = 0;
+  try {
+    for (;;) {
+      const page = await api.pull(caseId, token, after);
+      for (const r of page.records) onHost.add(`${r.collection}:${r.id}`);
+      if (page.records.length === 0 || page.cursor >= page.head) break;
+      after = page.cursor;
+    }
+  } catch (err) {
+    if ((err as { status?: number }).status !== 404) {
+      setTimeout(() => void repairHost(caseId), 30_000); // network trouble (Tor): try again shortly
+      return;
+    }
+  }
+  const queued = new Set(w.outbox.map((e) => `${e.collection}:${e.id}`));
+  for (const [collection, record] of allRecords(caseId)) {
+    const key = `${collection}:${record.id}`;
+    if (!onHost.has(key) && !queued.has(key)) w.outbox.push(await sealRecord(w.caseKey, collection, record as never));
+  }
+  if (w.outbox.length) await syncCase(caseId);
 }
 
 export function startSyncLoop(intervalMs = 8000) {
   const tick = () => {
     for (const w of state.workspaces) void syncCase(w.caseId);
   };
+  const repairAll = () => {
+    for (const w of state.workspaces) void repairHost(w.caseId);
+  };
+  repairAll();
+  setInterval(repairAll, 5 * 60_000);
   tick();
   return setInterval(tick, intervalMs);
 }
