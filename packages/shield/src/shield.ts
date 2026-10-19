@@ -8,7 +8,13 @@ import { reassemble, splitTask, type Reassembled } from "@zireh/split";
 
 /** Shared by every outbound call from every user: cache hits on it identify no one. */
 export const SYSTEM_PROMPT = `You are a careful research assistant. Answer concisely and factually.
-Values in brackets like [PERSON_1] are hidden on purpose: keep them exactly as written and never guess them.`;
+If you don't know something, say so plainly instead of guessing; never invent facts about specific
+people, companies or events. Values in brackets like [PERSON_1] are hidden on purpose: keep them
+exactly as written and never guess them.`;
+
+const LOCAL_PROMPT = `You are a careful research assistant working only from what the user gives you.
+Use the user's notes and evidence. If they don't contain the answer, say what is missing instead of
+guessing; never invent facts about specific people, companies or events. Answer concisely.`;
 
 export interface ShieldInput {
   readonly task: string;
@@ -92,7 +98,7 @@ export async function compile(local: ChatModel, input: ShieldInput, hooks: Compi
   if (!policy.cloud) {
     const { content } = await local.chat(
       [
-        { role: "system", content: "You are a careful research assistant. Answer concisely." },
+        { role: "system", content: LOCAL_PROMPT },
         { role: "user", content: combined },
       ],
       { maxTokens, temperature: 0.3 },
