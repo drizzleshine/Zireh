@@ -17,8 +17,8 @@ Reply with JSON only: {"entities":[{"text":"...","kind":"person"}]}`;
 
 const Hints = z.object({ hints: z.record(z.string(), z.string().max(80)) });
 
-const HINT_PROMPT = `For each listed item, write what general kind of thing it is in 2 to 6 words, based on the text.
-For places, include the country or region. The description must fit thousands of others and must
+const HINT_PROMPT = `For each listed item, write what general kind of thing it is in 2 to 6 words, based on the text,
+starting with "a" or "an". For places, name the country or region but no city. The description must fit thousands of others and must
 not contain the item's name. Reply with JSON only: {"hints":{"<item>":"<description>"}}`;
 
 /** Only identifiers are hidden; "other" from the model is usually a topic, which the provider needs. */

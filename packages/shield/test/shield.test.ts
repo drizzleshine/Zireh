@@ -45,7 +45,8 @@ describe("compile", () => {
     const piece = plan.pieces[0]!;
     expect(piece.role).toBe("real");
     expect(piece.messages[0]!.content).toBe(SYSTEM_PROMPT);
-    expect(piece.messages[1]!.content).toBe(`Session ${salt}\n\nIs [PERSON_1] at risk after publishing the [PLACE_1] port report?`);
+    // Hidden values reach the provider only as vague descriptions (generic ones here).
+    expect(piece.messages[1]!.content).toBe(`Session ${salt}\n\nIs a person at risk after publishing a location port report?`);
     expect(JSON.stringify(plan.pieces)).not.toMatch(/Ada|Lagos/);
   });
 

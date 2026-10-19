@@ -65,9 +65,17 @@ describe("redactText", () => {
     const { table, text } = await redactText(model, "The Daily Ledger in Lagos covers smuggling.", []);
     expect(text).toBe("The [ORG_1] in [PLACE_1] covers smuggling.");
     expect(table.find((p) => p.original === "Lagos")!.hint).toBe("a large city in Nigeria");
-    expect(table.find((p) => p.original === "Daily Ledger")!.hint).toBeUndefined();
-    expect(withHints(text, table)).toBe("The [ORG_1] in a large city in Nigeria covers smuggling.");
-    expect(glossary(table)).toEqual(["[PLACE_1] = a large city in Nigeria"]);
+    expect(table.find((p) => p.original === "Daily Ledger")!.hint).toBe("an organization"); // own name inside: generic
+    expect(withHints(text, table)).toBe("An organization in a large city in Nigeria covers smuggling.");
+    expect(glossary(table).sort()).toEqual(["[ORG_1] = an organization", "[PLACE_1] = a large city in Nigeria"]);
+  });
+
+  it("rejects a hint that contains another hidden value", () => {
+    const table = extendTable([], [
+      { text: "Lagos", kind: "place", hint: "a large city in Nigeria" },
+      { text: "Apapa port", kind: "place", hint: "a port in Lagos" },
+    ]);
+    expect(table.find((p) => p.original === "Apapa port")!.hint).toBe("a location");
   });
 
   it("throws (fail closed) when the local model can't produce entities", async () => {

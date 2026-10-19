@@ -34,11 +34,27 @@ export function extendTable(table: readonly Pseudonym[], detections: readonly De
     const n = (counters.get(prefix) ?? 0) + 1;
     counters.set(prefix, n);
     known.add(norm(original));
-    const hint = d.hint?.trim();
-    next.push({ original, placeholder: `[${prefix}_${n}]`, kind: d.kind, ...(hint && !hint.toLowerCase().includes(norm(original)) ? { hint } : {}) });
+    next.push({ original, placeholder: `[${prefix}_${n}]`, kind: d.kind, ...(d.hint?.trim() ? { hint: d.hint.trim() } : {}) });
   }
-  return next;
+  // A hint may not contain any hidden value (its own or another's); unsafe or missing hints
+  // fall back to a generic description of the kind.
+  const originals = next.map((p) => norm(p.original));
+  return next.map((p) => {
+    const safe = p.hint && !originals.some((o) => norm(p.hint!).includes(o));
+    return safe ? p : { ...p, hint: GENERIC[p.kind] };
+  });
 }
+
+const GENERIC: Readonly<Record<EntityKind, string>> = {
+  person: "a person",
+  org: "an organization",
+  place: "a location",
+  id: "an identifier",
+  contact: "a contact detail",
+  date: "a date",
+  money: "an amount of money",
+  other: "an item",
+};
 
 /** Replace every original with its placeholder. Longest originals first, case-insensitive. */
 export function applyTable(text: string, table: readonly Pseudonym[]): string {
@@ -61,7 +77,12 @@ export const glossary = (table: readonly Pseudonym[]): string[] =>
  */
 export function withHints(text: string, table: readonly Pseudonym[]): string {
   let out = text;
-  for (const p of table) if (p.hint) out = out.split(p.placeholder).join(p.hint);
+  for (const p of table) {
+    if (!p.hint) continue;
+    // "the [ORG_1]" → "a newspaper", not "the a newspaper"; keep sentence-start capitals.
+    const re = new RegExp(`\\b(?:the|a|an)\\s+${escape(p.placeholder)}|${escape(p.placeholder)}`, "gi");
+    out = out.replace(re, (match) => (/^[A-Z]/.test(match) ? p.hint!.charAt(0).toUpperCase() + p.hint!.slice(1) : p.hint!));
+  }
   return out;
 }
 

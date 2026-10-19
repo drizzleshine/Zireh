@@ -97,7 +97,8 @@ export async function compile(local: ChatModel, input: ShieldInput, onStep?: (st
   // 3. split
   // Placeholders become vague descriptions in code ("a large city in Nigeria"), so the provider
   // gets an answerable question without the hidden values. Then the local model rewrites or splits.
-  const questions = await splitTask(local, described, policy.split ? undefined : 1);
+  // The model may reintroduce a hidden value while rewriting; scrub every question in code.
+  const questions = (await splitTask(local, described, policy.split ? undefined : 1)).map((q) => withHints(applyTable(q, red.table), red.table));
   step({
     stage: "split",
     title: policy.split ? `Split into ${questions.length} independent question${questions.length === 1 ? "" : "s"}` : "Rewritten as one general question",
