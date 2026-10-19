@@ -6,7 +6,7 @@ import type { PrivacyLevel, Pseudonym, ResearchEvent, TraceStep } from "@zireh/s
 export type { ResearchEvent };
 import { compile, finish, type Outcome } from "@zireh/shield";
 import { newCircuitTag } from "@zireh/tor";
-import { maxCost } from "@zireh/wallet";
+import { InsufficientFunds, maxCost, type Wallet } from "@zireh/wallet";
 
 export interface ResearchRequest {
   readonly task: string;
@@ -26,7 +26,7 @@ const RETRIES = 2;
  * before sending fails, nothing is sent.
  */
 export async function runResearch(
-  deps: { local: ChatModel; relay: RelayClient; ledger: Ledger },
+  deps: { local: ChatModel; relay: RelayClient; ledger: Ledger; wallet: Wallet },
   req: ResearchRequest,
   emit: (e: ResearchEvent) => void,
 ): Promise<void> {
@@ -53,6 +53,10 @@ export async function runResearch(
   if (plan.pieces.length === 0) throw new Error("every piece was blocked by the leak check; nothing was sent");
 
   const price = await deps.relay.priceOf(req.model);
+  // All or nothing: never take coins for some pieces and then run out, which would leave
+  // half a plan pending (and later re-sent by recovery) without the user expecting it.
+  const needed = plan.pieces.reduce((n, p) => n + maxCost(price, p.messages, p.maxTokens), 0);
+  if (deps.wallet.balance < needed) throw new InsufficientFunds(needed, deps.wallet.balance);
   let spent = 0;
   const answers = new Map<string, string>();
 

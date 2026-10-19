@@ -161,4 +161,15 @@ describe("daemon API", () => {
     expect(events.at(-1)).toMatchObject({ type: "error" });
     expect(seen).toHaveLength(0);
   });
+
+  it("takes no coins at all when the balance can't cover every piece", async () => {
+    const { call, seen, wallet } = setup();
+    await topUp(call, 300); // enough for one piece, not for four
+    const events = await readEvents(await call("/api/research", { task: "Is Ada Obi at risk after the Lagos report?", level: "private", salt: randomSalt() }));
+    expect(events.at(-1)).toMatchObject({ type: "error" });
+    expect(seen).toHaveLength(0);
+    expect(wallet.balance).toBe(300);
+    const status = await (await call("/api/status")).json();
+    expect(status.pendingCalls).toBe(0);
+  });
 });
