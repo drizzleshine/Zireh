@@ -20,9 +20,22 @@ const PATTERNS: readonly (readonly [EntityKind, RegExp])[] = [
   ["money", /(?:[$€£₦]\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s?(?:USD|EUR|GBP|NGN|ZEC)\b)/g],
 ];
 
+/**
+ * Verbatim quotes of three or more words. A unique message ("Stop writing about the bay") is a
+ * fingerprint: whoever wrote or received it can recognize it, so it is hidden like a name.
+ */
+const QUOTE = /(?<=^|[\s(:])(["“'‘])([^"“”'‘’\n]{8,240}?)(["”'’])(?=[\s.,;:!?)]|$)/g;
+
+export function detectQuotes(text: string): Detection[] {
+  return [...text.matchAll(QUOTE)]
+    .map((m) => m[2]!.trim())
+    .filter((q) => q.split(/\s+/).length >= 3)
+    .map((q) => ({ text: q, kind: "other" as const }));
+}
+
 export function detectPatterns(text: string): Detection[] {
   const taken: [number, number][] = [];
-  const out: Detection[] = [];
+  const out: Detection[] = [...detectQuotes(text)];
   for (const [kind, re] of PATTERNS) {
     for (const m of text.matchAll(re)) {
       const start = m.index;

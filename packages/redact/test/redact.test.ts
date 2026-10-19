@@ -10,6 +10,14 @@ describe("detectPatterns", () => {
   });
 });
 
+describe("detectPatterns: quotes", () => {
+  it("treats verbatim quotes of three or more words as identifying", () => {
+    const found = detectPatterns("She got a text saying 'Stop writing about the bay' and it's \"odd\".");
+    expect(found).toContainEqual({ text: "Stop writing about the bay", kind: "other" });
+    expect(found.some((d) => d.text === "odd")).toBe(false);
+  });
+});
+
 describe("properNounCandidates", () => {
   it("finds capitalized names but not sentence-initial common words", () => {
     expect(properNounCandidates("What laws protect journalists in Nigeria who report at Apapa port? She told Ada Obi.")).toEqual(["Nigeria", "Apapa", "Ada Obi"]);

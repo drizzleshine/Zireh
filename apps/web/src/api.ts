@@ -81,4 +81,4 @@ export async function research(input: ResearchInput, onEvent: (e: ResearchEvent)
 
 /** Credits are µUSD. */
 export const formatUsd = (credits: number): string =>
-  credits >= 10_000 ? `$${(credits / 1_000_000).toFixed(2)}` : `$${(credits / 1_000_000).toFixed(4)}`;
+  credits >= 10_000 ? `$${(credits / 1_000_000).toFixed(2)}` : credits >= 100 ? `$${(credits / 1_000_000).toFixed(4)}` : credits > 0 ? "<$0.0001" : "$0";
