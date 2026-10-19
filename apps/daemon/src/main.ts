@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { serve } from "@hono/node-server";
+import { randomId } from "@zireh/crypto";
 import { RelayClient } from "@zireh/inference";
 import { Ledger } from "@zireh/ledger";
 import { openAiCompatible } from "@zireh/llm";
@@ -67,6 +68,11 @@ async function recoverPending() {
 setInterval(() => void recoverPending(), 60_000);
 setTimeout(() => void recoverPending(), 5_000);
 
+/** Key for OpenAI-compatible local tools. Owner-only file; print where to find it, not the key. */
+const keyFile = join(dataDir, "local-api-key");
+if (!existsSync(keyFile)) writeFileSync(keyFile, `zp-${randomId()}${randomId()}`, { mode: 0o600 });
+const localApiKey = readFileSync(keyFile, "utf8").trim();
+
 const api = createDaemon({
   local,
   relay,
@@ -84,6 +90,7 @@ const api = createDaemon({
       return false;
     }
   },
+  localApiKey,
   allowedOrigins: [`http://127.0.0.1:${port}`, `http://localhost:${port}`, "http://127.0.0.1:5173", "http://localhost:5173"],
 });
 
@@ -104,7 +111,7 @@ serve(
   {
     fetch: (req) => {
       const url = new URL(req.url);
-      if (url.pathname.startsWith("/api/")) return api(req);
+      if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/v1/")) return api(req);
       return staticFile(url.pathname) ?? new Response("Zireh daemon is running. Build the web app (pnpm --filter @zireh/web build) to use the UI.", { status: 404 });
     },
     port,
@@ -115,5 +122,6 @@ serve(
     console.log(`transport: ${transport.kind === "tor" ? "Tor (private client, one circuit per call)" : "DIRECT — no anonymity (development only)"}`);
     console.log(`local model: ${localModelId} via ${ollamaUrl}`);
     console.log(`relay: ${relayUrl}   sync host: ${syncUrl}`);
+    console.log(`OpenAI-compatible endpoint: http://127.0.0.1:${port}/v1 (key in ${keyFile})`);
   },
 );

@@ -1,3 +1,4 @@
+import { randomId, randomSalt } from "@zireh/crypto";
 import { newCircuitTag, type Transport } from "@zireh/tor";
 import { RelayCallError, type RelayClient } from "@zireh/inference";
 import type { Ledger } from "@zireh/ledger";
@@ -20,6 +21,8 @@ export interface DaemonDeps {
   readonly localModelOk: () => Promise<boolean>;
   /** Origins allowed to call the API (the daemon's own UI and the Vite dev server). */
   readonly allowedOrigins: readonly string[];
+  /** Bearer key for OpenAI-compatible clients (agents, editors) on this computer. */
+  readonly localApiKey: string;
 }
 
 const json = (status: number, body: unknown) =>
@@ -49,7 +52,41 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
     return prices[0].model;
   }
 
+  /**
+   * OpenAI-compatible chat for local tools: the whole conversation goes through the privacy
+   * pipeline and comes back as one assistant message. Level via `x-zireh-level` (default
+   * standard). No case: the pseudonym table lives only for this request.
+   */
+  async function openAiChat(req: Request): Promise<Response> {
+    const body = z
+      .object({ model: z.string().optional(), messages: z.array(z.object({ role: z.string(), content: z.string() })).min(1), max_tokens: z.number().int().positive().max(4000).optional() })
+      .parse(await req.json());
+    const level = PrivacyLevel.catch("standard").parse(req.headers.get("x-zireh-level") ?? "standard");
+    const last = body.messages.at(-1)!;
+    const earlier = body.messages.slice(0, -1).map((m) => `${m.role}: ${m.content}`);
+    const model = level === "local" ? deps.local.id : await cloudModel(body.model);
+    let answer = "";
+    let error: string | undefined;
+    await runResearch(deps, { task: last.content, context: earlier.length ? [earlier.join("\n")] : [], level, table: [], salt: randomSalt(), model, ...(body.max_tokens ? { maxTokens: body.max_tokens } : {}) }, (e) => {
+      if (e.type === "done") answer = e.outcome.answer;
+      if (e.type === "error") error = e.message;
+    });
+    if (error) return json(502, { error: { message: error, type: "zireh_error" } });
+    return json(200, {
+      id: `chatcmpl-${randomId()}`,
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: `zireh/${level}`,
+      choices: [{ index: 0, message: { role: "assistant", content: answer }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }, // real costs are in the privacy log
+    });
+  }
+
   const routes: Record<string, (req: Request, url: URL) => Promise<Response>> = {
+    "POST /v1/chat/completions": openAiChat,
+    "GET /v1/models": async () =>
+      json(200, { object: "list", data: PrivacyLevel.options.map((l) => ({ id: `zireh/${l}`, object: "model", owned_by: "zireh" })) }),
+
     "GET /api/status": async () => {
       let relay: DaemonStatus["relay"];
       try {
@@ -154,6 +191,10 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
 
   function guard(req: Request, url: URL): Response | undefined {
     if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(url.host)) return json(403, { error: "bad host" });
+    if (url.pathname.startsWith("/v1/")) {
+      // Local tools: bearer key only (browsers can't read the key, so pages can't use this route).
+      return req.headers.get("authorization") === `Bearer ${deps.localApiKey}` ? undefined : json(401, { error: { message: "missing or wrong local API key", type: "auth" } });
+    }
     if (req.headers.get("x-zireh") !== "1") return json(403, { error: "missing x-zireh header" });
     const origin = req.headers.get("origin");
     if (origin && !deps.allowedOrigins.includes(origin)) return json(403, { error: "origin not allowed" });

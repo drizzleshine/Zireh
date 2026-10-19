@@ -55,6 +55,7 @@ function setup() {
     torState: () => ({ ready: true, progress: 100 }),
     localModelOk: async () => true,
     allowedOrigins: [ORIGIN],
+    localApiKey: "zp-test-key",
   });
   const call = (path: string, body?: unknown, headers: Record<string, string> = {}) =>
     daemon(
@@ -131,6 +132,27 @@ describe("daemon API", () => {
     const events = await readEvents(await call("/api/research", { task: "Summarize my notes on Ada Obi.", level: "local", salt: randomSalt() }));
     expect(events.at(-1)!.type).toBe("done");
     expect(seen).toHaveLength(0);
+  });
+
+  it("serves OpenAI-compatible chat to local tools with the bearer key only", async () => {
+    const { call, daemon, seen } = setup();
+    await topUp(call, 2_000_000);
+    const post = (headers: Record<string, string>) =>
+      daemon(
+        new Request("http://127.0.0.1:7878/v1/chat/completions", {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headers },
+          body: JSON.stringify({ model: "zireh/standard", messages: [{ role: "user", content: "Is Ada Obi safe in Lagos?" }] }),
+        }),
+      );
+    expect((await post({})).status).toBe(401);
+    expect((await post({ authorization: "Bearer wrong" })).status).toBe(401);
+    const res = await post({ authorization: "Bearer zp-test-key" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.object).toBe("chat.completion");
+    expect(body.choices[0].message.role).toBe("assistant");
+    for (const text of seen) expect(text).not.toMatch(/Ada|Lagos/);
   });
 
   it("reports insufficient funds instead of sending", async () => {
