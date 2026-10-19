@@ -121,6 +121,15 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
       return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
     },
 
+    /** Find identifying values in texts with the local model, extending the case table. Nothing is sent. */
+    "POST /api/redact": async (req) => {
+      const body = z.object({ texts: z.array(z.string().max(20_000)).min(1).max(100), table: z.array(Pseudonym).default([]) }).parse(await req.json());
+      let table = body.table;
+      for (const text of body.texts) if (text.trim()) table = (await redactText(deps.local, text, table)).table;
+      deps.ledger.record({ destination: "local", role: "real", payload: `Local redaction of ${body.texts.length} text(s) for publishing` });
+      return json(200, { table });
+    },
+
     "POST /api/search": async (req) => {
       const body = z.object({ query: z.string().trim().min(2).max(400), table: z.array(Pseudonym).default([]) }).parse(await req.json());
       const red = await redactText(deps.local, body.query, body.table);

@@ -1,7 +1,8 @@
 import { buildPublication, findingViews, latestConclusion, memberName, newConclusion, type Publication } from "@zireh/cases";
 import type { Outcome } from "@zireh/schema";
-import { useMemo, useState } from "react";
-import { myMemberId, save, useStore } from "../store.ts";
+import { useState } from "react";
+import { api } from "../api.ts";
+import { myMemberId, save, savePseudonyms, useStore } from "../store.ts";
 
 const OUTCOMES: { id: Outcome; label: string; ask: string }[] = [
   { id: "resolved", label: "Resolved", ask: "What does the evidence establish?" },
@@ -20,8 +21,10 @@ export function ConcludePanel({ caseId }: { caseId: string }) {
   const [picked, setPicked] = useState<string[]>(current?.findingIds ?? findings.filter((f) => f.tally.status === "supported").map((f) => f.id));
   const [hideNames, setHideNames] = useState(true);
   const [savedNote, setSavedNote] = useState<string | undefined>();
+  const [scan, setScan] = useState<"idle" | "running" | "done" | string>("idle");
 
-  const preview = useMemo(() => (current ? buildPublication(rec, { hideNames }) : undefined), [rec, current, hideNames]);
+  // Not memoized: case records change in place, and building the page is cheap.
+  const preview = current ? buildPublication(rec, { hideNames }) : undefined;
   const disputedPicked = findings.filter((f) => picked.includes(f.id) && f.tally.status === "disputed").length;
 
   return (
@@ -90,8 +93,38 @@ export function ConcludePanel({ caseId }: { caseId: string }) {
           <>
             <label className="check-row">
               <input type="checkbox" checked={hideNames} onChange={(e) => setHideNames(e.target.checked)} />
-              <span>Hide names and places (uses the same descriptions the AI saw)</span>
+              <span>Hide names and places</span>
             </label>
+            {hideNames && (
+              <div className="hide-list">
+                {rec.pseudonyms.length ? (
+                  <span className="level-note">
+                    Hiding: {rec.pseudonyms.map((p) => `${p.original} → ${p.hint ?? p.placeholder}`).join(", ")}
+                  </span>
+                ) : (
+                  <span className="level-note">No names are marked for hiding in this case yet.</span>
+                )}
+                <button
+                  className="btn small"
+                  disabled={scan === "running"}
+                  onClick={async () => {
+                    setScan("running");
+                    try {
+                      const p = buildPublication(rec, { hideNames: false }).publication;
+                      const texts = [p.title, p.question, p.conclusion?.summary ?? "", p.conclusion?.openQuestion ?? "", ...p.findings.flatMap((f) => [f.statement, f.uncertainty, ...f.observations.map((o) => o.text)])];
+                      const { table } = await api.redact(texts, rec.pseudonyms);
+                      await savePseudonyms(caseId, table);
+                      setScan("done");
+                    } catch (err) {
+                      setScan((err as Error).message);
+                    }
+                  }}
+                >
+                  {scan === "running" ? "Scanning on this computer…" : "Scan this page for names"}
+                </button>
+                {scan !== "idle" && scan !== "running" && scan !== "done" && <p className="error">{scan}</p>}
+              </div>
+            )}
             <PublicationPreview publication={preview.publication} />
             <div className="meta">
               <span title={preview.hash}>Page hash sha256 {preview.hash.slice(0, 16)}…</span>

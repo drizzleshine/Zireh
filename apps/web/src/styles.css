@@ -383,3 +383,4 @@ dialog h2 { font-size: var(--s-22); }
 button.brand { background: none; border: 0; padding: 0; cursor: pointer; color: inherit; font: inherit; font-weight: 700; font-size: var(--s-18); }
 .log td.wire { overflow-wrap: anywhere; }
 .log .salt { display: inline-block; margin-bottom: 4px; }
+.hide-list { display: grid; gap: 8px; justify-items: start; }

@@ -39,6 +39,7 @@ export const api = {
     call<{ receipts: Receipt[]; summary: { calls: number; real: number; decoys: number; spent: number; overcharges: number } }>("/api/receipts"),
   search: (query: string, table: readonly Pseudonym[]) =>
     call<{ redactedQuery: string; hits: { title: string; url: string; content: string }[]; table: Pseudonym[]; charged: number }>("/api/search", { query, table }),
+  redact: (texts: string[], table: readonly Pseudonym[]) => call<{ table: Pseudonym[] }>("/api/redact", { texts, table }),
   push: (caseId: string, token: string, records: Envelope[]) => call<{ cursor: number }>("/api/sync/push", { caseId, token, records }),
   pull: (caseId: string, token: string, after: number) => call<PullResponse>("/api/sync/pull", { caseId, token, after }),
 };
