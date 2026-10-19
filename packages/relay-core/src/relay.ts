@@ -55,6 +55,9 @@ export interface RelayDeps {
   readonly onEvent?: (event: "chat" | "search" | "topup" | "refund", credits: number) => void;
 }
 
+/** Response-store marker: coins burned, no reply yet. Never sent to clients as a status. */
+const REDEEMED = 0;
+
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
@@ -83,14 +86,24 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
     work: () => Promise<{ body: Record<string, unknown>; cost: number; usage: Settlement["usage"] }>,
     kind: "chat" | "search",
   ): Promise<Response> {
-    const stored = deps.responses.get(requestId);
-    if (stored) return json(stored.status, stored.body);
+    // A retry while the first attempt is still running in this process waits for it.
     const running = inFlight.get(requestId);
     if (running) {
       const r = await running;
       return json(r.status, r.body);
     }
-
+    const stored = deps.responses.get(requestId);
+    if (stored && stored.status !== REDEEMED) return json(stored.status, stored.body);
+    if (stored) {
+      // Coins were burned but the relay stopped before answering (crash). Refund in full,
+      // using the blank outputs this retry carries, and remember the refund.
+      const refunded = (stored.body as { redeemed: number }).redeemed;
+      const settlement: Settlement = { requestId, charged: 0, usage: { prompt_tokens: 0, completion_tokens: 0 }, change: deps.mint.change(blanks, refunded) };
+      const response = { status: 502, body: { error: "upstream_error", message: "the relay restarted before answering; refunded", settlement } };
+      deps.responses.put(requestId, response);
+      deps.onEvent?.("refund", refunded);
+      return json(response.status, response.body);
+    }
     const paidAmount = sum(proofs);
     if (paidAmount < hold) return fail(402, "insufficient_funds", `this call needs ${hold} credits, got ${paidAmount}`);
     if (blanks.length < blankOutputCount(paidAmount)) return fail(400, "bad_request", "not enough blank outputs for change");
@@ -98,6 +111,7 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
     const task = (async (): Promise<StoredResponse> => {
       try {
         deps.mint.redeem(proofs);
+        deps.responses.put(requestId, { status: REDEEMED, body: { redeemed: paidAmount } }); // crash marker
       } catch (err) {
         if (err instanceof MintError) {
           const code = err.code === "bad_request" ? "bad_request" : err.code;

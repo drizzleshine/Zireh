@@ -116,6 +116,40 @@ describe("relay + client", () => {
   });
 });
 
+describe("crash safety", () => {
+  it("refunds a call whose coins were burned before the relay could answer", async () => {
+    const mint = new Mint(generateMintKeys(), memorySpentStore());
+    const watcher = simulatedWatcher(fixedRate(50));
+    const responses = memoryResponseStore();
+    const relayOn = (upstream: ChatModel) => {
+      const h = createRelay({ mint, watcher, models: new Map([[MODEL, { upstream, price }]]), searchPrice: 1000, responses });
+      return ((url, init) => h(new Request(url, init))) as FetchLike;
+    };
+    // Relay A burns the coins, then hangs forever in the upstream call (the "crash").
+    const hanging = relayOn({ id: "hang", chat: () => new Promise(() => {}) });
+    // Relay B: same mint, spent set and reply store, fresh process state (after restart).
+    const restarted = relayOn(scriptedModel(() => "unused"));
+
+    const wallet = new Wallet(memoryProofStore());
+    const clientA = new RelayClient({ baseUrl: "http://relay.test", transport: directTransport(hanging), wallet });
+    await fund(clientA, hanging, 50_000);
+    const call = await clientA.prepareChat(MODEL, ask, 100);
+    void clientA.send(call); // never settles
+    await new Promise((r) => setTimeout(r, 20));
+    expect(wallet.balance).toBeLessThan(50_000);
+
+    // A retry to the *same* process while the first attempt runs must wait, not refund.
+    let settled = false;
+    void clientA.send(call).then(() => (settled = true), () => (settled = true));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(settled).toBe(false);
+
+    const clientB = new RelayClient({ baseUrl: "http://relay.test", transport: directTransport(restarted), wallet, pending: clientA.pending });
+    await expect(clientB.send(call)).rejects.toMatchObject({ code: "upstream_error" });
+    expect(wallet.balance).toBe(50_000);
+  });
+});
+
 describe("top-up safety", () => {
   it("mints only the paid amount, only once, and only after payment", async () => {
     const { client, relayFetch } = setup();
