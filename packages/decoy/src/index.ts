@@ -1,4 +1,4 @@
-import { chatJson, type ChatModel } from "@zireh/llm";
+import { chatJson, JsonReplyError, type ChatModel } from "@zireh/llm";
 import { z } from "zod";
 
 const PROMPT = (n: number) => `Write ${n} decoy questions for privacy cover traffic.
@@ -42,15 +42,21 @@ export async function makeDecoys(model: ChatModel, realQuestion: string, n: numb
   const real = realQuestion.trim().toLowerCase();
   const usable: string[] = [];
   for (let attempt = 0; attempt < ATTEMPTS && usable.length < n; attempt++) {
-    const { decoys } = await chatJson(
-      model,
-      [
-        { role: "system", content: PROMPT(n + 2) },
-        { role: "user", content: `Real question: ${realQuestion}` },
-      ],
-      Reply,
-      { maxTokens: 300 + 200 * (n + 2), temperature: 0.9 + 0.1 * attempt },
-    );
+    let decoys: string[];
+    try {
+      ({ decoys } = await chatJson(
+        model,
+        [
+          { role: "system", content: PROMPT(n + 2) },
+          { role: "user", content: `Real question: ${realQuestion}` },
+        ],
+        Reply,
+        { maxTokens: 300 + 200 * (n + 2), temperature: 0.9 + 0.1 * attempt },
+      ));
+    } catch (err) {
+      if (err instanceof JsonReplyError) continue; // a malformed reply is just an unusable attempt
+      throw err;
+    }
     for (const d of decoys) {
       const ok = d.toLowerCase() !== real && lengthOk(d, realQuestion) && placeholdersOk(d, realQuestion) && !tooSimilar(d, realQuestion);
       if (ok && !usable.some((u) => u.toLowerCase() === d.toLowerCase() || tooSimilar(u, d))) usable.push(d);
