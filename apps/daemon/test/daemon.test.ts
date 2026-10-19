@@ -23,7 +23,7 @@ const local = scriptedModel((messages: readonly ChatMessage[]) => {
   if (sys.includes("identifying details")) return JSON.stringify({ entities: [{ text: "Ada Obi", kind: "person" }, { text: "Lagos", kind: "place" }] });
   if (sys.includes("the user's request")) return JSON.stringify({ pieces: ["What risks do port reporters face?", "What press laws apply in [PLACE_1]?"] });
   if (sys.includes("You are an AI provider")) return JSON.stringify({ score: 10, inferences: [] });
-  if (sys.includes("decoy questions")) return JSON.stringify({ decoys: ["How do bakers keep sourdough starters alive?", "Which trees survive coastal salt spray best?"] });
+  if (sys.includes("different people might ask")) return JSON.stringify({ decoys: ["How do bakers keep sourdough starters alive?", "Which trees survive coastal salt spray best?"] });
   if (sys.includes("combine answers")) return "[PERSON_1] faces moderate risk [A1]; [PLACE_1] law is weak [A2].";
   return `local: ${user}`;
 }, "nemotron-3-nano:4b");

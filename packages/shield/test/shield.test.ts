@@ -23,7 +23,7 @@ function fakeLocal(r: Replies) {
     if (sys.includes("the user's request")) return JSON.stringify({ pieces: r.pieces ?? [user] });
     if (sys.includes("You are an AI provider")) return JSON.stringify({ score: r.leak?.(user) ?? 10, inferences: ["topic only"] });
     if (sys.includes("Rewrite the message")) return JSON.stringify({ text: r.generalized ?? user });
-    if (sys.includes("decoy questions")) return JSON.stringify({ decoys: r.decoys ?? [] });
+    if (sys.includes("different people might ask")) return JSON.stringify({ decoys: r.decoys ?? [] });
     if (sys.includes("combine answers")) return r.combined ?? "combined [A1]";
     return "local answer";
   });
