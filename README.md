@@ -62,7 +62,7 @@ Everything up to "send" runs on your computer, using **NVIDIA Nemotron 3 Nano 4B
   members can write, and never sees a key or plaintext. Devices repair a reset or replaced host
   automatically.
 - **Images** are re-encoded on your computer before they become evidence, dropping GPS, camera
-  and time metadata.
+  and time metadata, and you can mark faces, plates or signs to pixelate them first.
 - **Findings page**: export a single self-contained HTML page with a SHA-256 content hash, with
   names hidden (using the same descriptions the AI saw) or shown.
 - **Privacy log**: every payload that left the computer, exactly as sent, with its hash and cost.
@@ -173,7 +173,8 @@ pnpm smoke:tor    # live: three requests on three circuits, three different exit
 - **Tor helps against passive observers.** An adversary who controls both your guard and the
   relay could correlate timing. A mixnet with constant cover traffic would be stronger.
 - **Topic still leaks.** Generalization hides who and where, not what the question is about.
-- **Images stay local.** They're stripped and shared with the team, not sent to the AI.
+- **Images stay local.** They're stripped and shared with the team, not sent to the AI. Face
+  hiding is manual (mark and pixelate); the local model is text-only.
 - **The device is the trust boundary.** Case keys and coins live unencrypted in this browser's
   storage and the daemon's data folder; protect the computer (disk encryption, screen lock).
 - **Pseudonym tables merge by union.** If a teammate's device still has a value marked for
