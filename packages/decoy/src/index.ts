@@ -28,24 +28,34 @@ const placeholdersOk = (decoy: string, real: string) => {
   return (decoy.match(/\[[^\]]*\]/g) ?? []).every((p) => allowed.has(p));
 };
 
+const ATTEMPTS = 3;
+
 /**
- * Plausible decoys for one real piece. Decoys that are too short/long (and therefore easy to
- * tell apart) or that repeat the real question are discarded; fewer than `n` is an error.
+ * Plausible decoys for one real piece. Small models sometimes echo the real question back,
+ * so this asks for a few extra, keeps only usable ones (not too short/long, not a near-copy,
+ * no invented placeholders) and tries again until it has `n`. Fewer than `n` is an error:
+ * the caller sends nothing rather than fewer decoys than the level promises.
  */
 export async function makeDecoys(model: ChatModel, realQuestion: string, n: number): Promise<string[]> {
   if (n === 0) return [];
-  const Reply = z.object({ decoys: z.array(z.string().trim().max(800)).min(n) });
-  const { decoys } = await chatJson(
-    model,
-    [
-      { role: "system", content: PROMPT(n) },
-      { role: "user", content: `Real question: ${realQuestion}` },
-    ],
-    Reply,
-    { maxTokens: 300 + 200 * n, temperature: 0.9 },
-  );
+  const Reply = z.object({ decoys: z.array(z.string().trim().max(800)).min(1) });
   const real = realQuestion.trim().toLowerCase();
-  const usable = [...new Set(decoys)].filter((d) => d.toLowerCase() !== real && lengthOk(d, realQuestion) && placeholdersOk(d, realQuestion) && !tooSimilar(d, realQuestion));
+  const usable: string[] = [];
+  for (let attempt = 0; attempt < ATTEMPTS && usable.length < n; attempt++) {
+    const { decoys } = await chatJson(
+      model,
+      [
+        { role: "system", content: PROMPT(n + 2) },
+        { role: "user", content: `Real question: ${realQuestion}` },
+      ],
+      Reply,
+      { maxTokens: 300 + 200 * (n + 2), temperature: 0.9 + 0.1 * attempt },
+    );
+    for (const d of decoys) {
+      const ok = d.toLowerCase() !== real && lengthOk(d, realQuestion) && placeholdersOk(d, realQuestion) && !tooSimilar(d, realQuestion);
+      if (ok && !usable.some((u) => u.toLowerCase() === d.toLowerCase() || tooSimilar(u, d))) usable.push(d);
+    }
+  }
   if (usable.length < n) throw new Error(`decoy: only ${usable.length} of ${n} decoys were usable`);
   return usable.slice(0, n);
 }

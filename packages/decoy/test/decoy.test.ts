@@ -43,6 +43,13 @@ describe("makeDecoys", () => {
     expect(await makeDecoys(model, realShort, 1)).toEqual(["Which bakeries open earliest on market days?"]);
   });
 
+  it("tries again when the model echoes the real question", async () => {
+    let call = 0;
+    const model = scriptedModel(() => JSON.stringify({ decoys: call++ === 0 ? [real, real] : ["Which records should a renter bring to a first housing tribunal hearing?"] }));
+    expect(await makeDecoys(model, real, 1)).toEqual(["Which records should a renter bring to a first housing tribunal hearing?"]);
+    expect(model.calls).toHaveLength(2);
+  });
+
   it("asks nothing for zero decoys", async () => {
     const model = scriptedModel(() => {
       throw new Error("should not be called");
