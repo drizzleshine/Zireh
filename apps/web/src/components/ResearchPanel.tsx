@@ -1,6 +1,6 @@
 import { newObservation } from "@zireh/cases";
 import type { DaemonStatus, PlannedPiece, PrivacyLevel, Pseudonym, ResearchEvent, TraceStep } from "@zireh/schema";
-import { Fragment, useMemo, useState, useSyncExternalStore } from "react";
+import { Fragment, useMemo, useSyncExternalStore } from "react";
 import { formatUsd, research } from "../api.ts";
 import { myMemberId, save, savePseudonyms, useStore } from "../store.ts";
 import { LEVEL_COPY } from "./levels.ts";
