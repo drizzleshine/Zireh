@@ -18,8 +18,9 @@ const ORIGIN = "http://127.0.0.1:7878";
 const local = scriptedModel((messages: readonly ChatMessage[]) => {
   const sys = messages[0]!.content;
   const user = messages.at(-1)!.content;
+  if (sys.includes("general kind of thing")) return JSON.stringify({ hints: {} });
   if (sys.includes("identifying details")) return JSON.stringify({ entities: [{ text: "Ada Obi", kind: "person" }, { text: "Lagos", kind: "place" }] });
-  if (sys.includes("Rewrite it as")) return JSON.stringify({ pieces: ["What risks do port reporters face?", "What press laws apply in [PLACE_1]?"] });
+  if (sys.includes("the user's request")) return JSON.stringify({ pieces: ["What risks do port reporters face?", "What press laws apply in [PLACE_1]?"] });
   if (sys.includes("You are an AI provider")) return JSON.stringify({ score: 10, inferences: [] });
   if (sys.includes("decoy questions")) return JSON.stringify({ decoys: ["What risks do mining reporters face?", "What labor laws apply in [PLACE_2]?"] });
   if (sys.includes("combine answers")) return "[PERSON_1] faces moderate risk [A1]; [PLACE_1] law is weak [A2].";

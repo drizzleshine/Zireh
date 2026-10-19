@@ -17,8 +17,9 @@ function fakeLocal(r: Replies) {
   return scriptedModel((messages: readonly ChatMessage[]) => {
     const sys = messages[0]!.content;
     const user = messages[1]!.content;
+    if (sys.includes("general kind of thing")) return JSON.stringify({ hints: {} });
     if (sys.includes("identifying details")) return JSON.stringify(r.entities ?? { entities: [] });
-    if (sys.includes("Rewrite it as")) return JSON.stringify({ pieces: r.pieces ?? [user.slice(user.indexOf("Task: ") + 6)] });
+    if (sys.includes("the user's request")) return JSON.stringify({ pieces: r.pieces ?? [user] });
     if (sys.includes("You are an AI provider")) return JSON.stringify({ score: r.leak?.(user) ?? 10, inferences: ["topic only"] });
     if (sys.includes("Rewrite the message")) return JSON.stringify({ text: r.generalized ?? user });
     if (sys.includes("decoy questions")) return JSON.stringify({ decoys: r.decoys ?? [] });

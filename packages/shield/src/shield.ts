@@ -2,7 +2,7 @@ import { randomId, shuffle } from "@zireh/crypto";
 import { makeDecoys } from "@zireh/decoy";
 import { checkLeak, generalize, passes, type LeakReport } from "@zireh/leakcheck";
 import type { ChatModel } from "@zireh/llm";
-import { applyTable, glossary, redactText, restore } from "@zireh/redact";
+import { applyTable, redactText, restore, withHints } from "@zireh/redact";
 import { LEVELS, type ChatMessage, type OutboundPiece, type PrivacyLevel, type Pseudonym, type TraceStep } from "@zireh/schema";
 import { reassemble, splitTask, type Reassembled } from "@zireh/split";
 
@@ -69,6 +69,7 @@ export async function compile(local: ChatModel, input: ShieldInput, onStep?: (st
   const combined = contextText ? `${contextText}\n\nTask: ${input.task}` : input.task;
   const red = await redactText(local, combined, input.table);
   const redactedTask = applyTable(input.task, red.table);
+  const described = withHints(red.text, red.table);
   step({
     stage: "redact",
     title: `Hid ${red.table.length} value${red.table.length === 1 ? "" : "s"}`,
@@ -76,7 +77,7 @@ export async function compile(local: ChatModel, input: ShieldInput, onStep?: (st
       ? `New this time: ${red.added.map((p) => `${p.placeholder} (${p.kind})`).join(", ")}`
       : "No new identifying values found.",
     before: combined,
-    after: red.text,
+    after: described,
   });
 
   // 2. route — the local level never leaves the device.
@@ -94,9 +95,9 @@ export async function compile(local: ChatModel, input: ShieldInput, onStep?: (st
   step({ stage: "route", title: "Sending to the cloud model", detail: `Privacy level: ${input.level}.` });
 
   // 3. split
-  // Every cloud level rewrites the task as general question(s), using vague descriptions in
-  // place of hidden values so the provider can answer without them. Higher levels also split.
-  const questions = await splitTask(local, red.text, glossary(red.table), policy.split ? undefined : 1);
+  // Placeholders become vague descriptions in code ("a large city in Nigeria"), so the provider
+  // gets an answerable question without the hidden values. Then the local model rewrites or splits.
+  const questions = await splitTask(local, described, policy.split ? undefined : 1);
   step({
     stage: "split",
     title: policy.split ? `Split into ${questions.length} independent question${questions.length === 1 ? "" : "s"}` : "Rewritten as one general question",

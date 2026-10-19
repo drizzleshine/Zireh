@@ -55,6 +55,16 @@ export function applyTable(text: string, table: readonly Pseudonym[]): string {
 export const glossary = (table: readonly Pseudonym[]): string[] =>
   table.filter((p) => p.hint).map((p) => `${p.placeholder} = ${p.hint}`);
 
+/**
+ * Replace placeholders with their vague descriptions, for questions that go to the provider.
+ * Done in code, not by the model, so it is exact. Placeholders without a hint stay as they are.
+ */
+export function withHints(text: string, table: readonly Pseudonym[]): string {
+  let out = text;
+  for (const p of table) if (p.hint) out = out.split(p.placeholder).join(p.hint);
+  return out;
+}
+
 /** Put the originals back into text that came back from the provider. */
 export function restore(text: string, table: readonly Pseudonym[]): string {
   let out = text;

@@ -7,26 +7,23 @@ const Plan = z.object({
   pieces: z.array(z.string().trim().min(8).max(600)).min(1).max(MAX_PIECES),
 });
 
-const SPLIT_PROMPT = (max: number) => `You protect a researcher's privacy. Their task goes to an outside expert AI.
-Rewrite it as ${max === 1 ? "one general question" : `1 to ${max} separate general questions that together cover what is needed`}.
-Rules:
-- Each item is a complete question an expert can answer on its own.
-- Placeholders like [PLACE_1] hide real values. Where the answer depends on what kind of thing it is,
-  use its description from the glossary instead (e.g. "a large city in Nigeria").
-- Keep a placeholder only if the user needs it back in the answer (e.g. a name in a letter draft).
-- ${max === 1 ? "Keep everything needed to answer." : "No single question may reveal the whole situation."} Add no new facts.
-Reply with JSON only: {"pieces":["...?"]}`;
+const SPLIT_PROMPT = (max: number) =>
+  max === 1
+    ? `Rewrite the user's request as one clear, self-contained question for an expert.
+Keep every detail needed to answer. Add nothing. Keep any [BRACKETED] placeholder exactly as written.
+Reply with JSON only: {"pieces":["...?"]}`
+    : `Split the user's request into 2 to ${max} separate questions for an expert.
+Each question must make sense alone and ask about one aspect, so that no single question
+describes the whole situation. Add nothing. Keep any [BRACKETED] placeholder exactly as written.
+Reply with JSON only: {"pieces":["...?","...?"]}`;
 
-/**
- * Rewrite a redacted task as general questions. `maxPieces` 1 means "rewrite, don't split".
- * The glossary maps placeholders to vague descriptions the questions may use instead.
- */
-export async function splitTask(model: ChatModel, redactedTask: string, glossary: readonly string[] = [], maxPieces = MAX_PIECES): Promise<string[]> {
+/** Rewrite a task as self-contained questions. `maxPieces` 1 means "rewrite, don't split". */
+export async function splitTask(model: ChatModel, task: string, maxPieces = MAX_PIECES): Promise<string[]> {
   const plan = await chatJson(
     model,
     [
       { role: "system", content: SPLIT_PROMPT(maxPieces) },
-      { role: "user", content: `${glossary.length ? `Glossary:\n${glossary.join("\n")}\n\n` : ""}Task: ${redactedTask}` },
+      { role: "user", content: task },
     ],
     Plan,
     { maxTokens: 700, temperature: 0.2 },

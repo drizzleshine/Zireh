@@ -1,6 +1,6 @@
 import { scriptedModel } from "@zireh/llm";
 import { describe, expect, it } from "vitest";
-import { applyTable, detectPatterns, extendTable, findLeaks, glossary, redactText, restore } from "../src/index.ts";
+import { applyTable, detectPatterns, extendTable, findLeaks, glossary, redactText, restore, withHints } from "../src/index.ts";
 
 describe("detectPatterns", () => {
   it("finds contacts, ids and money without overlap", () => {
@@ -40,26 +40,33 @@ describe("pseudonym table", () => {
 
 describe("redactText", () => {
   it("combines model entities with pattern detections and ignores invented entities", async () => {
-    const model = scriptedModel(() =>
-      JSON.stringify({ entities: [{ text: "Dr. Okafor", kind: "person" }, { text: "Not In Text", kind: "org" }] }),
+    const model = scriptedModel((m) =>
+      m[0]!.content.includes("general kind")
+        ? JSON.stringify({ hints: {} })
+        : JSON.stringify({ entities: [{ text: "Dr. Okafor", kind: "person" }, { text: "Not In Text", kind: "org" }] }),
     );
     const result = await redactText(model, "Dr. Okafor (okafor@stmary.ng) asked about it.", []);
     expect(result.text).toBe("[PERSON_1] ([CONTACT_1]) asked about it.");
     expect(result.added.map((p) => p.original).sort()).toEqual(["Dr. Okafor", "okafor@stmary.ng"]);
   });
 
-  it("keeps vague hints but drops hints that contain the hidden value", async () => {
-    const model = scriptedModel(() =>
-      JSON.stringify({
-        entities: [
-          { text: "Lagos", kind: "place", hint: "a large city in Nigeria" },
-          { text: "Daily Ledger", kind: "org", hint: "the Daily Ledger newspaper" },
-        ],
-      }),
+  it("asks for hints separately, keeps vague ones, drops ones containing the value, and ignores topics", async () => {
+    const model = scriptedModel((m) =>
+      m[0]!.content.includes("general kind")
+        ? JSON.stringify({ hints: { Lagos: "a large city in Nigeria", "Daily Ledger": "the Daily Ledger newspaper" } })
+        : JSON.stringify({
+            entities: [
+              { text: "Lagos", kind: "place" },
+              { text: "Daily Ledger", kind: "org" },
+              { text: "smuggling", kind: "other" },
+            ],
+          }),
     );
-    const { table } = await redactText(model, "The Daily Ledger in Lagos.", []);
+    const { table, text } = await redactText(model, "The Daily Ledger in Lagos covers smuggling.", []);
+    expect(text).toBe("The [ORG_1] in [PLACE_1] covers smuggling.");
     expect(table.find((p) => p.original === "Lagos")!.hint).toBe("a large city in Nigeria");
     expect(table.find((p) => p.original === "Daily Ledger")!.hint).toBeUndefined();
+    expect(withHints(text, table)).toBe("The [ORG_1] in a large city in Nigeria covers smuggling.");
     expect(glossary(table)).toEqual(["[PLACE_1] = a large city in Nigeria"]);
   });
 
