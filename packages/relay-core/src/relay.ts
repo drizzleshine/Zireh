@@ -152,6 +152,7 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
         keyset: deps.mint.keyset,
         prices: [...deps.models.values()].map((m) => m.price),
         searchPrice: deps.searchPrice,
+        searchEnabled: deps.search !== undefined,
         network: deps.watcher.network,
       };
       return json(200, info);

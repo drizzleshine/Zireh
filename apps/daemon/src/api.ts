@@ -91,7 +91,7 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
       let relay: DaemonStatus["relay"];
       try {
         const info = await deps.relay.info(true);
-        relay = { ok: true, network: info.network, models: info.prices.map((p) => p.model) };
+        relay = { ok: true, network: info.network, models: info.prices.map((p) => p.model), search: info.searchEnabled };
       } catch (err) {
         relay = { ok: false, models: [], error: (err as Error).message };
       }

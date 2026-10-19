@@ -154,7 +154,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
         {!ready && status && <p className="level-note">{readinessNote(status, level)}</p>}
       </div>
 
-      {status?.relay.ok && <SearchBox caseId={caseId} />}
+      {status?.relay.ok && status.relay.search && <SearchBox caseId={caseId} />}
 
       {run && <RunView run={run} running={running} onSave={saveAsObservation} onTopUp={onTopUp} />}
     </section>

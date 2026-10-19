@@ -8,6 +8,7 @@ export const RelayInfo = z.object({
   keyset: Keyset,
   prices: z.array(ModelPrice),
   searchPrice: z.number().int().positive(), // credits per search
+  searchEnabled: z.boolean(),
   network: z.enum(["testnet", "mainnet", "simulated"]),
 });
 export type RelayInfo = z.infer<typeof RelayInfo>;
