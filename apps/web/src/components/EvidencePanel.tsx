@@ -4,6 +4,7 @@ import { useState } from "react";
 import { prepareImage } from "../media.ts";
 import { myMemberId, save, useStore } from "../store.ts";
 import { Comments } from "./Comments.tsx";
+import { ImageRedactor } from "./ImageRedactor.tsx";
 
 const KINDS: { id: Evidence["kind"]; label: string }[] = [
   { id: "note", label: "Note" },
@@ -83,7 +84,7 @@ export function EvidencePanel({ caseId }: { caseId: string }) {
                   }
                 }}
               />
-              {body.startsWith("data:image/") && <img className="evidence-image" src={body} alt="Prepared image" />}
+              {body.startsWith("data:image/") && <ImageRedactor src={body} onChange={setBody} />}
               {imageNote && <span className="hint">{imageNote}</span>}
               {error && <p className="error">{error}</p>}
             </div>

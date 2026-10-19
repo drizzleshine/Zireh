@@ -420,3 +420,10 @@ dialog:has(.sees) { width: min(720px, calc(100vw - 32px)); }
 .sees td { color: var(--muted); }
 .sees td.yes { color: var(--viridian); font-weight: 700; }
 .how-link { margin-top: auto; justify-content: flex-start; text-align: left; }
+
+/* ---------- image redactor ---------- */
+.redactor { display: grid; gap: 8px; }
+.redactor-stage { position: relative; justify-self: start; line-height: 0; }
+.redactor-stage canvas { cursor: crosshair; touch-action: none; }
+.redactor-box { position: absolute; border: 2px solid var(--alarm); background: rgb(180 35 24 / 0.15); pointer-events: none; }
+.redactor-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
