@@ -10,14 +10,15 @@ interface Props {
   onTopUp: () => void;
   onNewCase: () => void;
   onDemo: () => void;
+  onHome: () => void;
 }
 
-export function Rail({ status, daemonError, selected, onSelect, onTopUp, onNewCase, onDemo }: Props) {
+export function Rail({ status, daemonError, selected, onSelect, onTopUp, onNewCase, onDemo, onHome }: Props) {
   const cases = useStore((s) => s.workspaces.map((w) => ({ id: w.caseId, c: s.cases[w.caseId]?.case, members: s.cases[w.caseId]?.members.length ?? 0 })));
 
   return (
     <nav className="rail" aria-label="Zireh">
-      <div className="brand">
+      <button className="brand" onClick={onHome} aria-label="Zireh home">
         <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
           <rect width="32" height="32" rx="6" fill="currentColor" />
           <rect x="7" y="9" width="18" height="4" rx="1" fill="var(--paper)" />
@@ -25,7 +26,7 @@ export function Rail({ status, daemonError, selected, onSelect, onTopUp, onNewCa
           <rect x="7" y="21" width="15" height="4" rx="1" fill="var(--paper)" />
         </svg>
         Zireh
-      </div>
+      </button>
 
       <section aria-labelledby="health-title">
         <h2 id="health-title" className="section-title">

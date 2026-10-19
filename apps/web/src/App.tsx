@@ -14,7 +14,12 @@ import { useStore } from "./store.ts";
 export function App() {
   const [status, setStatus] = useState<DaemonStatus | undefined>();
   const [daemonError, setDaemonError] = useState<string | undefined>();
-  const [selected, setSelected] = useState<string | undefined>();
+  const [selected, setSelectedRaw] = useState<string | undefined>();
+  const [home, setHome] = useState(false);
+  const setSelected = (id: string | undefined) => {
+    if (id) setHome(false);
+    setSelectedRaw(id);
+  };
   const [dialog, setDialog] = useState<"wallet" | "new-case" | undefined>();
   const [invite, setInvite] = useState<Invite | undefined>(() => parseInvite(location.hash));
   const caseIds = useStore((s) => s.workspaces.map((w) => w.caseId).join(","));
@@ -36,8 +41,8 @@ export function App() {
 
   useEffect(() => {
     const ids = caseIds ? caseIds.split(",") : [];
-    if (!selected && ids.length) setSelected(ids[ids.length - 1]);
-  }, [caseIds, selected]);
+    if (!selected && !home && ids.length) setSelectedRaw(ids[ids.length - 1]);
+  }, [caseIds, selected, home]);
 
   return (
     <div className="shell">
@@ -49,6 +54,10 @@ export function App() {
         onTopUp={() => setDialog("wallet")}
         onNewCase={() => setDialog("new-case")}
         onDemo={async () => setSelected(await createDemoCase("You"))}
+        onHome={() => {
+          setHome(true);
+          setSelected(undefined);
+        }}
       />
       <main className="main">
         <ErrorBoundary key={selected}>
@@ -94,9 +103,25 @@ function Welcome({ onNewCase, onDemo }: { onNewCase: () => void; onDemo: () => v
   return (
     <section className="welcome">
       <h1>Investigate together. Ask powerful AI. Keep your sources to yourselves.</h1>
-      <p className="doc">
-        Every question is stripped of names and places on this computer, split into harmless pieces, mixed with decoys, and sent over
-        Tor with anonymous payment. Your team's case files are encrypted before they leave your browser.
+      <figure className="specimen" aria-label="Example of what Zireh sends">
+        <div className="specimen-side">
+          <span className="specimen-label">You write</span>
+          <p className="doc">
+            Is <span className="redacted" style={{ ["--i" as string]: 0 }}>Ada Obi</span> at risk after her report on smuggling at{" "}
+            <span className="redacted" style={{ ["--i" as string]: 1 }}>Apapa port</span> in <span className="redacted" style={{ ["--i" as string]: 2 }}>Lagos</span>?
+          </p>
+        </div>
+        <div className="specimen-side sent">
+          <span className="specimen-label">The AI provider receives, over Tor, from nobody in particular</span>
+          <p className="doc">Is a journalist at risk after her report on smuggling at a port in a city in West Africa?</p>
+          <p className="doc decoy-line">
+            <span className="decoy-tag">decoy</span>Which soils hold water best for dry-season maize?
+          </p>
+        </div>
+      </figure>
+      <p className="welcome-copy">
+        Names are hidden on this computer by an NVIDIA Nemotron model before anything leaves. Questions are split, mixed with decoys and paid
+        with unlinkable coins. Case files are end-to-end encrypted for your team.
       </p>
       <div className="welcome-actions">
         <button className="btn primary" onClick={onNewCase}>

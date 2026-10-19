@@ -273,7 +273,19 @@ function RunView({ run, running, onSave, onTopUp }: { run: Run; running: boolean
 function Envelope({ piece, index }: { piece: PieceState; index: number }) {
   return (
     <div className={`envelope ${piece.role} ${piece.status === "failed" ? "failed" : ""}`} style={{ ["--i" as string]: index }}>
-      <p className="wire">{piece.wire}</p>
+      {(() => {
+        const m = /^Session ([0-9a-f]{64})\n\n([\s\S]*)$/.exec(piece.wire);
+        return m ? (
+          <>
+            <span className="salt" title="A random per-case prefix. It keeps this case's cached prompts separate from everyone else's.">
+              case salt {m[1]!.slice(0, 10)}…
+            </span>
+            <p className="wire">{m[2]}</p>
+          </>
+        ) : (
+          <p className="wire">{piece.wire}</p>
+        );
+      })()}
       <div className="meta">
         <span className={`role ${piece.role}`}>{piece.role === "real" ? "Real question" : "Decoy, answer discarded"}</span>
         {piece.circuit && <span>circuit {piece.circuit.slice(2, 8)}</span>}

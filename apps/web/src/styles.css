@@ -178,7 +178,7 @@ p { margin: 0; }
 .redacted::after {
   content: "";
   position: absolute;
-  inset: 0.08em -0.12em 0.02em;
+  inset: -0.04em -0.1em -0.1em;
   background: var(--bar);
   border-radius: 2px;
   transform-origin: left center;
@@ -364,3 +364,20 @@ dialog h2 { font-size: var(--s-22); }
 .welcome-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .rail-actions { display: flex; flex-wrap: wrap; }
 .levels { justify-self: start; }
+
+/* ---------- envelope salt ---------- */
+.salt { font-size: 0.75rem; color: var(--muted); border: 1px dashed var(--rule); border-radius: 4px; padding: 0 6px; justify-self: start; cursor: help; }
+
+/* ---------- welcome specimen ---------- */
+.welcome { max-width: 920px; }
+.specimen { margin: 8px 0 0; display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; background: var(--sheet); }
+.specimen-side { padding: 22px 24px; display: grid; gap: 10px; align-content: start; }
+.specimen-side.sent { border-left: 1px solid var(--rule); background: var(--paper); }
+.specimen-label { font-size: var(--s-13); font-weight: 600; color: var(--muted); }
+.specimen .doc { font-size: var(--s-18); }
+.specimen .redacted::after { animation-delay: calc(600ms + var(--i) * 260ms); }
+.decoy-line { color: var(--muted); }
+.decoy-tag { font: 600 var(--s-13) var(--ui); color: var(--amber); margin-right: 6px; }
+.welcome-copy { color: var(--muted); max-width: 64ch; }
+@media (max-width: 900px) { .specimen { grid-template-columns: 1fr; } .specimen-side.sent { border-left: 0; border-top: 1px solid var(--rule); } }
+button.brand { background: none; border: 0; padding: 0; cursor: pointer; color: inherit; font: inherit; font-weight: 700; font-size: var(--s-18); }
