@@ -82,7 +82,7 @@ export async function compile(local: ChatModel, input: ShieldInput, hooks: Compi
     stage: "redact",
     title: `Hid ${red.table.length} value${red.table.length === 1 ? "" : "s"}`,
     detail: red.added.length
-      ? `New this time: ${red.added.map((p) => `${p.placeholder} (${p.kind})`).join(", ")}`
+      ? `New this time: ${red.added.map((p) => `${p.original} → ${p.hint ?? p.placeholder}`).join(", ")}` // trace stays on this device
       : "No new identifying values found.",
     before: combined,
     after: described,
