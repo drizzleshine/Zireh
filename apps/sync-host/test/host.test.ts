@@ -21,6 +21,7 @@ describe("sync host", () => {
     const pulled = await sync.pull(c.id, token, 0);
     expect(pulled.records).toHaveLength(2);
     expect(pulled.cursor).toBe(2);
+    expect(pulled.head).toBe(2);
     const opened = await Promise.all(pulled.records.map((r) => openRecord(key, r)));
     expect(opened.map((o) => o?.collection)).toEqual(["cases", "members"]);
 

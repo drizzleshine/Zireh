@@ -17,7 +17,11 @@ export type Envelope = z.infer<typeof Envelope>;
 export const StoredEnvelope = Envelope.extend({ seq: z.number().int().positive() });
 export type StoredEnvelope = z.infer<typeof StoredEnvelope>;
 
-export const PullResponse = z.object({ records: z.array(StoredEnvelope), cursor: z.number().int().nonnegative() });
+export const PullResponse = z.object({
+  records: z.array(StoredEnvelope),
+  cursor: z.number().int().nonnegative(),
+  head: z.number().int().nonnegative(), // the host's latest sequence number for this case
+});
 export type PullResponse = z.infer<typeof PullResponse>;
 
 /** Bind each ciphertext to its collection and id, so the host can't swap records around. */

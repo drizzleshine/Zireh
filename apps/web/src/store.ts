@@ -203,6 +203,29 @@ export const myMemberId = (caseId: string): string => workspace(caseId).memberId
 
 const syncing = new Set<string>();
 
+/** Queue a sealed copy of every record we hold, so a fresh sync host can be rebuilt from this device. */
+async function reseed(caseId: string) {
+  const rec = state.cases[caseId];
+  const w = workspace(caseId);
+  if (!rec) return;
+  const all: Envelope[] = [await sealRecord(w.caseKey, "cases", rec.case)];
+  const lists: [CollectionName, readonly { id: string }[]][] = [
+    ["members", rec.members],
+    ["evidence", rec.evidence],
+    ["observations", rec.observations],
+    ["findings", rec.findings],
+    ["reviews", rec.reviews],
+    ["comments", rec.comments],
+    ["links", rec.links],
+    ["conclusions", rec.conclusions],
+  ];
+  for (const [collection, items] of lists) for (const item of items) all.push(await sealRecord(w.caseKey, collection, item as never));
+  if (rec.pseudonyms.length) all.push(await sealRecord(w.caseKey, "pseudonyms", { id: caseId, caseId, entries: rec.pseudonyms }));
+  if (Object.keys(rec.board).length) all.push(await sealRecord(w.caseKey, "board", { id: caseId, caseId, positions: rec.board }));
+  w.outbox = all;
+  w.cursor = 0;
+}
+
 /** Push queued envelopes, then pull and apply everything new. */
 export async function syncCase(caseId: string) {
   if (syncing.has(caseId)) return;
@@ -210,12 +233,27 @@ export async function syncCase(caseId: string) {
   const w = workspace(caseId);
   const token = caseToken(w.caseKey);
   try {
-    if (w.outbox.length) {
+    while (w.outbox.length) {
       const batch = w.outbox.slice(0, 200);
-      await api.push(caseId, token, batch);
+      const { cursor } = await api.push(caseId, token, batch);
       w.outbox = w.outbox.slice(batch.length);
+      // The host has fewer records than we've already seen: it was reset or replaced. Re-upload.
+      if (cursor < w.cursor) await reseed(caseId);
     }
-    const pulled = await api.pull(caseId, token, w.cursor);
+    let pulled;
+    try {
+      pulled = await api.pull(caseId, token, w.cursor);
+    } catch (err) {
+      if ((err as { status?: number }).status === 404 && state.cases[caseId]) {
+        await reseed(caseId); // host doesn't know this case at all
+        return;
+      }
+      throw err;
+    }
+    if (pulled.head < w.cursor) {
+      await reseed(caseId); // host is behind what we've already seen: it was reset or replaced
+      return;
+    }
     for (const env of pulled.records) {
       const opened = await openRecord(w.caseKey, env);
       if (!opened) continue; // tampered or foreign: ignore
@@ -237,6 +275,7 @@ export async function syncCase(caseId: string) {
     emit();
     await persist(caseId);
   }
+  if (w.outbox.length && !w.syncError) void syncCase(caseId); // a reseed queued more work
 }
 
 export function startSyncLoop(intervalMs = 8000) {

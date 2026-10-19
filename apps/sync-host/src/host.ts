@@ -63,7 +63,8 @@ export function createSyncHost(db: DatabaseSync): (req: Request) => Promise<Resp
       const after = Number(url.searchParams.get("after") ?? 0) || 0;
       const rows = listRecords.all(caseId, after, MAX_RECORDS_PER_PULL) as { seq: number; id: string; collection: string; sealed: string }[];
       const records: StoredEnvelope[] = rows.map((r) => ({ seq: r.seq, id: r.id, collection: r.collection as StoredEnvelope["collection"], sealed: JSON.parse(r.sealed) }));
-      return json(200, { records, cursor: records.at(-1)?.seq ?? after });
+      const head = (lastSeq.get(caseId) as { seq: number }).seq;
+      return json(200, { records, cursor: records.at(-1)?.seq ?? Math.min(after, head), head });
     }
 
     if (req.method === "POST") {
