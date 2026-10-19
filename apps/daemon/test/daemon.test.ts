@@ -19,6 +19,7 @@ const local = scriptedModel((messages: readonly ChatMessage[]) => {
   const sys = messages[0]!.content;
   const user = messages.at(-1)!.content;
   if (sys.includes("general kind of thing")) return JSON.stringify({ hints: {} });
+    if (sys.includes("say what it names")) return JSON.stringify({ items: [] });
   if (sys.includes("identifying details")) return JSON.stringify({ entities: [{ text: "Ada Obi", kind: "person" }, { text: "Lagos", kind: "place" }] });
   if (sys.includes("the user's request")) return JSON.stringify({ pieces: ["What risks do port reporters face?", "What press laws apply in [PLACE_1]?"] });
   if (sys.includes("You are an AI provider")) return JSON.stringify({ score: 10, inferences: [] });

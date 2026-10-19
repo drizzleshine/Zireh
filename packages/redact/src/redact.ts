@@ -1,7 +1,7 @@
 import { chatJson, type ChatModel } from "@zireh/llm";
 import { EntityKind, type Pseudonym } from "@zireh/schema";
 import { z } from "zod";
-import { detectPatterns, type Detection } from "./detect.ts";
+import { detectPatterns, properNounCandidates, type Detection } from "./detect.ts";
 import { applyTable, extendTable } from "./table.ts";
 
 const Entities = z.object({
@@ -14,6 +14,13 @@ date tied to an event, ID or account number, contact detail, and exact money amo
 Copy each one exactly as written. Do not list topics, activities, job titles or common nouns.
 Kinds: person, org, place, id, contact, date, money.
 Reply with JSON only: {"entities":[{"text":"...","kind":"person"}]}`;
+
+const Classified = z.object({
+  items: z.array(z.object({ text: z.string(), kind: z.string() })).max(200),
+});
+
+const CLASSIFY_PROMPT = `For each listed phrase, say what it names in the text: person, org, place, or none (not a name).
+Reply with JSON only: {"items":[{"text":"...","kind":"place"}]}`;
 
 const Hints = z.object({ hints: z.record(z.string(), z.string().max(80)) });
 
@@ -53,7 +60,26 @@ export async function redactText(
   const fromModel: Detection[] = found.entities
     .filter((e) => HIDDEN_KINDS.has(e.kind) && lower.includes(e.text.trim().toLowerCase()))
     .map((e) => ({ text: e.text.trim(), kind: e.kind }));
-  const detections = [...detectPatterns(text), ...fromModel];
+  // Second pass: capitalized phrases the extraction missed, classified by the model.
+  const covered = (phrase: string) => fromModel.some((d) => d.text.toLowerCase().includes(phrase.toLowerCase()) || phrase.toLowerCase().includes(d.text.toLowerCase()));
+  const candidates = properNounCandidates(text).filter((c) => !covered(c) && !table.some((p) => p.original.toLowerCase() === c.toLowerCase()));
+  const classified: Detection[] = [];
+  if (candidates.length > 0) {
+    const reply = await chatJson(
+      model,
+      [
+        { role: "system", content: CLASSIFY_PROMPT },
+        { role: "user", content: `Text: ${text}\nPhrases: ${candidates.join("; ")}` },
+      ],
+      Classified,
+      { maxTokens: 400, temperature: 0 },
+    );
+    for (const item of reply.items) {
+      const kind = item.kind.toLowerCase();
+      if ((kind === "person" || kind === "org" || kind === "place") && candidates.includes(item.text)) classified.push({ text: item.text, kind });
+    }
+  }
+  const detections = [...detectPatterns(text), ...fromModel, ...classified];
 
   // Vague descriptions for values the table doesn't know yet: a separate, focused call.
   const known = new Set(table.map((p) => p.original.toLowerCase()));

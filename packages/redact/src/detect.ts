@@ -34,3 +34,24 @@ export function detectPatterns(text: string): Detection[] {
   }
   return out;
 }
+
+/** Capitalized words that start sentences or questions, not names. */
+const COMMON = new Set(
+  "a an and are as at but by can could did do does for from he her his how i if in is it its may might my no not of on or our she should so than that the their them then there these they this those to was we were what when where which who whom whose why will with would you your yes".split(" "),
+);
+
+/**
+ * Proper-noun candidates: runs of capitalized words, minus sentence-starting common words.
+ * Small local models miss names when asked to extract them, but classify a given list well,
+ * so these go to a second, simpler model call.
+ */
+export function properNounCandidates(text: string): string[] {
+  const found = new Set<string>();
+  for (const m of text.matchAll(/\p{Lu}[\p{L}\p{M}'’.-]*(?:\s+\p{Lu}[\p{L}\p{M}'’.-]*)*/gu)) {
+    const words = m[0].split(/\s+/);
+    while (words.length && COMMON.has(words[0]!.toLowerCase().replace(/[^a-z]/g, ""))) words.shift();
+    const phrase = words.join(" ").replace(/[.’'-]+$/, "");
+    if (phrase.length >= 2 && !COMMON.has(phrase.toLowerCase())) found.add(phrase);
+  }
+  return [...found];
+}

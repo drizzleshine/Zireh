@@ -18,6 +18,7 @@ function fakeLocal(r: Replies) {
     const sys = messages[0]!.content;
     const user = messages[1]!.content;
     if (sys.includes("general kind of thing")) return JSON.stringify({ hints: {} });
+    if (sys.includes("say what it names")) return JSON.stringify({ items: [] });
     if (sys.includes("identifying details")) return JSON.stringify(r.entities ?? { entities: [] });
     if (sys.includes("the user's request")) return JSON.stringify({ pieces: r.pieces ?? [user] });
     if (sys.includes("You are an AI provider")) return JSON.stringify({ score: r.leak?.(user) ?? 10, inferences: ["topic only"] });

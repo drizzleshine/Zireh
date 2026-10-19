@@ -1,12 +1,18 @@
 import { scriptedModel } from "@zireh/llm";
 import { describe, expect, it } from "vitest";
-import { applyTable, detectPatterns, extendTable, findLeaks, glossary, redactText, restore, withHints } from "../src/index.ts";
+import { applyTable, detectPatterns, properNounCandidates, extendTable, findLeaks, glossary, redactText, restore, withHints } from "../src/index.ts";
 
 describe("detectPatterns", () => {
   it("finds contacts, ids and money without overlap", () => {
     const found = detectPatterns("Mail ada@lab.org or call +234 803 555 0101; paid $4,500 to GB82WEST12345698765432.");
     expect(found.map((d) => d.kind)).toEqual(["contact", "contact", "id", "money"]);
     expect(found.map((d) => d.text)).toContain("ada@lab.org");
+  });
+});
+
+describe("properNounCandidates", () => {
+  it("finds capitalized names but not sentence-initial common words", () => {
+    expect(properNounCandidates("What laws protect journalists in Nigeria who report at Apapa port? She told Ada Obi.")).toEqual(["Nigeria", "Apapa", "Ada Obi"]);
   });
 });
 
@@ -76,6 +82,17 @@ describe("redactText", () => {
       { text: "Apapa port", kind: "place", hint: "a port in Lagos" },
     ]);
     expect(table.find((p) => p.original === "Apapa port")!.hint).toBe("a location");
+  });
+
+  it("catches names the extraction missed with a classification pass", async () => {
+    const model = scriptedModel((m) => {
+      const sys = m[0]!.content;
+      if (sys.includes("say what it names")) return JSON.stringify({ items: [{ text: "Nigeria", kind: "place" }, { text: "Apapa", kind: "place" }] });
+      if (sys.includes("general kind")) return JSON.stringify({ hints: { Nigeria: "a country in West Africa", Apapa: "a port district" } });
+      return JSON.stringify({ entities: [] });
+    });
+    const r = await redactText(model, "What laws protect journalists in Nigeria who report at Apapa port?", []);
+    expect(r.text).toBe("What laws protect journalists in [PLACE_1] who report at [PLACE_2] port?");
   });
 
   it("throws (fail closed) when the local model can't produce entities", async () => {
