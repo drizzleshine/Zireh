@@ -66,6 +66,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
         },
         (e) => {
           if (e.type === "step") update((r) => r.steps.push({ step: e.step, atMs: e.atMs }));
+          else if (e.type === "redacted") update((r) => (r.table = e.table));
           else if (e.type === "plan")
             update((r) => {
               r.table = e.table;

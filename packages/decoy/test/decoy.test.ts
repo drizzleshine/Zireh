@@ -37,6 +37,12 @@ describe("makeDecoys", () => {
     expect(await makeDecoys(model, realWithPlace, 1)).toEqual(["What tax rules apply to freelance writers in [PLACE_1]?"]);
   });
 
+  it("rejects near-duplicates of the real question", async () => {
+    const realShort = "Does she work for a newspaper in the city?";
+    const model = scriptedModel(() => JSON.stringify({ decoys: ["Does he work for a newspaper in the city?", "Which bakeries open earliest on market days?"] }));
+    expect(await makeDecoys(model, realShort, 1)).toEqual(["Which bakeries open earliest on market days?"]);
+  });
+
   it("asks nothing for zero decoys", async () => {
     const model = scriptedModel(() => {
       throw new Error("should not be called");

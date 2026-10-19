@@ -96,7 +96,7 @@ describe("finish", () => {
     const local = fakeLocal({
       entities,
       pieces: ["Risks for port reporters?", "Press law in [PLACE_1]?"],
-      decoys: ["Risks for mining reporters?"],
+      decoys: ["Best soil for tomatoes?"],
       combined: "[PERSON_1] faces moderate risk [A1]; [PLACE_1] law offers little protection [A2] [A9].",
     });
     const plan = await compile(local, { task, level: "private", table: [], salt });

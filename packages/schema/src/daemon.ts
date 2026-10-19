@@ -28,6 +28,7 @@ export interface Citations {
 
 export type ResearchEvent =
   | { readonly type: "step"; readonly step: TraceStep; readonly atMs: number }
+  | { readonly type: "redacted"; readonly table: readonly Pseudonym[] }
   | {
       readonly type: "plan";
       readonly table: readonly Pseudonym[];

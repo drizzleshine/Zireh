@@ -55,7 +55,14 @@ function buildMessages(content: string, salt: string | undefined): ChatMessage[]
  * Compile a task into the calls that may leave the device. Every stage appends to the trace.
  * Any stage error propagates: the caller sends nothing (fail closed).
  */
-export async function compile(local: ChatModel, input: ShieldInput, onStep?: (step: TraceStep) => void): Promise<Plan> {
+export interface CompileHooks {
+  readonly onStep?: (step: TraceStep) => void;
+  /** Called as soon as values are hidden, before anything else runs (drives the redaction view). */
+  readonly onRedacted?: (table: readonly Pseudonym[]) => void;
+}
+
+export async function compile(local: ChatModel, input: ShieldInput, hooks: CompileHooks = {}): Promise<Plan> {
+  const onStep = hooks.onStep;
   const policy = LEVELS[input.level];
   const trace: TraceStep[] = [];
   const step = (s: TraceStep) => {
@@ -70,6 +77,7 @@ export async function compile(local: ChatModel, input: ShieldInput, onStep?: (st
   const red = await redactText(local, combined, input.table);
   const redactedTask = applyTable(input.task, red.table);
   const described = withHints(red.text, red.table);
+  hooks.onRedacted?.(red.table);
   step({
     stage: "redact",
     title: `Hid ${red.table.length} value${red.table.length === 1 ? "" : "s"}`,

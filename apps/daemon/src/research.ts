@@ -32,7 +32,10 @@ export async function runResearch(
 ): Promise<void> {
   const started = Date.now();
   const onStep = (step: TraceStep) => emit({ type: "step", step, atMs: Date.now() - started });
-  const plan = await compile(deps.local, { task: req.task, context: req.context, level: req.level, table: req.table, salt: req.salt, ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}) }, onStep);
+  const plan = await compile(deps.local, { task: req.task, context: req.context, level: req.level, table: req.table, salt: req.salt, ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}) }, {
+    onStep,
+    onRedacted: (table) => emit({ type: "redacted", table }),
+  });
 
   emit({
     type: "plan",
