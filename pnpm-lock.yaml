@@ -21,6 +21,34 @@ importers:
         specifier: ^5.0.5
         version: 5.0.5(@types/node@26.6.5)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(tsx@4.23.15))
 
+  apps/relay:
+    dependencies:
+      '@zireh/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
+      '@zireh/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
+      '@zireh/schema':
+        specifier: workspace:*
+        version: link:../../packages/schema
+      '@zireh/wallet':
+        specifier: workspace:*
+        version: link:../../packages/wallet
+      '@zireh/zcash':
+        specifier: workspace:*
+        version: link:../../packages/zcash
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@zireh/inference':
+        specifier: workspace:*
+        version: link:../../packages/inference
+      '@zireh/tor':
+        specifier: workspace:*
+        version: link:../../packages/tor
+
   packages/crypto:
     dependencies:
       '@noble/curves':
@@ -38,6 +66,24 @@ importers:
       '@zireh/schema':
         specifier: workspace:*
         version: link:../schema
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
+  packages/inference:
+    dependencies:
+      '@zireh/crypto':
+        specifier: workspace:*
+        version: link:../crypto
+      '@zireh/schema':
+        specifier: workspace:*
+        version: link:../schema
+      '@zireh/tor':
+        specifier: workspace:*
+        version: link:../tor
+      '@zireh/wallet':
+        specifier: workspace:*
+        version: link:../wallet
       zod:
         specifier: ^4.6.7
         version: 4.6.7

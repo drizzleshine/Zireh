@@ -1,0 +1,17 @@
+{
+  "name": "@zireh/inference",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "zireh": {
+    "layer": 5
+  },
+  "dependencies": {
+    "@zireh/crypto": "workspace:*",
+    "@zireh/schema": "workspace:*",
+    "@zireh/tor": "workspace:*",
+    "@zireh/wallet": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}

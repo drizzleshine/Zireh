@@ -75,8 +75,12 @@ export class Wallet {
     return sum(this.store.load());
   }
 
+  /** Add coins; a coin already held (same secret) is ignored. */
   add(proofs: readonly Proof[]): void {
-    this.store.save([...this.store.load(), ...proofs]);
+    const held = this.store.load();
+    const seen = new Set(held.map((p) => p.secret));
+    const fresh = proofs.filter((p) => !seen.has(p.secret) && seen.add(p.secret));
+    this.store.save([...held, ...fresh]);
   }
 
   /** Take coins covering at least `amount`: largest first, then trim coins that aren't needed. */

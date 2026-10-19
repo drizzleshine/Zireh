@@ -7,7 +7,8 @@ import { BlindedMessage, BlindSignature, Keyset, ModelPrice, Proof } from "./mon
 export const RelayInfo = z.object({
   keyset: Keyset,
   prices: z.array(ModelPrice),
-  maxChangeOutputs: z.number().int().positive(),
+  searchPrice: z.number().int().positive(), // credits per search
+  network: z.enum(["testnet", "mainnet", "simulated"]),
 });
 export type RelayInfo = z.infer<typeof RelayInfo>;
 
@@ -45,6 +46,35 @@ export const Settlement = z.object({
 });
 export type Settlement = z.infer<typeof Settlement>;
 
+export const ChatPaidResponse = z.object({
+  content: z.string(),
+  model: z.string(),
+  settlement: Settlement,
+});
+export type ChatPaidResponse = z.infer<typeof ChatPaidResponse>;
+
+export const SearchPaidRequest = z.object({
+  requestId: z.string().regex(/^[0-9a-f]{32}$/),
+  query: z.string().trim().min(2).max(400),
+  maxResults: z.number().int().min(1).max(10),
+  proofs: z.array(Proof).min(1).max(64),
+  changeOutputs: z.array(BlindedMessage).max(64),
+});
+export type SearchPaidRequest = z.infer<typeof SearchPaidRequest>;
+
+export const SearchHit = z.object({
+  title: z.string(),
+  url: z.string(),
+  content: z.string(),
+});
+export type SearchHit = z.infer<typeof SearchHit>;
+
+export const SearchPaidResponse = z.object({
+  hits: z.array(SearchHit),
+  settlement: Settlement,
+});
+export type SearchPaidResponse = z.infer<typeof SearchPaidResponse>;
+
 export const RelayError = z.object({
   error: z.enum([
     "bad_request",
@@ -57,5 +87,6 @@ export const RelayError = z.object({
     "quote_unpaid",
   ]),
   message: z.string(),
+  settlement: Settlement.optional(), // present when coins were burned: full refund as change
 });
 export type RelayError = z.infer<typeof RelayError>;

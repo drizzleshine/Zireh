@@ -11,6 +11,8 @@ export interface PaymentWatcher {
   readonly network: TopupQuote["network"];
   quote(credits: number): TopupQuote;
   state(quoteId: string): QuoteState;
+  /** The quote as issued (credits are what the relay may mint for it). Throws if unknown. */
+  lookup(quoteId: string): TopupQuote;
   /** Called once coins are issued, so a quote can never mint twice. */
   markMinted(quoteId: string): void;
 }
@@ -65,6 +67,7 @@ export function simulatedWatcher(rate: RateSource, now: () => number = Date.now)
       return quote;
     },
     state: (quoteId) => get(quoteId).state,
+    lookup: (quoteId) => get(quoteId).quote,
     simulatePayment(quoteId) {
       const rec = get(quoteId);
       if (rec.state !== "quoted") throw new Error(`quote is ${rec.state}`);

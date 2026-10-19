@@ -1,0 +1,21 @@
+{
+  "name": "@zireh/relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@zireh/crypto": "workspace:*",
+    "@zireh/llm": "workspace:*",
+    "@zireh/schema": "workspace:*",
+    "@zireh/wallet": "workspace:*",
+    "@zireh/zcash": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@zireh/inference": "workspace:*",
+    "@zireh/tor": "workspace:*"
+  }
+}
