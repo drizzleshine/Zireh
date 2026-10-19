@@ -29,6 +29,19 @@ starting with "a" or "an". Use only what the text says: include a country or reg
 text states it, and never guess. The description must fit thousands of others and must
 not contain the item's name. Reply with JSON only: {"hints":{"<item>":"<description>"}}`;
 
+/**
+ * Sanity check on what the model calls an identifier: names carry a capital letter, numbers
+ * (ids, dates, amounts) carry a digit or a month name. Stops over-redaction like hiding
+ * "records were altered", which would make the question useless without protecting anyone.
+ */
+const MONTHS = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
+function plausible(text: string, kind: string): boolean {
+  if (kind === "person" || kind === "org" || kind === "place") return /\p{Lu}/u.test(text);
+  if (kind === "date") return /\d/.test(text) || MONTHS.test(text);
+  if (kind === "id" || kind === "money") return /\d/.test(text);
+  return true; // contact: patterns already cover the common forms
+}
+
 /** Only identifiers are hidden; "other" from the model is usually a topic, which the provider needs. */
 const HIDDEN_KINDS = new Set(["person", "org", "place", "id", "contact", "date", "money"]);
 
@@ -59,7 +72,7 @@ export async function redactText(
   // Keep only identifiers that really occur in the text (models sometimes paraphrase).
   const lower = text.toLowerCase();
   const fromModel: Detection[] = found.entities
-    .filter((e) => HIDDEN_KINDS.has(e.kind) && lower.includes(e.text.trim().toLowerCase()))
+    .filter((e) => HIDDEN_KINDS.has(e.kind) && lower.includes(e.text.trim().toLowerCase()) && plausible(e.text, e.kind))
     .map((e) => ({ text: e.text.trim(), kind: e.kind }));
   // Second pass: capitalized phrases the extraction missed, classified by the model.
   const covered = (phrase: string) => fromModel.some((d) => d.text.toLowerCase().includes(phrase.toLowerCase()) || phrase.toLowerCase().includes(d.text.toLowerCase()));

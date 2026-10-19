@@ -95,6 +95,18 @@ describe("redactText", () => {
     expect(r.text).toBe("What laws protect journalists in [PLACE_1] who report at [PLACE_2] port?");
   });
 
+  it("ignores implausible identifiers from the model (no capital, no digit)", async () => {
+    const model = scriptedModel((m) =>
+      m[0]!.content.includes("general kind")
+        ? JSON.stringify({ hints: {} })
+        : m[0]!.content.includes("say what it names")
+          ? JSON.stringify({ items: [] })
+          : JSON.stringify({ entities: [{ text: "records were altered", kind: "id" }, { text: "Enugu", kind: "place" }] }),
+    );
+    const r = await redactText(model, "In Enugu, records were altered.", []);
+    expect(r.table.map((p) => p.original)).toEqual(["Enugu"]);
+  });
+
   it("throws (fail closed) when the local model can't produce entities", async () => {
     const model = scriptedModel(() => "sorry");
     await expect(redactText(model, "anything", [])).rejects.toThrow();
