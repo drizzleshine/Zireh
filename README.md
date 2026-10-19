@@ -70,6 +70,21 @@ Everything up to "send" runs on your computer, using **NVIDIA Nemotron 3 Nano 4B
 
 ![Case board](docs/screenshots/board.png)
 
+## Use it from any AI tool
+
+The daemon also speaks the OpenAI API, so agent harnesses, editors and scripts can route
+through the full privacy pipeline by changing one URL:
+
+```bash
+export OPENAI_BASE_URL=http://127.0.0.1:7878/v1
+export OPENAI_API_KEY=$(cat .zireh/daemon/local-api-key)   # created on first start, owner-only
+# models: zireh/local, zireh/standard, zireh/private, zireh/paranoid
+# or pick the level per request with the header  x-zireh-level: private
+```
+
+Each request is redacted, generalized, split and decoyed like a research question, sent over
+Tor, and answered with names restored. Every request shows up in the privacy log.
+
 ## Payments: per-token billing without identity
 
 1. Top up any amount with a shielded Zcash payment to a fresh address.
@@ -137,7 +152,7 @@ pnpm dev                      # Tor mode: relay and sync host as onion services
 `pnpm dev --direct` skips Tor for fast local iteration; the UI shows Tor as off.
 
 ```bash
-pnpm check        # layer check + typecheck + 98 tests
+pnpm check        # layer check + typecheck + 100 tests
 pnpm smoke:tor    # live: three requests on three circuits, three different exits
 ```
 
