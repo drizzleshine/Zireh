@@ -34,6 +34,10 @@ function sampleCase(): CaseRecords & { ada: string; bo: string } {
     findings: [finding],
     reviews: [],
     pseudonyms: [],
+    comments: [],
+    links: [],
+    board: {},
+    conclusions: [],
   };
 }
 
@@ -81,5 +85,26 @@ describe("invites", () => {
     expect(token).not.toContain(key);
     expect(caseTokenHash(token)).not.toBe(token);
     expect(caseToken(key)).toBe(token);
+  });
+});
+
+describe("publication", () => {
+  it("hashes the content and can hide names using the case table", async () => {
+    const { buildPublication, newConclusion } = await import("../src/index.ts");
+    const rec = sampleCase();
+    const withTable = {
+      ...rec,
+      case: { ...rec.case, title: "Ada Obi and the port" },
+      pseudonyms: [{ original: "Ada Obi", placeholder: "[PERSON_1]", kind: "person" as const, hint: "a journalist" }],
+      conclusions: [newConclusion(rec.case.id, rec.ada, undefined, { outcome: "unresolved" as const, summary: "Ada Obi faces threats.", findingIds: [rec.findings[0]!.id], openQuestion: "Who sent them?" })],
+    };
+    const open = buildPublication(withTable, { hideNames: false, publishedAt: "2026-10-19T00:00:00.000Z" });
+    const hidden = buildPublication(withTable, { hideNames: true, publishedAt: "2026-10-19T00:00:00.000Z" });
+    expect(open.publication.title).toBe("Ada Obi and the port");
+    expect(JSON.stringify(hidden.publication)).not.toContain("Ada");
+    expect(hidden.publication.conclusion!.summary).toBe("a journalist faces threats.");
+    expect(hidden.publication.authors).toEqual([]);
+    expect(open.hash).not.toBe(hidden.hash);
+    expect(buildPublication(withTable, { hideNames: false, publishedAt: "2026-10-19T00:00:00.000Z" }).hash).toBe(open.hash);
   });
 });

@@ -2,6 +2,7 @@ import { findingViews, memberName, newFinding, newReview } from "@zireh/cases";
 import type { Observation, Review } from "@zireh/schema";
 import { useState } from "react";
 import { myMemberId, save, useStore } from "../store.ts";
+import { Comments } from "./Comments.tsx";
 
 const DECISIONS: { id: Review["decision"]; label: string }[] = [
   { id: "support", label: "Supports" },
@@ -40,6 +41,7 @@ export function FindingsPanel({ caseId }: { caseId: string }) {
                   {o.status === "draft" && <span className="pill draft">Draft</span>}
                   <span>{author(o)}</span>
                   <span style={{ flex: 1 }} />
+                  <Comments caseId={caseId} targetId={o.id} />
                   {o.status === "draft" && (
                     <>
                       <button className="btn small" onClick={() => save(caseId, "observations", { ...o, status: "accepted" })}>
@@ -116,6 +118,7 @@ export function FindingsPanel({ caseId }: { caseId: string }) {
                     </span>
                     <span>By {memberName(rec, f.createdBy)}</span>
                     <span style={{ flex: 1 }} />
+                    <Comments caseId={caseId} targetId={f.id} />
                     <div className="reviews" role="group" aria-label="Your review">
                       {DECISIONS.map((d) => (
                         <button

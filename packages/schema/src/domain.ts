@@ -30,7 +30,7 @@ export const Evidence = z.object({
   caseId: Id,
   kind: EvidenceKind,
   title: z.string().trim().min(1).max(200),
-  body: z.string().max(100_000), // text content, or a data: URL for images
+  body: z.string().max(3_000_000), // text, or a data: URL for an image already stripped of metadata on this device
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   addedBy: Id,
   addedAt: Iso,
@@ -77,6 +77,54 @@ export const Review = z.object({
 });
 export type Review = z.infer<typeof Review>;
 
+/** A comment on any evidence, observation or finding. */
+export const Comment = z.object({
+  id: Id,
+  caseId: Id,
+  targetId: Id,
+  memberId: Id,
+  text: z.string().trim().min(1).max(4000),
+  createdAt: Iso,
+});
+export type Comment = z.infer<typeof Comment>;
+
+/** A labeled connection between two items on the case board. */
+export const Link = z.object({
+  id: Id,
+  caseId: Id,
+  from: Id,
+  to: Id,
+  label: z.string().trim().max(80),
+  createdBy: Id,
+  createdAt: Iso,
+});
+export type Link = z.infer<typeof Link>;
+
+/** Where each item sits on the board. One record per case (id = case id), shared by the team. */
+export const BoardLayout = z.object({
+  id: Id,
+  caseId: Id,
+  positions: z.record(Id, z.object({ x: z.number(), y: z.number() })),
+});
+export type BoardLayout = z.infer<typeof BoardLayout>;
+
+export const Outcome = z.enum(["resolved", "unresolved", "disputed"]);
+export type Outcome = z.infer<typeof Outcome>;
+
+/** The team's conclusion. Each save is a new revision; the latest one stands. */
+export const Conclusion = z.object({
+  id: Id,
+  caseId: Id,
+  revision: z.number().int().positive(),
+  outcome: Outcome,
+  summary: z.string().trim().min(1).max(10_000),
+  findingIds: z.array(Id),
+  openQuestion: z.string().max(2000), // required in spirit for "unresolved": what is still unknown
+  createdBy: Id,
+  createdAt: Iso,
+});
+export type Conclusion = z.infer<typeof Conclusion>;
+
 /** The case's pseudonym table: one record per case (id = case id), shared so placeholders agree. */
 export const PseudonymTable = z.object({
   id: Id,
@@ -94,6 +142,10 @@ export const Collections = {
   findings: Finding,
   reviews: Review,
   pseudonyms: PseudonymTable,
+  comments: Comment,
+  links: Link,
+  board: BoardLayout,
+  conclusions: Conclusion,
 } as const;
 export type CollectionName = keyof typeof Collections;
 export type RecordOf<C extends CollectionName> = z.infer<(typeof Collections)[C]>;

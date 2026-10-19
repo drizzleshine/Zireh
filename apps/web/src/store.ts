@@ -66,7 +66,7 @@ export async function load() {
   const cases: Record<string, Records> = {};
   for (const w of workspaces) {
     const rec = (await get(`case:${w.caseId}`)) as Records | undefined;
-    if (rec) cases[w.caseId] = rec;
+    if (rec) cases[w.caseId] = { ...emptyRecords(rec.case), ...rec }; // older saves lack newer collections
   }
   state = { loaded: true, workspaces, cases };
   emit();
@@ -86,7 +86,25 @@ const COLLECTION_FIELD: Record<CollectionName, keyof Records> = {
   findings: "findings",
   reviews: "reviews",
   pseudonyms: "pseudonyms",
+  comments: "comments",
+  links: "links",
+  board: "board",
+  conclusions: "conclusions",
 };
+
+const emptyRecords = (c: Case): Records => ({
+  case: c,
+  members: [],
+  evidence: [],
+  observations: [],
+  findings: [],
+  reviews: [],
+  pseudonyms: [],
+  comments: [],
+  links: [],
+  board: {},
+  conclusions: [],
+});
 
 /** Merge a pseudonym table from a teammate: by original value; colliding placeholders are renumbered. */
 function mergePseudonyms(mine: readonly Pseudonym[], theirs: readonly Pseudonym[]): Pseudonym[] {
@@ -115,7 +133,11 @@ function apply(rec: Records, collection: CollectionName, record: unknown) {
     rec.pseudonyms = mergePseudonyms(rec.pseudonyms, (record as RecordOf<"pseudonyms">).entries);
     return;
   }
-  const field = COLLECTION_FIELD[collection] as Exclude<keyof Records, "case" | "pseudonyms">;
+  if (collection === "board") {
+    rec.board = { ...rec.board, ...(record as RecordOf<"board">).positions };
+    return;
+  }
+  const field = COLLECTION_FIELD[collection] as Exclude<keyof Records, "case" | "pseudonyms" | "board">;
   const list = rec[field] as { id: string }[];
   const item = record as { id: string };
   const i = list.findIndex((x) => x.id === item.id);
@@ -146,7 +168,7 @@ export async function createCase(input: { title: string; question: string; priva
   const member = newMember(input.memberName);
   const c = newCase({ title: input.title, question: input.question, privacy: input.privacy, createdBy: member.id });
   state.workspaces.push({ caseId: c.id, caseKey: generateCaseKey(), memberId: member.id, cursor: 0, outbox: [] });
-  state.cases[c.id] = { case: c, members: [], evidence: [], observations: [], findings: [], reviews: [], pseudonyms: [] };
+  state.cases[c.id] = emptyRecords(c);
   await save(c.id, "cases", c);
   await save(c.id, "members", member);
   return c.id;
@@ -165,6 +187,11 @@ export async function joinCase(invite: Invite, memberName: string): Promise<stri
   }
   await save(invite.caseId, "members", member);
   return invite.caseId;
+}
+
+/** Move one card on the board (shared with the team). */
+export async function moveOnBoard(caseId: string, itemId: string, x: number, y: number) {
+  await save(caseId, "board", { id: caseId, caseId, positions: { [itemId]: { x: Math.round(x), y: Math.round(y) } } });
 }
 
 export const inviteLink = (caseId: string): string => {
@@ -195,7 +222,7 @@ export async function syncCase(caseId: string) {
       let rec = state.cases[caseId];
       if (!rec) {
         if (opened.collection !== "cases") continue;
-        rec = { case: opened.record as Case, members: [], evidence: [], observations: [], findings: [], reviews: [], pseudonyms: [] };
+        rec = emptyRecords(opened.record as Case);
         state.cases[caseId] = rec;
       }
       apply(rec, opened.collection, opened.record);

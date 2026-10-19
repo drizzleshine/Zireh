@@ -1,12 +1,14 @@
 import type { DaemonStatus } from "@zireh/schema";
 import { useState } from "react";
 import { inviteLink, useStore } from "../store.ts";
+import { BoardPanel } from "./BoardPanel.tsx";
+import { ConcludePanel } from "./ConcludePanel.tsx";
 import { EvidencePanel } from "./EvidencePanel.tsx";
 import { FindingsPanel } from "./FindingsPanel.tsx";
 import { LogPanel } from "./LogPanel.tsx";
 import { ResearchPanel } from "./ResearchPanel.tsx";
 
-type Tab = "research" | "evidence" | "findings" | "log";
+type Tab = "research" | "evidence" | "board" | "findings" | "conclude" | "log";
 
 interface Props {
   caseId: string;
@@ -27,7 +29,9 @@ export function CaseView({ caseId, status, onBalanceChange, onTopUp }: Props) {
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: "research", label: "Research" },
     { id: "evidence", label: "Evidence", count: rec.evidence.length },
+    { id: "board", label: "Board" },
     { id: "findings", label: "Findings", count: rec.findings.length + drafts },
+    { id: "conclude", label: "Conclude" },
     { id: "log", label: "Privacy log" },
   ];
 
@@ -62,7 +66,9 @@ export function CaseView({ caseId, status, onBalanceChange, onTopUp }: Props) {
       </header>
       {tab === "research" && <ResearchPanel caseId={caseId} status={status} onBalanceChange={onBalanceChange} onTopUp={onTopUp} />}
       {tab === "evidence" && <EvidencePanel caseId={caseId} />}
+      {tab === "board" && <BoardPanel caseId={caseId} />}
       {tab === "findings" && <FindingsPanel caseId={caseId} />}
+      {tab === "conclude" && <ConcludePanel caseId={caseId} />}
       {tab === "log" && <LogPanel />}
     </>
   );

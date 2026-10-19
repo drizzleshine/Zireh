@@ -8,6 +8,7 @@ import { JoinDialog } from "./components/JoinDialog.tsx";
 import { NewCaseDialog } from "./components/NewCaseDialog.tsx";
 import { Rail } from "./components/Rail.tsx";
 import { WalletDialog } from "./components/WalletDialog.tsx";
+import { createDemoCase } from "./demo.ts";
 import { useStore } from "./store.ts";
 
 export function App() {
@@ -47,13 +48,17 @@ export function App() {
         onSelect={setSelected}
         onTopUp={() => setDialog("wallet")}
         onNewCase={() => setDialog("new-case")}
+        onDemo={async () => setSelected(await createDemoCase("You"))}
       />
       <main className="main">
         <ErrorBoundary key={selected}>
         {selected ? (
           <CaseView key={selected} caseId={selected} status={status} onBalanceChange={refresh} onTopUp={() => setDialog("wallet")} />
         ) : (
-          <Welcome onNewCase={() => setDialog("new-case")} />
+          <Welcome
+            onNewCase={() => setDialog("new-case")}
+            onDemo={async () => setSelected(await createDemoCase("You"))}
+          />
         )}
         </ErrorBoundary>
       </main>
@@ -85,7 +90,7 @@ export function App() {
   );
 }
 
-function Welcome({ onNewCase }: { onNewCase: () => void }) {
+function Welcome({ onNewCase, onDemo }: { onNewCase: () => void; onDemo: () => void }) {
   return (
     <section className="welcome">
       <h1>Investigate together. Ask powerful AI. Keep your sources to yourselves.</h1>
@@ -93,9 +98,12 @@ function Welcome({ onNewCase }: { onNewCase: () => void }) {
         Every question is stripped of names and places on this computer, split into harmless pieces, mixed with decoys, and sent over
         Tor with anonymous payment. Your team's case files are encrypted before they leave your browser.
       </p>
-      <div>
+      <div className="welcome-actions">
         <button className="btn primary" onClick={onNewCase}>
           Start a case
+        </button>
+        <button className="btn" onClick={onDemo}>
+          Try a fictional demo case
         </button>
       </div>
     </section>

@@ -9,9 +9,10 @@ interface Props {
   onSelect: (id: string) => void;
   onTopUp: () => void;
   onNewCase: () => void;
+  onDemo: () => void;
 }
 
-export function Rail({ status, daemonError, selected, onSelect, onTopUp, onNewCase }: Props) {
+export function Rail({ status, daemonError, selected, onSelect, onTopUp, onNewCase, onDemo }: Props) {
   const cases = useStore((s) => s.workspaces.map((w) => ({ id: w.caseId, c: s.cases[w.caseId]?.case, members: s.cases[w.caseId]?.members.length ?? 0 })));
 
   return (
@@ -76,9 +77,14 @@ export function Rail({ status, daemonError, selected, onSelect, onTopUp, onNewCa
             </li>
           ))}
         </ul>
-        <button className="btn quiet" onClick={onNewCase}>
-          + New case
-        </button>
+        <div className="rail-actions">
+          <button className="btn quiet" onClick={onNewCase}>
+            + New case
+          </button>
+          <button className="btn quiet" onClick={onDemo}>
+            Try the demo
+          </button>
+        </div>
       </section>
     </nav>
   );

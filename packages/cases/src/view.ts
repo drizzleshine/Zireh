@@ -1,4 +1,4 @@
-import type { Case, Evidence, Finding, Member, Observation, Pseudonym, Review } from "@zireh/schema";
+import type { BoardLayout, Case, Comment, Conclusion, Evidence, Finding, Link, Member, Observation, Pseudonym, Review } from "@zireh/schema";
 
 /** Everything a case holds, as stored (and synced) records. */
 export interface CaseRecords {
@@ -9,7 +9,17 @@ export interface CaseRecords {
   readonly findings: readonly Finding[];
   readonly reviews: readonly Review[];
   readonly pseudonyms: readonly Pseudonym[];
+  readonly comments: readonly Comment[];
+  readonly links: readonly Link[];
+  readonly board: BoardLayout["positions"];
+  readonly conclusions: readonly Conclusion[];
 }
+
+export const latestConclusion = (records: CaseRecords): Conclusion | undefined =>
+  [...records.conclusions].sort((a, b) => b.revision - a.revision || b.createdAt.localeCompare(a.createdAt))[0];
+
+export const commentsOn = (records: CaseRecords, targetId: string): Comment[] =>
+  records.comments.filter((c) => c.targetId === targetId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
 export interface Tally {
   readonly support: number;
