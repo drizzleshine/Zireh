@@ -235,17 +235,16 @@ async function syncOnce(caseId: string) {
       throw err;
     }
     if (pulled.head < w.cursor) queueMicrotask(() => void repairHost(caseId)); // host fell behind us
-    for (const env of pulled.records) {
-      const opened = await openRecord(w.caseKey, env);
-      if (!opened) continue; // tampered or foreign: ignore
-      let rec = state.cases[caseId];
-      if (!rec) {
-        if (opened.collection !== "cases") continue;
-        rec = emptyRecords(opened.record as Case);
-        state.cases[caseId] = rec;
-      }
-      apply(rec, opened.collection, opened.record);
+    // Open the whole batch first: the case record may come after records that belong to it
+    // (e.g. after a host repair), and nothing may be skipped once the cursor moves past it.
+    const opened = (await Promise.all(pulled.records.map((env) => openRecord(w.caseKey, env)))).filter((o) => o !== undefined);
+    if (!state.cases[caseId]) {
+      const head = opened.find((o) => o.collection === "cases");
+      if (!head) return; // nothing usable yet; keep the cursor so these records are pulled again
+      state.cases[caseId] = emptyRecords(head.record as Case);
     }
+    const rec = state.cases[caseId]!;
+    for (const o of opened) apply(rec, o.collection, o.record);
     w.cursor = pulled.cursor;
     w.syncedAt = new Date().toISOString();
     delete w.syncError;
