@@ -1,10 +1,10 @@
 import { chatJson, JsonReplyError, type ChatModel } from "@zireh/llm";
 import { z } from "zod";
 
-const PROMPT = (n: number) => `Write ${n} decoy questions for privacy cover traffic.
-Each decoy must look like it was written by the same kind of person as the real question:
-similar length, tone and level of detail, a believable research topic, but about a clearly
-different subject with different key words. Never invent bracketed placeholders.
+const PROMPT = (n: number) => `Write ${n} questions that different people might ask an AI assistant, each on a
+completely different topic (health, law, money, work, science, history, travel, family).
+Each should be about as long as the example and just as serious in tone, and sound natural.
+Do not reuse the example's words, quotes or sentence structure. Never use bracketed placeholders.
 Reply with JSON only: {"decoys":["...", ...]}`;
 
 const lengthOk = (decoy: string, real: string) => decoy.length >= real.length * 0.4 && decoy.length <= real.length * 2.5;
@@ -28,7 +28,7 @@ const placeholdersOk = (decoy: string, real: string) => {
   return (decoy.match(/\[[^\]]*\]/g) ?? []).every((p) => allowed.has(p));
 };
 
-const ATTEMPTS = 3;
+const ATTEMPTS = 4;
 
 /**
  * Plausible decoys for one real piece. Small models sometimes echo the real question back,
@@ -48,7 +48,7 @@ export async function makeDecoys(model: ChatModel, realQuestion: string, n: numb
         model,
         [
           { role: "system", content: PROMPT(n + 2) },
-          { role: "user", content: `Real question: ${realQuestion}` },
+          { role: "user", content: `Example: ${realQuestion}` },
         ],
         Reply,
         { maxTokens: 300 + 200 * (n + 2), temperature: 0.9 + 0.1 * attempt },
