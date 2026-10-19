@@ -18,7 +18,7 @@ export interface ResearchRequest {
 
 /** What the UI receives while a research call runs. */
 export type ResearchEvent =
-  | { readonly type: "step"; readonly step: TraceStep }
+  | { readonly type: "step"; readonly step: TraceStep; readonly atMs: number }
   | {
       readonly type: "plan";
       readonly pieces: readonly { id: string; role: "real" | "decoy"; question: string; wire: string; leakScore?: number }[];
@@ -41,7 +41,7 @@ export async function runResearch(
   emit: (e: ResearchEvent) => void,
 ): Promise<void> {
   const started = Date.now();
-  const onStep = (step: TraceStep) => emit({ type: "step", step });
+  const onStep = (step: TraceStep) => emit({ type: "step", step, atMs: Date.now() - started });
   const plan = await compile(deps.local, { task: req.task, context: req.context, level: req.level, table: req.table, salt: req.salt, ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}) }, onStep);
 
   emit({
