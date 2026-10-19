@@ -17,7 +17,7 @@ import {
 } from "@zireh/schema";
 import { newCircuitTag, type Transport } from "@zireh/tor";
 import { checkBill, maxCost, prepareChange, prepareTopup, sum, unblindAll, type BillCheck, type PendingOutputs, type Wallet } from "@zireh/wallet";
-import type { z } from "zod";
+import { z } from "zod";
 
 /** Everything needed to send (or re-send) one paid call. Persisted before the first send. */
 export interface PendingCall {
@@ -123,6 +123,11 @@ export class RelayClient {
 
   quote(credits: number): Promise<TopupQuote> {
     return this.request(this.options.transport.fetchFor(newCircuitTag()), "/v1/topup/quote", TopupQuote, { credits });
+  }
+
+  /** Simulated networks only: ask the relay to mark the quote as paid (demo top-ups). */
+  async simulatePayment(quoteId: string): Promise<void> {
+    await this.request(this.options.transport.fetchFor(newCircuitTag()), "/v1/topup/simulate", z.object({ state: z.string() }), { quoteId });
   }
 
   /** After paying the quote: exchange it for coins. Returns the new balance. */
