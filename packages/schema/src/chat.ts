@@ -23,6 +23,8 @@ export type ChatRequest = z.infer<typeof ChatRequest>;
 export const Usage = z.object({
   prompt_tokens: z.number().int().nonnegative(),
   completion_tokens: z.number().int().nonnegative(),
+  /** Hidden reasoning tokens included in completion_tokens (reasoning models bill these). */
+  reasoning_tokens: z.number().int().nonnegative().optional(),
 });
 export type Usage = z.infer<typeof Usage>;
 

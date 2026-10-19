@@ -36,13 +36,18 @@ export function checkBill(
   receivedText: string,
   usage: Usage,
   charged: number,
+  maxTokens?: number,
 ): BillCheck {
   const expected = actualCost(price, usage);
   const reasons: string[] = [];
   if (charged > expected) reasons.push(`charged ${charged} but reported usage costs ${expected}`);
   if (usage.prompt_tokens > inputTokenBound(messages)) reasons.push("reported more input tokens than were sent");
-  const outputBound = Math.ceil(receivedText.length / 1.5) + 16;
+  // Visible output can be counted; hidden reasoning can't, but it can never exceed the cap the
+  // client set (max_tokens), so the relay can't inflate it past what the client agreed to.
+  const reasoning = usage.reasoning_tokens ?? 0;
+  const outputBound = Math.ceil(receivedText.length / 1.5) + 16 + reasoning;
   if (usage.completion_tokens > outputBound) reasons.push("reported more output tokens than were received");
+  if (maxTokens !== undefined && usage.completion_tokens > maxTokens) reasons.push("reported more output tokens than the cap allowed");
   return reasons.length
     ? { expected, charged, overcharged: true, reason: reasons.join("; ") }
     : { expected, charged, overcharged: false };

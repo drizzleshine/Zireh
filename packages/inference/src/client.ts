@@ -189,7 +189,7 @@ export class RelayClient {
       if (call.kind === "chat") {
         const res = await this.request(fetchFn, call.path, ChatPaidResponse, call.body);
         this.settle(call, res.settlement);
-        const bill = checkBill(call.price!, call.messages!, res.content, res.settlement.usage, res.settlement.charged);
+        const bill = checkBill(call.price!, call.messages!, res.content, res.settlement.usage, res.settlement.charged, (call.body.request as { max_tokens: number }).max_tokens);
         return { kind: "chat", requestId: call.requestId, content: res.content, model: res.model, usage: res.settlement.usage, charged: res.settlement.charged, bill };
       }
       const res = await this.request(fetchFn, call.path, SearchPaidResponse, call.body);

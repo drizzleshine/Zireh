@@ -19,8 +19,8 @@ export function LogPanel() {
   return (
     <section className="panel" aria-label="Privacy log">
       <p className="doc" style={{ maxWidth: "70ch" }}>
-        This log is kept only on this computer. Each row is exactly what was sent, after names were hidden. The hash lets you prove what
-        a provider received.
+        Everything this computer has sent, across all cases. The log stays here. Each row is exactly what left, after names were
+        hidden, and its hash lets you prove what a provider received.
       </p>
       <div className="summary">
         <div>
@@ -60,7 +60,17 @@ export function LogPanel() {
               <tr key={r.id}>
                 <td className="num">{new Date(r.at).toLocaleString()}</td>
                 <td className="wire">
-                  {r.payloadPreview}
+                  {(() => {
+                    const m = /^Session ([0-9a-f]{64})\n\n([\s\S]*)$/.exec(r.payloadPreview);
+                    return m ? (
+                      <>
+                        <span className="salt">case salt {m[1]!.slice(0, 10)}…</span>
+                        <div>{m[2]}</div>
+                      </>
+                    ) : (
+                      r.payloadPreview
+                    );
+                  })()}
                   <div className="hash">sha256 {r.payloadSha256}</div>
                 </td>
                 <td>

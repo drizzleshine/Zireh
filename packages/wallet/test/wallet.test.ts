@@ -126,4 +126,11 @@ describe("pricing and bill check", () => {
     expect(checkBill(price, messages, "y".repeat(60), { prompt_tokens: 5000, completion_tokens: 20 }, fair).reason).toMatch(/input/);
     expect(checkBill(price, messages, "short", { prompt_tokens: 100, completion_tokens: 900 }, fair).reason).toMatch(/output/);
   });
+
+  it("accepts hidden reasoning tokens up to the cap, and no further", () => {
+    const usage = { prompt_tokens: 100, completion_tokens: 420, reasoning_tokens: 400 };
+    const fair = actualCost(price, usage);
+    expect(checkBill(price, messages, "y".repeat(20), usage, fair, 500).overcharged).toBe(false);
+    expect(checkBill(price, messages, "y".repeat(20), usage, fair, 300).reason).toMatch(/cap/);
+  });
 });

@@ -53,14 +53,16 @@ export function openAiCompatible(config: OpenAiConfig): ChatModel {
       const body = (await res.json()) as {
         model?: string;
         choices?: { message?: { content?: string } }[];
-        usage?: { prompt_tokens?: number; completion_tokens?: number };
+        usage?: { prompt_tokens?: number; completion_tokens?: number; completion_tokens_details?: { reasoning_tokens?: number } };
       };
+      const reasoning = body.usage?.completion_tokens_details?.reasoning_tokens;
       return {
         content: body.choices?.[0]?.message?.content ?? "",
         model: body.model ?? config.model,
         usage: {
           prompt_tokens: body.usage?.prompt_tokens ?? 0,
           completion_tokens: body.usage?.completion_tokens ?? 0,
+          ...(reasoning !== undefined ? { reasoning_tokens: reasoning } : {}),
         },
       };
     },
