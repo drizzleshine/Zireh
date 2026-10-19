@@ -3,7 +3,7 @@ import { generateCaseKey } from "@zireh/crypto";
 import type { Case, CollectionName, Member, PrivacyLevel, Pseudonym, RecordOf } from "@zireh/schema";
 import { openRecord, sealRecord, type Envelope } from "@zireh/sync";
 import { get, set } from "idb-keyval";
-import { useSyncExternalStore } from "react";
+import { useRef, useSyncExternalStore } from "react";
 import { api } from "./api.ts";
 
 /**
@@ -37,14 +37,23 @@ const emit = () => {
   for (const l of listeners) l();
 };
 
+const subscribe = (l: () => void) => {
+  listeners.add(l);
+  return () => {
+    listeners.delete(l);
+  };
+};
+
+/**
+ * Select from the store. The selection is recomputed only when the store changes, so
+ * selectors may build new arrays/objects without causing render loops.
+ */
 export function useStore<T>(select: (s: State) => T): T {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l);
-      return () => listeners.delete(l);
-    },
-    () => select(state),
-  );
+  const cache = useRef<{ state: State; value: T } | undefined>(undefined);
+  return useSyncExternalStore(subscribe, () => {
+    if (!cache.current || cache.current.state !== state) cache.current = { state, value: select(state) };
+    return cache.current.value;
+  });
 }
 
 async function persist(caseId?: string) {

@@ -3,6 +3,7 @@ import type { DaemonStatus } from "@zireh/schema";
 import { useCallback, useEffect, useState } from "react";
 import { api, DaemonError } from "./api.ts";
 import { CaseView } from "./components/CaseView.tsx";
+import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { JoinDialog } from "./components/JoinDialog.tsx";
 import { NewCaseDialog } from "./components/NewCaseDialog.tsx";
 import { Rail } from "./components/Rail.tsx";
@@ -48,11 +49,13 @@ export function App() {
         onNewCase={() => setDialog("new-case")}
       />
       <main className="main">
+        <ErrorBoundary key={selected}>
         {selected ? (
           <CaseView key={selected} caseId={selected} status={status} onBalanceChange={refresh} onTopUp={() => setDialog("wallet")} />
         ) : (
           <Welcome onNewCase={() => setDialog("new-case")} />
         )}
+        </ErrorBoundary>
       </main>
       {dialog === "wallet" && <WalletDialog onClose={() => setDialog(undefined)} onBalanceChange={refresh} />}
       {dialog === "new-case" && (

@@ -99,13 +99,22 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
       const encoder = new TextEncoder();
       const stream = new ReadableStream<Uint8Array>({
         async start(controller) {
-          const emit = (e: ResearchEvent) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
+          // If the UI disconnects, keep going: calls are already paid for and get recorded.
+          let open = true;
+          const emit = (e: ResearchEvent) => {
+            if (!open) return;
+            try {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
+            } catch {
+              open = false;
+            }
+          };
           try {
             await runResearch(deps, { ...body, model }, emit);
           } catch (err) {
             emit({ type: "error", message: (err as Error).message });
           } finally {
-            controller.close();
+            if (open) controller.close();
           }
         },
       });
