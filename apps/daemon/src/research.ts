@@ -1,7 +1,9 @@
 import { RelayCallError, type RelayClient } from "@zireh/inference";
 import type { Ledger } from "@zireh/ledger";
 import type { ChatModel } from "@zireh/llm";
-import type { PrivacyLevel, Pseudonym, TraceStep } from "@zireh/schema";
+import type { PrivacyLevel, Pseudonym, ResearchEvent, TraceStep } from "@zireh/schema";
+
+export type { ResearchEvent };
 import { compile, finish, type Outcome } from "@zireh/shield";
 import { newCircuitTag } from "@zireh/tor";
 import { maxCost } from "@zireh/wallet";
@@ -15,18 +17,6 @@ export interface ResearchRequest {
   readonly model: string;
   readonly maxTokens?: number;
 }
-
-/** What the UI receives while a research call runs. */
-export type ResearchEvent =
-  | { readonly type: "step"; readonly step: TraceStep; readonly atMs: number }
-  | {
-      readonly type: "plan";
-      readonly pieces: readonly { id: string; role: "real" | "decoy"; question: string; wire: string; leakScore?: number }[];
-      readonly blocked: readonly { question: string; score: number; inferences: string[] }[];
-    }
-  | { readonly type: "piece"; readonly id: string; readonly status: "sent" | "answered" | "failed"; readonly circuit?: string; readonly ms?: number; readonly charged?: number; readonly error?: string }
-  | { readonly type: "done"; readonly outcome: Omit<Outcome, "trace">; readonly table: Pseudonym[]; readonly spent: number; readonly ms: number }
-  | { readonly type: "error"; readonly message: string };
 
 const RETRIES = 2;
 
@@ -46,6 +36,7 @@ export async function runResearch(
 
   emit({
     type: "plan",
+    table: plan.table,
     pieces: plan.pieces.map((p) => ({ id: p.id, role: p.role, question: p.question, wire: p.messages.at(-1)!.content, ...(p.leakScore !== undefined ? { leakScore: p.leakScore } : {}) })),
     blocked: plan.blocked.map((b) => ({ question: b.question, score: b.report.score, inferences: b.report.inferences })),
   });

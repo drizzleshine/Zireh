@@ -3,20 +3,11 @@ import { RelayCallError, type RelayClient } from "@zireh/inference";
 import type { Ledger } from "@zireh/ledger";
 import type { ChatModel } from "@zireh/llm";
 import { redactText } from "@zireh/redact";
-import { PrivacyLevel, Pseudonym, TopupQuote } from "@zireh/schema";
+import { PrivacyLevel, Pseudonym, TopupQuote, type DaemonStatus } from "@zireh/schema";
 import { Envelope, SyncClient } from "@zireh/sync";
 import { InsufficientFunds, type Wallet } from "@zireh/wallet";
 import { z } from "zod";
 import { runResearch, type ResearchEvent } from "./research.ts";
-
-export interface DaemonStatus {
-  readonly transport: Transport["kind"];
-  readonly tor: { readonly ready: boolean; readonly progress: number };
-  readonly localModel: { readonly id: string; readonly ok: boolean };
-  readonly relay: { readonly ok: boolean; readonly network?: string; readonly models: string[]; readonly error?: string };
-  readonly balance: number;
-  readonly pendingCalls: number;
-}
 
 export interface DaemonDeps {
   readonly local: ChatModel;
