@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PrivacyLevel } from "./privacy.ts";
+import { PrivacyLevel, Pseudonym } from "./privacy.ts";
 
 /** Collaboration domain. Plaintext shapes; the sync layer seals them before they leave. */
 
@@ -77,6 +77,14 @@ export const Review = z.object({
 });
 export type Review = z.infer<typeof Review>;
 
+/** The case's pseudonym table: one record per case (id = case id), shared so placeholders agree. */
+export const PseudonymTable = z.object({
+  id: Id,
+  caseId: Id,
+  entries: z.array(Pseudonym),
+});
+export type PseudonymTable = z.infer<typeof PseudonymTable>;
+
 /** Every record type that syncs, keyed by its collection name. */
 export const Collections = {
   members: Member,
@@ -85,6 +93,7 @@ export const Collections = {
   observations: Observation,
   findings: Finding,
   reviews: Review,
+  pseudonyms: PseudonymTable,
 } as const;
 export type CollectionName = keyof typeof Collections;
 export type RecordOf<C extends CollectionName> = z.infer<(typeof Collections)[C]>;

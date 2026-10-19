@@ -52,6 +52,18 @@ importers:
         specifier: workspace:*
         version: link:../../packages/tor
 
+  packages/cases:
+    dependencies:
+      '@zireh/crypto':
+        specifier: workspace:*
+        version: link:../crypto
+      '@zireh/schema':
+        specifier: workspace:*
+        version: link:../schema
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
   packages/crypto:
     dependencies:
       '@noble/curves':
@@ -102,6 +114,15 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+
+  packages/ledger:
+    dependencies:
+      '@zireh/crypto':
+        specifier: workspace:*
+        version: link:../crypto
+      '@zireh/schema':
+        specifier: workspace:*
+        version: link:../schema
 
   packages/llm:
     dependencies:
@@ -159,6 +180,18 @@ importers:
       '@zireh/llm':
         specifier: workspace:*
         version: link:../llm
+      '@zireh/schema':
+        specifier: workspace:*
+        version: link:../schema
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
+  packages/sync:
+    dependencies:
+      '@zireh/crypto':
+        specifier: workspace:*
+        version: link:../crypto
       '@zireh/schema':
         specifier: workspace:*
         version: link:../schema
