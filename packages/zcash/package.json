@@ -1,0 +1,12 @@
+{
+  "name": "@zireh/zcash",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "zireh": { "layer": 4 },
+  "dependencies": {
+    "@zireh/crypto": "workspace:*",
+    "@zireh/schema": "workspace:*"
+  }
+}
