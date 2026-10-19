@@ -28,7 +28,7 @@ const models = new Map(
       upstream:
         up.mode === "token-factory"
           ? openAiCompatible({ baseUrl: up.baseUrl, apiKey: up.apiKey, model: price.model })
-          : openAiCompatible({ baseUrl: up.baseUrl, model: up.localModel }),
+          : openAiCompatible({ baseUrl: up.baseUrl, model: up.localModel, extraBody: { reasoning_effort: "none" } }), // no hidden tokens: bills stay checkable
     },
   ]),
 );
