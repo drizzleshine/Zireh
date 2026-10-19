@@ -46,3 +46,23 @@ export async function checkLeak(model: ChatModel, outbound: string, table: reado
 
 export const passes = (report: LeakReport, threshold: number): boolean =>
   report.leakedOriginals.length === 0 && report.score <= threshold;
+
+const Rewrite = z.object({ text: z.string().trim().min(8).max(2000) });
+
+const GENERALIZE_PROMPT = `Rewrite the message so it asks for the same help but reveals less about who
+is asking or who it concerns. Remove or generalize the details listed as inferable. Keep placeholders
+like [PERSON_1] unchanged. Reply with JSON only: {"text":"..."}`;
+
+/** One attempt to make a risky piece less identifying. The caller re-checks the result. */
+export async function generalize(model: ChatModel, outbound: string, report: LeakReport): Promise<string> {
+  const { text } = await chatJson(
+    model,
+    [
+      { role: "system", content: GENERALIZE_PROMPT },
+      { role: "user", content: `Message: ${outbound}\nInferable: ${report.inferences.join("; ") || "none listed"}` },
+    ],
+    Rewrite,
+    { maxTokens: 600, temperature: 0.2 },
+  );
+  return text;
+}

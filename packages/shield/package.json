@@ -1,0 +1,17 @@
+{
+  "name": "@zireh/shield",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "zireh": { "layer": 3 },
+  "dependencies": {
+    "@zireh/crypto": "workspace:*",
+    "@zireh/decoy": "workspace:*",
+    "@zireh/leakcheck": "workspace:*",
+    "@zireh/llm": "workspace:*",
+    "@zireh/redact": "workspace:*",
+    "@zireh/schema": "workspace:*",
+    "@zireh/split": "workspace:*"
+  }
+}

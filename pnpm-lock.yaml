@@ -81,6 +81,30 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
 
+  packages/shield:
+    dependencies:
+      '@zireh/crypto':
+        specifier: workspace:*
+        version: link:../crypto
+      '@zireh/decoy':
+        specifier: workspace:*
+        version: link:../decoy
+      '@zireh/leakcheck':
+        specifier: workspace:*
+        version: link:../leakcheck
+      '@zireh/llm':
+        specifier: workspace:*
+        version: link:../llm
+      '@zireh/redact':
+        specifier: workspace:*
+        version: link:../redact
+      '@zireh/schema':
+        specifier: workspace:*
+        version: link:../schema
+      '@zireh/split':
+        specifier: workspace:*
+        version: link:../split
+
   packages/split:
     dependencies:
       '@zireh/llm':
