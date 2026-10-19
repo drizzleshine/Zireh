@@ -152,7 +152,7 @@ pnpm dev                      # Tor mode: relay and sync host as onion services
 `pnpm dev --direct` skips Tor for fast local iteration; the UI shows Tor as off.
 
 ```bash
-pnpm check        # layer check + typecheck + 109 tests
+pnpm check        # layer check + typecheck + 110 tests
 pnpm smoke:tor    # live: three requests on three circuits, three different exits
 ```
 
