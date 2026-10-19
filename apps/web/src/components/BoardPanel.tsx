@@ -19,7 +19,7 @@ function cardsOf(rec: CaseRecords): Card[] {
   const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
   return [
     ...rec.evidence.map((e) => ({ id: e.id, kind: "evidence" as const, title: e.title, sub: `Evidence, ${e.kind === "document" ? "document" : e.kind}` })),
-    ...rec.observations.filter((o) => o.status !== "rejected").map((o) => ({ id: o.id, kind: "observation" as const, title: clip(o.text.replace(/^Q: .*\n\n/, ""), 90), sub: o.status === "draft" ? "Draft observation" : "Observation" })),
+    ...rec.observations.filter((o) => o.status !== "rejected").map((o) => ({ id: o.id, kind: "observation" as const, title: clip(o.text.replace(/^Q: .*\n\n/, "").replace(/\s*\[A\d+\]/g, ""), 90), sub: o.status === "draft" ? "Draft observation" : "Observation" })),
     ...rec.findings.map((f) => ({ id: f.id, kind: "finding" as const, title: clip(f.statement, 90), sub: "Finding" })),
   ];
 }
