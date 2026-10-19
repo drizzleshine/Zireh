@@ -384,3 +384,8 @@ button.brand { background: none; border: 0; padding: 0; cursor: pointer; color: 
 .log td.wire { overflow-wrap: anywhere; }
 .log .salt { display: inline-block; margin-bottom: 4px; }
 .hide-list { display: grid; gap: 8px; justify-items: start; }
+.hide-table { border-collapse: collapse; width: 100%; max-width: 760px; }
+.hide-table caption { text-align: left; padding-bottom: 6px; }
+.hide-table th { text-align: left; font-weight: 600; padding: 4px 12px 4px 0; white-space: nowrap; }
+.hide-table td { padding: 4px 0; }
+.hide-table .input { padding: 5px 10px; }

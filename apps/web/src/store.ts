@@ -164,6 +164,14 @@ export async function savePseudonyms(caseId: string, entries: Pseudonym[]) {
   await save(caseId, "pseudonyms", { id: caseId, caseId, entries: rec.pseudonyms });
 }
 
+/** Change how a hidden value is described, or stop hiding it (hint = null). */
+export async function editPseudonym(caseId: string, original: string, hint: string | null) {
+  const rec = state.cases[caseId];
+  if (!rec) return;
+  rec.pseudonyms = hint === null ? rec.pseudonyms.filter((p) => p.original !== original) : rec.pseudonyms.map((p) => (p.original === original ? { ...p, hint } : p));
+  await save(caseId, "pseudonyms", { id: caseId, caseId, entries: rec.pseudonyms });
+}
+
 export async function createCase(input: { title: string; question: string; privacy: PrivacyLevel; memberName: string }): Promise<string> {
   const member = newMember(input.memberName);
   const c = newCase({ title: input.title, question: input.question, privacy: input.privacy, createdBy: member.id });

@@ -2,7 +2,7 @@ import { buildPublication, findingViews, latestConclusion, memberName, newConclu
 import type { Outcome } from "@zireh/schema";
 import { useState } from "react";
 import { api } from "../api.ts";
-import { myMemberId, save, savePseudonyms, useStore } from "../store.ts";
+import { editPseudonym, myMemberId, save, savePseudonyms, useStore } from "../store.ts";
 
 const OUTCOMES: { id: Outcome; label: string; ask: string }[] = [
   { id: "resolved", label: "Resolved", ask: "What does the evidence establish?" },
@@ -98,9 +98,33 @@ export function ConcludePanel({ caseId }: { caseId: string }) {
             {hideNames && (
               <div className="hide-list">
                 {rec.pseudonyms.length ? (
-                  <span className="level-note">
-                    Hiding: {rec.pseudonyms.map((p) => `${p.original} → ${p.hint ?? p.placeholder}`).join(", ")}
-                  </span>
+                  <table className="hide-table">
+                    <caption className="level-note">Each name is replaced by its description. Edit any that read wrong.</caption>
+                    <tbody>
+                      {rec.pseudonyms.map((p) => (
+                        <tr key={p.original}>
+                          <th scope="row">{p.original}</th>
+                          <td>
+                            <input
+                              className="input"
+                              aria-label={`Description for ${p.original}`}
+                              defaultValue={p.hint ?? ""}
+                              maxLength={80}
+                              onBlur={(e) => {
+                                const v = e.target.value.trim();
+                                if (v && v !== p.hint) void editPseudonym(caseId, p.original, v);
+                              }}
+                            />
+                          </td>
+                          <td>
+                            <button className="btn small quiet" onClick={() => editPseudonym(caseId, p.original, null)}>
+                              Don't hide
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 ) : (
                   <span className="level-note">No names are marked for hiding in this case yet.</span>
                 )}
