@@ -232,28 +232,32 @@ async function syncOnce(caseId: string) {
       // The host has fewer records than we've already seen: it was reset or replaced.
       if (cursor < w.cursor) queueMicrotask(() => void repairHost(caseId));
     }
-    let pulled;
-    try {
-      pulled = await api.pull(caseId, token, w.cursor);
-    } catch (err) {
-      if ((err as { status?: number }).status === 404 && state.cases[caseId]) {
-        queueMicrotask(() => void repairHost(caseId)); // host doesn't know this case at all
-        return;
+    // Pull every page up to the host's head (pages hold at most 500 records).
+    for (let page = 0; page < 20; page++) {
+      let pulled;
+      try {
+        pulled = await api.pull(caseId, token, w.cursor);
+      } catch (err) {
+        if ((err as { status?: number }).status === 404 && state.cases[caseId]) {
+          queueMicrotask(() => void repairHost(caseId)); // host doesn't know this case at all
+          return;
+        }
+        throw err;
       }
-      throw err;
+      if (pulled.head < w.cursor) queueMicrotask(() => void repairHost(caseId)); // host fell behind us
+      // Open the whole batch first: the case record may come after records that belong to it
+      // (e.g. after a host repair), and nothing may be skipped once the cursor moves past it.
+      const opened = (await Promise.all(pulled.records.map((env) => openRecord(w.caseKey, env)))).filter((o) => o !== undefined);
+      if (!state.cases[caseId]) {
+        const head = opened.find((o) => o.collection === "cases");
+        if (!head) return; // nothing usable yet; keep the cursor so these records are pulled again
+        state.cases[caseId] = emptyRecords(head.record as Case);
+      }
+      const rec = state.cases[caseId]!;
+      for (const o of opened) apply(rec, o.collection, o.record);
+      w.cursor = pulled.cursor;
+      if (pulled.records.length === 0 || pulled.cursor >= pulled.head) break;
     }
-    if (pulled.head < w.cursor) queueMicrotask(() => void repairHost(caseId)); // host fell behind us
-    // Open the whole batch first: the case record may come after records that belong to it
-    // (e.g. after a host repair), and nothing may be skipped once the cursor moves past it.
-    const opened = (await Promise.all(pulled.records.map((env) => openRecord(w.caseKey, env)))).filter((o) => o !== undefined);
-    if (!state.cases[caseId]) {
-      const head = opened.find((o) => o.collection === "cases");
-      if (!head) return; // nothing usable yet; keep the cursor so these records are pulled again
-      state.cases[caseId] = emptyRecords(head.record as Case);
-    }
-    const rec = state.cases[caseId]!;
-    for (const o of opened) apply(rec, o.collection, o.record);
-    w.cursor = pulled.cursor;
     w.syncedAt = new Date().toISOString();
     delete w.syncError;
   } catch (err) {

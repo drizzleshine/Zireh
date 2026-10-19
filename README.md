@@ -174,6 +174,10 @@ pnpm smoke:tor    # live: three requests on three circuits, three different exit
   relay could correlate timing. A mixnet with constant cover traffic would be stronger.
 - **Topic still leaks.** Generalization hides who and where, not what the question is about.
 - **Images stay local.** They're stripped and shared with the team, not sent to the AI.
+- **The device is the trust boundary.** Case keys and coins live unencrypted in this browser's
+  storage and the daemon's data folder; protect the computer (disk encryption, screen lock).
+- **Pseudonym tables merge by union.** If a teammate's device still has a value marked for
+  hiding, it can come back after you chose "Don't hide". Hiding more is the safe failure.
 - **Small-model judgment.** Nano 4B can miss a name; that's why there are pattern detectors, a
   second classification pass and a deterministic leak floor. The privacy log shows exactly what
   was sent, so a miss is visible.
