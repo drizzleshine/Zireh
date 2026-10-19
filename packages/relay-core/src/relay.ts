@@ -77,7 +77,11 @@ async function parse<S extends z.ZodType>(req: Request, schema: S): Promise<z.in
 export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response> {
   const inFlight = new Map<string, Promise<StoredResponse>>();
 
-  /** Shared settlement path for every paid call: idempotency, hold check, burn, upstream, change. */
+  /**
+   * Shared settlement path for every paid call: idempotency, hold check, burn, upstream, change.
+   * The requestId acts as a bearer secret for its own result: it is 128 random bits, chosen by
+   * the client and only ever sent to the relay inside Tor.
+   */
   async function paid(
     requestId: string,
     proofs: z.infer<typeof ChatPaidRequest>["proofs"],
