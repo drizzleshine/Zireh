@@ -407,3 +407,16 @@ button.brand { background: none; border: 0; padding: 0; cursor: pointer; color: 
 .hit { display: grid; gap: 4px; justify-items: start; border-top: 1px solid var(--rule); padding-top: 10px; }
 .hit a { font-weight: 600; }
 .hit .doc { font-size: var(--s-15); color: var(--muted); }
+
+/* ---------- how it works ---------- */
+dialog:has(.sees) { width: min(720px, calc(100vw - 32px)); }
+.how-steps { margin: 0; padding-left: 1.2em; display: grid; gap: 8px; }
+.how-steps li::marker { color: var(--viridian); font-weight: 700; }
+.sees { border-collapse: collapse; width: 100%; font-size: var(--s-13); }
+.sees caption { text-align: left; padding-bottom: 6px; }
+.sees th, .sees td { padding: 6px 8px; border-bottom: 1px solid var(--rule); text-align: center; }
+.sees th[scope="row"] { text-align: left; font-weight: 500; }
+.sees thead th { color: var(--muted); font-weight: 600; }
+.sees td { color: var(--muted); }
+.sees td.yes { color: var(--viridian); font-weight: 700; }
+.how-link { margin-top: auto; justify-content: flex-start; text-align: left; }

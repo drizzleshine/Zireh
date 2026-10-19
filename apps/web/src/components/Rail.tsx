@@ -11,9 +11,10 @@ interface Props {
   onNewCase: () => void;
   onDemo: () => void;
   onHome: () => void;
+  onHow: () => void;
 }
 
-export function Rail({ status, daemonError, selected, onSelect, onTopUp, onNewCase, onDemo, onHome }: Props) {
+export function Rail({ status, daemonError, selected, onSelect, onTopUp, onNewCase, onDemo, onHome, onHow }: Props) {
   const cases = useStore((s) => s.workspaces.map((w) => ({ id: w.caseId, c: s.cases[w.caseId]?.case, members: s.cases[w.caseId]?.members.length ?? 0 })));
 
   return (
@@ -87,6 +88,10 @@ export function Rail({ status, daemonError, selected, onSelect, onTopUp, onNewCa
           </button>
         </div>
       </section>
+
+      <button className="btn quiet how-link" onClick={onHow}>
+        How Zireh protects you
+      </button>
     </nav>
   );
 }

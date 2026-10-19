@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, DaemonError } from "./api.ts";
 import { CaseView } from "./components/CaseView.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
+import { HowItWorks } from "./components/HowItWorks.tsx";
 import { JoinDialog } from "./components/JoinDialog.tsx";
 import { NewCaseDialog } from "./components/NewCaseDialog.tsx";
 import { Rail } from "./components/Rail.tsx";
@@ -20,7 +21,7 @@ export function App() {
     if (id) setHome(false);
     setSelectedRaw(id);
   };
-  const [dialog, setDialog] = useState<"wallet" | "new-case" | undefined>();
+  const [dialog, setDialog] = useState<"wallet" | "new-case" | "how" | undefined>();
   const [invite, setInvite] = useState<Invite | undefined>(() => parseInvite(location.hash));
   const caseIds = useStore((s) => s.workspaces.map((w) => w.caseId).join(","));
 
@@ -55,6 +56,7 @@ export function App() {
         onTopUp={() => setDialog("wallet")}
         onNewCase={() => setDialog("new-case")}
         onDemo={async () => setSelected(await createDemoCase("You"))}
+        onHow={() => setDialog("how")}
         onHome={() => {
           setHome(true);
           setSelected(undefined);
@@ -72,6 +74,7 @@ export function App() {
         )}
         </ErrorBoundary>
       </main>
+      {dialog === "how" && <HowItWorks onClose={() => setDialog(undefined)} />}
       {dialog === "wallet" && <WalletDialog onClose={() => setDialog(undefined)} onBalanceChange={refresh} />}
       {dialog === "new-case" && (
         <NewCaseDialog
