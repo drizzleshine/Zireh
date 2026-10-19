@@ -18,7 +18,7 @@ const COLUMN_X: Record<Kind, number> = { evidence: 24, observation: 324, finding
 function cardsOf(rec: CaseRecords): Card[] {
   const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
   return [
-    ...rec.evidence.map((e) => ({ id: e.id, kind: "evidence" as const, title: e.title, sub: e.kind === "image" ? "Image" : clip(e.body, 70) })),
+    ...rec.evidence.map((e) => ({ id: e.id, kind: "evidence" as const, title: e.title, sub: `Evidence, ${e.kind === "document" ? "document" : e.kind}` })),
     ...rec.observations.filter((o) => o.status !== "rejected").map((o) => ({ id: o.id, kind: "observation" as const, title: clip(o.text.replace(/^Q: .*\n\n/, ""), 90), sub: o.status === "draft" ? "Draft observation" : "Observation" })),
     ...rec.findings.map((f) => ({ id: f.id, kind: "finding" as const, title: clip(f.statement, 90), sub: "Finding" })),
   ];
@@ -40,12 +40,12 @@ export function BoardPanel({ caseId }: { caseId: string }) {
   const surface = useRef<HTMLDivElement>(null);
   const moved = useRef(false);
 
-  const pos = (c: Card, i: number) => {
+  const pos = (c: Card, _i: number) => {
     if (drag?.id === c.id) return { x: drag.x, y: drag.y };
     const saved = rec.board[c.id];
     if (saved) return saved;
     const sameKind = cards.filter((x) => x.kind === c.kind);
-    return { x: COLUMN_X[c.kind], y: 24 + sameKind.indexOf(c) * (CARD_H + 20) + (i % 2) * 0 };
+    return { x: COLUMN_X[c.kind], y: 24 + sameKind.indexOf(c) * (CARD_H + 44) };
   };
   const centers = new Map(cards.map((c, i) => [c.id, ((p) => ({ x: p.x + CARD_W / 2, y: p.y + CARD_H / 2 }))(pos(c, i))]));
 

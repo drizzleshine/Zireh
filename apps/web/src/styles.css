@@ -363,3 +363,4 @@ dialog h2 { font-size: var(--s-22); }
 .pub-summary { font-size: var(--s-15); }
 .welcome-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .rail-actions { display: flex; flex-wrap: wrap; }
+.levels { justify-self: start; }

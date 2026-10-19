@@ -79,3 +79,25 @@ export function startTor(options: TorOptions): TorProcess {
     stop: () => child.kill("SIGTERM"),
   };
 }
+
+/**
+ * Publish a local HTTP server as an onion service and resolve its http://….onion URL.
+ * Clients then reach it entirely inside Tor: no exit node, and the server never learns
+ * their IP. The keys in `dataDir/onion` keep the address stable across restarts.
+ */
+export async function exposeAsOnion(options: { dataDir: string; localPort: number; socksPort: number; onProgress?: (p: number) => void }): Promise<{ url: string; tor: TorProcess }> {
+  const tor = startTor({
+    dataDir: join(options.dataDir, "tor"),
+    socksPort: options.socksPort,
+    onion: { dir: join(options.dataDir, "onion"), virtualPort: 80, target: `127.0.0.1:${options.localPort}` },
+    ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+  });
+  await tor.bootstrapped;
+  for (let i = 0; i < 100; i++) {
+    const host = tor.onionAddress();
+    if (host) return { url: `http://${host}`, tor };
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  tor.stop();
+  throw new Error("tor did not create the onion service");
+}

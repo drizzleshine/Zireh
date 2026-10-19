@@ -8,7 +8,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "check:layers": "tsx scripts/check-layers.ts",
     "check": "pnpm check:layers && pnpm typecheck && pnpm test",
-    "smoke:tor": "tsx scripts/smoke-tor.ts"
+    "smoke:tor": "tsx scripts/smoke-tor.ts",
+    "dev": "tsx scripts/dev.ts"
   },
   "engines": {
     "node": ">=22"
