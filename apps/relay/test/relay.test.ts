@@ -5,7 +5,7 @@ import { directTransport } from "@zireh/tor";
 import { generateMintKeys, memoryProofStore, memorySpentStore, Mint, prepareTopup, Wallet } from "@zireh/wallet";
 import { fixedRate, simulatedWatcher } from "@zireh/zcash";
 import { describe, expect, it } from "vitest";
-import { createRelay, memoryResponseStore } from "../src/relay.ts";
+import { createRelay, memoryResponseStore } from "@zireh/relay-core";
 
 const MODEL = "nvidia/nemotron-3-super-120b-a12b";
 const price: ModelPrice = { model: MODEL, inputPerMTok: 300_000, outputPerMTok: 900_000 };

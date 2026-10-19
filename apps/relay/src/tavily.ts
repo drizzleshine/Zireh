@@ -1,4 +1,4 @@
-import type { SearchFn } from "./relay.ts";
+import type { SearchFn } from "@zireh/relay-core";
 
 /** Tavily web search, called by the relay with its own key. Users reach it only through the relay. */
 export function tavilySearch(apiKey: string, fetchFn: typeof fetch = fetch): SearchFn {

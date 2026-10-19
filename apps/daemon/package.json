@@ -1,0 +1,27 @@
+{
+  "name": "@zireh/daemon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "@zireh/crypto": "workspace:*",
+    "@zireh/inference": "workspace:*",
+    "@zireh/ledger": "workspace:*",
+    "@zireh/llm": "workspace:*",
+    "@zireh/redact": "workspace:*",
+    "@zireh/schema": "workspace:*",
+    "@zireh/shield": "workspace:*",
+    "@zireh/sync": "workspace:*",
+    "@zireh/tor": "workspace:*",
+    "@zireh/wallet": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@zireh/relay-core": "workspace:*",
+    "@zireh/zcash": "workspace:*"
+  }
+}

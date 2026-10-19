@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { generateMintKeys, type MintKeys, type SpentStore } from "@zireh/wallet";
-import type { ResponseStore, StoredResponse } from "./relay.ts";
+import type { ResponseStore, StoredResponse } from "@zireh/relay-core";
 
 /** Mint keys live in one owner-only file. Losing it invalidates all outstanding coins. */
 export function loadOrCreateMintKeys(dataDir: string): MintKeys {

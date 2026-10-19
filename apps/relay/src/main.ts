@@ -3,7 +3,7 @@ import { openAiCompatible } from "@zireh/llm";
 import { Mint } from "@zireh/wallet";
 import { fixedRate, simulatedWatcher } from "@zireh/zcash";
 import { loadConfig } from "./config.ts";
-import { createRelay } from "./relay.ts";
+import { createRelay } from "@zireh/relay-core";
 import { loadOrCreateMintKeys, openRelayDb, sqliteResponseStore, sqliteSpentStore } from "./storage.ts";
 import { tavilySearch } from "./tavily.ts";
 

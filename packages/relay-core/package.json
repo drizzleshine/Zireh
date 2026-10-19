@@ -1,0 +1,17 @@
+{
+  "name": "@zireh/relay-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "zireh": {
+    "layer": 5
+  },
+  "dependencies": {
+    "@zireh/llm": "workspace:*",
+    "@zireh/schema": "workspace:*",
+    "@zireh/wallet": "workspace:*",
+    "@zireh/zcash": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}

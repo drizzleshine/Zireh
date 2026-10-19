@@ -8,15 +8,14 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",
-    "@zireh/crypto": "workspace:*",
     "@zireh/llm": "workspace:*",
+    "@zireh/relay-core": "workspace:*",
     "@zireh/schema": "workspace:*",
+    "@zireh/tor": "workspace:*",
     "@zireh/wallet": "workspace:*",
-    "@zireh/zcash": "workspace:*",
-    "zod": "^4.6.7"
+    "@zireh/zcash": "workspace:*"
   },
   "devDependencies": {
-    "@zireh/inference": "workspace:*",
-    "@zireh/tor": "workspace:*"
+    "@zireh/inference": "workspace:*"
   }
 }

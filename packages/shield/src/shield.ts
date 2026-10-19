@@ -55,9 +55,13 @@ function buildMessages(content: string, salt: string | undefined): ChatMessage[]
  * Compile a task into the calls that may leave the device. Every stage appends to the trace.
  * Any stage error propagates: the caller sends nothing (fail closed).
  */
-export async function compile(local: ChatModel, input: ShieldInput): Promise<Plan> {
+export async function compile(local: ChatModel, input: ShieldInput, onStep?: (step: TraceStep) => void): Promise<Plan> {
   const policy = LEVELS[input.level];
   const trace: TraceStep[] = [];
+  const step = (s: TraceStep) => {
+    trace.push(s);
+    onStep?.(s);
+  };
   const maxTokens = input.maxTokens ?? DEFAULT_MAX_TOKENS;
 
   // 1. redact — task and context share one table so placeholders agree everywhere.
@@ -65,7 +69,7 @@ export async function compile(local: ChatModel, input: ShieldInput): Promise<Pla
   const combined = contextText ? `${contextText}\n\nTask: ${input.task}` : input.task;
   const red = await redactText(local, combined, input.table);
   const redactedTask = applyTable(input.task, red.table);
-  trace.push({
+  step({
     stage: "redact",
     title: `Hid ${red.table.length} value${red.table.length === 1 ? "" : "s"}`,
     detail: red.added.length
@@ -84,14 +88,14 @@ export async function compile(local: ChatModel, input: ShieldInput): Promise<Pla
       ],
       { maxTokens, temperature: 0.3 },
     );
-    trace.push({ stage: "route", title: "Answered on this device", detail: "Local only: nothing was sent." });
+    step({ stage: "route", title: "Answered on this device", detail: "Local only: nothing was sent." });
     return { level: input.level, task: input.task, redactedTask, table: red.table, pieces: [], blocked: [], localAnswer: content, trace };
   }
-  trace.push({ stage: "route", title: "Sending to the cloud model", detail: `Privacy level: ${input.level}.` });
+  step({ stage: "route", title: "Sending to the cloud model", detail: `Privacy level: ${input.level}.` });
 
   // 3. split
   const questions = policy.split ? await splitTask(local, red.text) : [red.text];
-  trace.push({
+  step({
     stage: "split",
     title: policy.split ? `Split into ${questions.length} independent question${questions.length === 1 ? "" : "s"}` : "Not split",
     detail: policy.split ? questions.map((q, i) => `${i + 1}. ${q}`).join("\n") : "This level sends the task as one request.",
@@ -110,7 +114,7 @@ export async function compile(local: ChatModel, input: ShieldInput): Promise<Pla
     if (passes(report, policy.leakThreshold)) approved.push({ question: text, score: report.score });
     else blocked.push({ question: text, report });
   }
-  trace.push({
+  step({
     stage: "leakcheck",
     title: blocked.length ? `Blocked ${blocked.length} of ${questions.length}` : "All pieces passed",
     detail: [
@@ -130,12 +134,12 @@ export async function compile(local: ChatModel, input: ShieldInput): Promise<Pla
   }
   const shuffled = shuffle(pieces);
   const decoyCount = shuffled.filter((p) => p.role === "decoy").length;
-  trace.push({
+  step({
     stage: "decoy",
     title: decoyCount ? `Added ${decoyCount} decoy${decoyCount === 1 ? "" : "s"}` : "No decoys",
     detail: decoyCount ? `${approved.length} real and ${decoyCount} decoy requests, shuffled. Each goes on its own Tor circuit.` : "This level sends no cover traffic.",
   });
-  trace.push({
+  step({
     stage: "order",
     title: "Cache-safe prompt order",
     detail: salt
@@ -147,7 +151,12 @@ export async function compile(local: ChatModel, input: ShieldInput): Promise<Pla
 }
 
 /** Combine answers for the real pieces (decoy answers are dropped) and restore pseudonyms locally. */
-export async function finish(local: ChatModel, plan: Plan, answers: ReadonlyMap<string, string>): Promise<Outcome> {
+export async function finish(
+  local: ChatModel,
+  plan: Plan,
+  answers: ReadonlyMap<string, string>,
+  onStep?: (step: TraceStep) => void,
+): Promise<Outcome> {
   const trace = [...plan.trace];
   if (plan.localAnswer !== undefined) {
     return {
@@ -165,7 +174,7 @@ export async function finish(local: ChatModel, plan: Plan, answers: ReadonlyMap<
   if (answered.length === 0) throw new Error("no real piece was answered");
 
   const citations = await reassemble(local, plan.redactedTask, answered);
-  trace.push({
+  const last: TraceStep = {
     stage: "reassemble",
     title: "Combined on this device",
     detail: [
@@ -175,6 +184,8 @@ export async function finish(local: ChatModel, plan: Plan, answers: ReadonlyMap<
     ]
       .filter(Boolean)
       .join(" "),
-  });
+  };
+  trace.push(last);
+  onStep?.(last);
   return { answer: restore(citations.text, plan.table), redactedAnswer: citations.text, citations, trace };
 }
