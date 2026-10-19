@@ -10,6 +10,7 @@
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": false,
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,

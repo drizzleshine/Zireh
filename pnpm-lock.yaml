@@ -30,8 +30,65 @@ importers:
         specifier: ^2.4.0
         version: 2.4.0
 
+  packages/decoy:
+    dependencies:
+      '@zireh/llm':
+        specifier: workspace:*
+        version: link:../llm
+      '@zireh/schema':
+        specifier: workspace:*
+        version: link:../schema
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
+  packages/leakcheck:
+    dependencies:
+      '@zireh/llm':
+        specifier: workspace:*
+        version: link:../llm
+      '@zireh/schema':
+        specifier: workspace:*
+        version: link:../schema
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
+  packages/llm:
+    dependencies:
+      '@zireh/schema':
+        specifier: workspace:*
+        version: link:../schema
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
+  packages/redact:
+    dependencies:
+      '@zireh/llm':
+        specifier: workspace:*
+        version: link:../llm
+      '@zireh/schema':
+        specifier: workspace:*
+        version: link:../schema
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
   packages/schema:
     dependencies:
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
+  packages/split:
+    dependencies:
+      '@zireh/llm':
+        specifier: workspace:*
+        version: link:../llm
+      '@zireh/schema':
+        specifier: workspace:*
+        version: link:../schema
       zod:
         specifier: ^4.6.7
         version: 4.6.7

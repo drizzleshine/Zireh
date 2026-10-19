@@ -1,0 +1,12 @@
+{
+  "name": "@zireh/llm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "zireh": { "layer": 1 },
+  "dependencies": {
+    "@zireh/schema": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}

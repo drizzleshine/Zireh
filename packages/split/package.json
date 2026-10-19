@@ -1,0 +1,13 @@
+{
+  "name": "@zireh/split",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "zireh": { "layer": 2 },
+  "dependencies": {
+    "@zireh/llm": "workspace:*",
+    "@zireh/schema": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}
