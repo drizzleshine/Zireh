@@ -44,7 +44,8 @@ interface RunSlot {
 }
 const slots = new Map<string, RunSlot>();
 const slotListeners = new Set<() => void>();
-const getSlot = (caseId: string): RunSlot => slots.get(caseId) ?? { running: false };
+const EMPTY: RunSlot = Object.freeze({ running: false }); // stable: snapshots must not change identity
+const getSlot = (caseId: string): RunSlot => slots.get(caseId) ?? EMPTY;
 function setSlot(caseId: string, update: (s: RunSlot) => RunSlot) {
   slots.set(caseId, update(getSlot(caseId)));
   for (const l of slotListeners) l();
