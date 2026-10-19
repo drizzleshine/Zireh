@@ -3,6 +3,7 @@ import type { EntityKind } from "@zireh/schema";
 export interface Detection {
   readonly text: string;
   readonly kind: EntityKind;
+  readonly hint?: string;
 }
 
 /**

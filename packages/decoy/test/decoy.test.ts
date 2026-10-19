@@ -27,6 +27,16 @@ describe("makeDecoys", () => {
     await expect(makeDecoys(model, real, 2)).rejects.toThrow(/only 1 of 2/);
   });
 
+  it("rejects decoys with placeholders the real question doesn't use", async () => {
+    const realWithPlace = "What legal protections exist for reporters working in [PLACE_1]?";
+    const model = scriptedModel(() =>
+      JSON.stringify({
+        decoys: ["What labor laws protect dock workers in [NEW_PLACE_1]?", "What tax rules apply to freelance writers in [PLACE_1]?"],
+      }),
+    );
+    expect(await makeDecoys(model, realWithPlace, 1)).toEqual(["What tax rules apply to freelance writers in [PLACE_1]?"]);
+  });
+
   it("asks nothing for zero decoys", async () => {
     const model = scriptedModel(() => {
       throw new Error("should not be called");

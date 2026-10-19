@@ -34,7 +34,8 @@ export function extendTable(table: readonly Pseudonym[], detections: readonly De
     const n = (counters.get(prefix) ?? 0) + 1;
     counters.set(prefix, n);
     known.add(norm(original));
-    next.push({ original, placeholder: `[${prefix}_${n}]`, kind: d.kind });
+    const hint = d.hint?.trim();
+    next.push({ original, placeholder: `[${prefix}_${n}]`, kind: d.kind, ...(hint && !hint.toLowerCase().includes(norm(original)) ? { hint } : {}) });
   }
   return next;
 }
@@ -49,6 +50,10 @@ export function applyTable(text: string, table: readonly Pseudonym[]): string {
   }
   return out;
 }
+
+/** "[PLACE_1] = a large city in Nigeria" lines, for stages that rewrite questions. */
+export const glossary = (table: readonly Pseudonym[]): string[] =>
+  table.filter((p) => p.hint).map((p) => `${p.placeholder} = ${p.hint}`);
 
 /** Put the originals back into text that came back from the provider. */
 export function restore(text: string, table: readonly Pseudonym[]): string {

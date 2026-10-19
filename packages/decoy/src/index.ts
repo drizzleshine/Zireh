@@ -4,10 +4,16 @@ import { z } from "zod";
 const PROMPT = (n: number) => `Write ${n} decoy questions for privacy cover traffic.
 Each decoy must look like it was written by the same kind of person as the real question:
 similar length, tone and level of detail, a believable research topic, but about a clearly
-different subject. Use placeholders like [PERSON_1] only if the real question does.
+different subject. Never invent bracketed placeholders.
 Reply with JSON only: {"decoys":["...", ...]}`;
 
 const lengthOk = (decoy: string, real: string) => decoy.length >= real.length * 0.4 && decoy.length <= real.length * 2.5;
+
+/** A decoy may only use placeholders the real question uses; anything else gives it away. */
+const placeholdersOk = (decoy: string, real: string) => {
+  const allowed = new Set(real.match(/\[[A-Z_]+\d*\]/g) ?? []);
+  return (decoy.match(/\[[^\]]*\]/g) ?? []).every((p) => allowed.has(p));
+};
 
 /**
  * Plausible decoys for one real piece. Decoys that are too short/long (and therefore easy to
@@ -26,7 +32,7 @@ export async function makeDecoys(model: ChatModel, realQuestion: string, n: numb
     { maxTokens: 300 + 200 * n, temperature: 0.9 },
   );
   const real = realQuestion.trim().toLowerCase();
-  const usable = [...new Set(decoys)].filter((d) => d.toLowerCase() !== real && lengthOk(d, realQuestion));
+  const usable = [...new Set(decoys)].filter((d) => d.toLowerCase() !== real && lengthOk(d, realQuestion) && placeholdersOk(d, realQuestion));
   if (usable.length < n) throw new Error(`decoy: only ${usable.length} of ${n} decoys were usable`);
   return usable.slice(0, n);
 }

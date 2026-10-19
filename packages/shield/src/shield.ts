@@ -2,7 +2,7 @@ import { randomId, shuffle } from "@zireh/crypto";
 import { makeDecoys } from "@zireh/decoy";
 import { checkLeak, generalize, passes, type LeakReport } from "@zireh/leakcheck";
 import type { ChatModel } from "@zireh/llm";
-import { applyTable, redactText, restore } from "@zireh/redact";
+import { applyTable, glossary, redactText, restore } from "@zireh/redact";
 import { LEVELS, type ChatMessage, type OutboundPiece, type PrivacyLevel, type Pseudonym, type TraceStep } from "@zireh/schema";
 import { reassemble, splitTask, type Reassembled } from "@zireh/split";
 
@@ -94,11 +94,13 @@ export async function compile(local: ChatModel, input: ShieldInput, onStep?: (st
   step({ stage: "route", title: "Sending to the cloud model", detail: `Privacy level: ${input.level}.` });
 
   // 3. split
-  const questions = policy.split ? await splitTask(local, red.text) : [red.text];
+  // Every cloud level rewrites the task as general question(s), using vague descriptions in
+  // place of hidden values so the provider can answer without them. Higher levels also split.
+  const questions = await splitTask(local, red.text, glossary(red.table), policy.split ? undefined : 1);
   step({
     stage: "split",
-    title: policy.split ? `Split into ${questions.length} independent question${questions.length === 1 ? "" : "s"}` : "Not split",
-    detail: policy.split ? questions.map((q, i) => `${i + 1}. ${q}`).join("\n") : "This level sends the task as one request.",
+    title: policy.split ? `Split into ${questions.length} independent question${questions.length === 1 ? "" : "s"}` : "Rewritten as one general question",
+    detail: questions.map((q, i) => `${i + 1}. ${q}`).join("\n"),
   });
 
   // 4. leakcheck — one generalization attempt, then block.

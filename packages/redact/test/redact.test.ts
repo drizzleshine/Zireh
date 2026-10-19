@@ -1,6 +1,6 @@
 import { scriptedModel } from "@zireh/llm";
 import { describe, expect, it } from "vitest";
-import { applyTable, detectPatterns, extendTable, findLeaks, redactText, restore } from "../src/index.ts";
+import { applyTable, detectPatterns, extendTable, findLeaks, glossary, redactText, restore } from "../src/index.ts";
 
 describe("detectPatterns", () => {
   it("finds contacts, ids and money without overlap", () => {
@@ -46,6 +46,21 @@ describe("redactText", () => {
     const result = await redactText(model, "Dr. Okafor (okafor@stmary.ng) asked about it.", []);
     expect(result.text).toBe("[PERSON_1] ([CONTACT_1]) asked about it.");
     expect(result.added.map((p) => p.original).sort()).toEqual(["Dr. Okafor", "okafor@stmary.ng"]);
+  });
+
+  it("keeps vague hints but drops hints that contain the hidden value", async () => {
+    const model = scriptedModel(() =>
+      JSON.stringify({
+        entities: [
+          { text: "Lagos", kind: "place", hint: "a large city in Nigeria" },
+          { text: "Daily Ledger", kind: "org", hint: "the Daily Ledger newspaper" },
+        ],
+      }),
+    );
+    const { table } = await redactText(model, "The Daily Ledger in Lagos.", []);
+    expect(table.find((p) => p.original === "Lagos")!.hint).toBe("a large city in Nigeria");
+    expect(table.find((p) => p.original === "Daily Ledger")!.hint).toBeUndefined();
+    expect(glossary(table)).toEqual(["[PLACE_1] = a large city in Nigeria"]);
   });
 
   it("throws (fail closed) when the local model can't produce entities", async () => {

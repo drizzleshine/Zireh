@@ -7,25 +7,31 @@ const Plan = z.object({
   pieces: z.array(z.string().trim().min(8).max(600)).min(1).max(MAX_PIECES),
 });
 
-const SPLIT_PROMPT = `You protect a researcher's privacy. Their task will be sent to an outside AI.
-Rewrite it as 1 to ${MAX_PIECES} separate general questions that together give everything needed,
-where no single question reveals the full situation or who it is about.
-Each question must make sense alone, keep placeholders like [PERSON_1] unchanged, and add no new facts.
-If the task cannot be split without losing meaning, return it as a single question.
-Reply with JSON only: {"pieces":["...","..."]}`;
+const SPLIT_PROMPT = (max: number) => `You protect a researcher's privacy. Their task goes to an outside expert AI.
+Rewrite it as ${max === 1 ? "one general question" : `1 to ${max} separate general questions that together cover what is needed`}.
+Rules:
+- Each item is a complete question an expert can answer on its own.
+- Placeholders like [PLACE_1] hide real values. Where the answer depends on what kind of thing it is,
+  use its description from the glossary instead (e.g. "a large city in Nigeria").
+- Keep a placeholder only if the user needs it back in the answer (e.g. a name in a letter draft).
+- ${max === 1 ? "Keep everything needed to answer." : "No single question may reveal the whole situation."} Add no new facts.
+Reply with JSON only: {"pieces":["...?"]}`;
 
-/** Break a redacted task into independent pieces. One piece means "not splittable". */
-export async function splitTask(model: ChatModel, redactedTask: string): Promise<string[]> {
+/**
+ * Rewrite a redacted task as general questions. `maxPieces` 1 means "rewrite, don't split".
+ * The glossary maps placeholders to vague descriptions the questions may use instead.
+ */
+export async function splitTask(model: ChatModel, redactedTask: string, glossary: readonly string[] = [], maxPieces = MAX_PIECES): Promise<string[]> {
   const plan = await chatJson(
     model,
     [
-      { role: "system", content: SPLIT_PROMPT },
-      { role: "user", content: redactedTask },
+      { role: "system", content: SPLIT_PROMPT(maxPieces) },
+      { role: "user", content: `${glossary.length ? `Glossary:\n${glossary.join("\n")}\n\n` : ""}Task: ${redactedTask}` },
     ],
     Plan,
     { maxTokens: 700, temperature: 0.2 },
   );
-  return [...new Set(plan.pieces)];
+  return [...new Set(plan.pieces)].slice(0, maxPieces);
 }
 
 export interface PieceAnswer {

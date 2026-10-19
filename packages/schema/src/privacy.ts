@@ -27,6 +27,8 @@ export const Pseudonym = z.object({
   original: z.string().min(1),
   placeholder: z.string().regex(/^\[[A-Z]+_\d+\]$/),
   kind: EntityKind,
+  /** Vague description true of many others ("a large city in Nigeria"). Lets the cloud answer without the value. */
+  hint: z.string().max(80).optional(),
 });
 export type Pseudonym = z.infer<typeof Pseudonym>;
 
