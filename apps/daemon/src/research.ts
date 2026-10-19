@@ -16,6 +16,7 @@ export interface ResearchRequest {
   readonly salt: string;
   readonly model: string;
   readonly maxTokens?: number;
+  readonly caseId?: string; // for the local privacy log only
 }
 
 const RETRIES = 2;
@@ -45,7 +46,7 @@ export async function runResearch(
   });
 
   if (plan.localAnswer !== undefined) {
-    deps.ledger.record({ destination: "local", role: "real", payload: req.task });
+    deps.ledger.record({ destination: "local", role: "real", payload: req.task, ...(req.caseId ? { caseId: req.caseId } : {}) });
     const outcome = await finish(deps.local, plan, new Map(), onStep);
     emit({ type: "done", outcome: { answer: outcome.answer, redactedAnswer: outcome.redactedAnswer, citations: outcome.citations }, table: plan.table, spent: 0, ms: Date.now() - started });
     return;
@@ -76,6 +77,7 @@ export async function runResearch(
           deps.ledger.record({
             destination: "relay",
             role: piece.role,
+            ...(req.caseId ? { caseId: req.caseId } : {}),
             payload: piece.messages,
             circuit,
             charged: result.charged,

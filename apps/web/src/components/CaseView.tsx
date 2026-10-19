@@ -69,7 +69,7 @@ export function CaseView({ caseId, status, onBalanceChange, onTopUp }: Props) {
       {tab === "board" && <BoardPanel caseId={caseId} />}
       {tab === "findings" && <FindingsPanel caseId={caseId} />}
       {tab === "conclude" && <ConcludePanel caseId={caseId} />}
-      {tab === "log" && <LogPanel />}
+      {tab === "log" && <LogPanel caseId={caseId} />}
     </>
   );
 }

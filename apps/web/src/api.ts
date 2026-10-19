@@ -35,10 +35,10 @@ export const api = {
   quote: (credits: number) => call<TopupQuote>("/api/wallet/quote", { credits }),
   simulatePayment: (quoteId: string) => call<{ ok: true }>("/api/wallet/simulate-payment", { quoteId }),
   redeem: (quote: TopupQuote) => call<{ balance: number }>("/api/wallet/redeem", quote),
-  receipts: () =>
-    call<{ receipts: Receipt[]; summary: { calls: number; real: number; decoys: number; spent: number; overcharges: number } }>("/api/receipts"),
-  search: (query: string, table: readonly Pseudonym[]) =>
-    call<{ redactedQuery: string; hits: { title: string; url: string; content: string }[]; table: Pseudonym[]; charged: number }>("/api/search", { query, table }),
+  receipts: (caseId?: string) =>
+    call<{ receipts: Receipt[]; summary: { calls: number; real: number; decoys: number; spent: number; overcharges: number } }>(`/api/receipts${caseId ? `?caseId=${caseId}` : ""}`),
+  search: (query: string, table: readonly Pseudonym[], caseId?: string) =>
+    call<{ redactedQuery: string; hits: { title: string; url: string; content: string }[]; table: Pseudonym[]; charged: number }>("/api/search", { query, table, caseId }),
   redact: (texts: string[], table: readonly Pseudonym[]) => call<{ table: Pseudonym[] }>("/api/redact", { texts, table }),
   push: (caseId: string, token: string, records: Envelope[]) => call<{ cursor: number }>("/api/sync/push", { caseId, token, records }),
   pull: (caseId: string, token: string, after: number) => call<PullResponse>("/api/sync/pull", { caseId, token, after }),
@@ -50,6 +50,7 @@ export interface ResearchInput {
   readonly level: PrivacyLevel;
   readonly table: readonly Pseudonym[];
   readonly salt: string;
+  readonly caseId?: string;
 }
 
 /** Run a research question; events arrive as the pipeline progresses. */

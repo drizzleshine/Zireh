@@ -35,6 +35,7 @@ const ResearchBody = z.object({
   table: z.array(Pseudonym).max(500).default([]),
   salt: z.string().regex(/^[0-9a-f]{64}$/),
   model: z.string().optional(),
+  caseId: z.string().regex(/^[0-9a-f]{32}$/).optional(),
 });
 
 /**
@@ -127,7 +128,11 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
       return json(200, { recovered: recovered.length, failed: failed.map((f) => f.message), balance: deps.wallet.balance });
     },
 
-    "GET /api/receipts": async () => json(200, { receipts: deps.ledger.receipts(), summary: deps.ledger.summary() }),
+    "GET /api/receipts": async (_req, url) => {
+      const caseId = url.searchParams.get("caseId") ?? undefined;
+      const receipts = deps.ledger.receipts().filter((r) => !caseId || r.caseId === caseId);
+      return json(200, { receipts, summary: deps.ledger.summary(caseId) });
+    },
 
     /** Server-sent events: each pipeline stage as it happens, then the final answer. */
     "POST /api/research": async (req) => {
@@ -168,13 +173,13 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
     },
 
     "POST /api/search": async (req) => {
-      const body = z.object({ query: z.string().trim().min(2).max(400), table: z.array(Pseudonym).default([]) }).parse(await req.json());
+      const body = z.object({ query: z.string().trim().min(2).max(400), table: z.array(Pseudonym).default([]), caseId: z.string().regex(/^[0-9a-f]{32}$/).optional() }).parse(await req.json());
       const red = await redactText(deps.local, body.query, body.table);
       const call = await deps.relay.prepareSearch(red.text, 5);
       const circuit = newCircuitTag();
       const result = await deps.relay.send(call, circuit);
       if (result.kind !== "search") throw new Error("unexpected result kind");
-      deps.ledger.record({ destination: "search", role: "real", payload: red.text, circuit, charged: result.charged });
+      deps.ledger.record({ destination: "search", role: "real", payload: red.text, circuit, charged: result.charged, ...(body.caseId ? { caseId: body.caseId } : {}) });
       return json(200, { redactedQuery: red.text, hits: result.hits, table: red.table, charged: result.charged });
     },
 

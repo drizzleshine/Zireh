@@ -62,6 +62,7 @@ export class Ledger {
   record(entry: {
     destination: Receipt["destination"];
     role: Receipt["role"];
+    caseId?: string;
     payload: readonly ChatMessage[] | string;
     circuit?: string;
     charged?: number;
@@ -75,6 +76,7 @@ export class Ledger {
       at: new Date().toISOString(),
       destination: entry.destination,
       role: entry.role,
+      ...(entry.caseId ? { caseId: entry.caseId } : {}),
       payloadSha256: sha256Hex(wire),
       payloadPreview: preview.slice(0, 2000),
       ...(entry.circuit ? { circuit: entry.circuit } : {}),
@@ -90,8 +92,8 @@ export class Ledger {
     return this.store.receipts().sort((a, b) => b.at.localeCompare(a.at));
   }
 
-  summary(): Summary {
-    const rs = this.store.receipts().filter((r) => r.destination !== "local");
+  summary(caseId?: string): Summary {
+    const rs = this.store.receipts().filter((r) => r.destination !== "local" && (!caseId || r.caseId === caseId));
     return {
       calls: rs.length,
       real: rs.filter((r) => r.role === "real").length,

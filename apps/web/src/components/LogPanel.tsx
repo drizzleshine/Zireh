@@ -5,12 +5,13 @@ import { api, formatUsd } from "../api.ts";
 type Data = Awaited<ReturnType<typeof api.receipts>>;
 
 /** Every payload that left this computer, as sent, with its hash and cost. */
-export function LogPanel() {
+export function LogPanel({ caseId }: { caseId: string }) {
   const [data, setData] = useState<Data | undefined>();
   const [error, setError] = useState<string | undefined>();
+  const [scope, setScope] = useState<"case" | "all">("case");
   useEffect(() => {
-    api.receipts().then(setData, (e: Error) => setError(e.message));
-  }, []);
+    api.receipts(scope === "case" ? caseId : undefined).then(setData, (e: Error) => setError(e.message));
+  }, [caseId, scope]);
 
   if (error) return <section className="panel"><p className="error">{error}</p></section>;
   if (!data) return <section className="panel">Loading…</section>;
@@ -19,9 +20,17 @@ export function LogPanel() {
   return (
     <section className="panel" aria-label="Privacy log">
       <p className="doc" style={{ maxWidth: "70ch" }}>
-        Everything this computer has sent, across all cases. The log stays here. Each row is exactly what left, after names were
-        hidden, and its hash lets you prove what a provider received.
+        Everything this computer has sent. The log stays here. Each row is exactly what left, after names were hidden, and its hash
+        lets you prove what a provider received.
       </p>
+      <div className="levels" role="group" aria-label="Which requests">
+        <button aria-pressed={scope === "case"} onClick={() => setScope("case")}>
+          This case
+        </button>
+        <button aria-pressed={scope === "all"} onClick={() => setScope("all")}>
+          All cases
+        </button>
+      </div>
       <div className="summary">
         <div>
           <strong>{summary.calls}</strong>

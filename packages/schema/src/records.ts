@@ -27,6 +27,7 @@ export interface Receipt {
   readonly id: string;
   readonly at: string;
   readonly destination: "relay" | "search" | "local";
+  readonly caseId?: string; // local bookkeeping only; never sent anywhere
   readonly role: "real" | "decoy";
   readonly payloadSha256: string;
   readonly payloadPreview: string; // redacted text as sent

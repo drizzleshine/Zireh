@@ -63,6 +63,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
           level,
           table: rec.pseudonyms,
           salt: rec.case.salt,
+          caseId,
           context: rec.evidence.filter((e) => contextIds.includes(e.id) && e.kind !== "image").map((e) => `${e.title}\n${e.body}`),
         },
         (e) => {

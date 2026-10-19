@@ -24,7 +24,7 @@ export function SearchBox({ caseId }: { caseId: string }) {
           setBusy(true);
           setError(undefined);
           try {
-            const r = await api.search(query, rec.pseudonyms);
+            const r = await api.search(query, rec.pseudonyms, caseId);
             await savePseudonyms(caseId, r.table);
             setResult({ sent: r.redactedQuery, hits: r.hits, charged: r.charged });
           } catch (err) {
