@@ -45,6 +45,11 @@ describe("pseudonym table", () => {
     expect(restore(redacted, table)).toBe("Ada Obi met Ada in Lagos. Adamant!");
   });
 
+  it("restore turns invented placeholders into plain words", () => {
+    const table = extendTable([], [{ text: "Ada", kind: "person" }]);
+    expect(restore("[PERSON_1] and [PERSON_7] met at [PLACE_3].", table)).toBe("Ada and someone met at a place.");
+  });
+
   it("findLeaks reports originals that survived", () => {
     const table = extendTable([], [{ text: "Lagos", kind: "place" }]);
     expect(findLeaks("flights to lagos", table)).toEqual(["Lagos"]);

@@ -19,7 +19,17 @@ export interface ResearchRequest {
   readonly caseId?: string | undefined; // for the local privacy log only
 }
 
-const RETRIES = 2;
+const RETRIES = 4;
+/** Concurrent sends. Many brand-new circuits to one onion service at once tend to fail. */
+const CONCURRENCY = 4;
+
+/** Run tasks with at most `limit` in flight. */
+async function pool<T>(items: readonly T[], limit: number, run: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) await run(items[next++]!);
+  }));
+}
 
 /**
  * One research question, end to end: compile locally, send every piece (real and decoy) on its
@@ -61,8 +71,10 @@ export async function runResearch(
   let spent = 0;
   const answers = new Map<string, string>();
 
-  await Promise.all(
-    plan.pieces.map(async (piece) => {
+  await pool(
+    plan.pieces,
+    CONCURRENCY,
+    async (piece) => {
       const call = await deps.relay.prepareChat(req.model, piece.messages, piece.maxTokens);
       deps.ledger.startRun(call.requestId, piece.id, maxCost(price, piece.messages, piece.maxTokens));
       for (let attempt = 0; attempt <= RETRIES; attempt++) {
@@ -92,6 +104,7 @@ export async function runResearch(
           const retryable = err instanceof RelayCallError && err.retryable;
           if (retryable && attempt < RETRIES) {
             if (attempt === 0) deps.ledger.advance(call.requestId, "submission-unknown");
+            await new Promise((r) => setTimeout(r, 750 * (attempt + 1))); // let Tor settle
             continue; // same requestId, new circuit: the relay answers from its store if it already ran
           }
           deps.ledger.advance(call.requestId, "failed", { error: (err as Error).message });
@@ -99,7 +112,7 @@ export async function runResearch(
           return;
         }
       }
-    }),
+    },
   );
 
   const outcome = await finish(deps.local, plan, answers, onStep);

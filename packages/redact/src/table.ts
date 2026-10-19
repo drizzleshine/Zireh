@@ -86,11 +86,25 @@ export function withHints(text: string, table: readonly Pseudonym[]): string {
   return out;
 }
 
-/** Put the originals back into text that came back from the provider. */
+const BY_PREFIX: Readonly<Record<string, string>> = {
+  PERSON: "someone",
+  ORG: "an organization",
+  PLACE: "a place",
+  ID: "an identifier",
+  CONTACT: "a contact",
+  DATE: "a date",
+  AMOUNT: "an amount",
+  ITEM: "something",
+};
+
+/**
+ * Put the originals back into text that came back from the provider. Placeholders the
+ * provider invented (not in the table) become plain words, never raw brackets.
+ */
 export function restore(text: string, table: readonly Pseudonym[]): string {
   let out = text;
   for (const p of table) out = out.split(p.placeholder).join(p.original);
-  return out;
+  return out.replace(/\[([A-Z]+)_\d+\]/g, (m, prefix: string) => BY_PREFIX[prefix] ?? m);
 }
 
 /** Originals from the table that still appear in `text`: anything here must not leave. */
