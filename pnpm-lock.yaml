@@ -52,6 +52,28 @@ importers:
         specifier: workspace:*
         version: link:../../packages/tor
 
+  apps/sync-host:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^2.1.5
+        version: 2.1.5(hono@4.13.13)
+      '@zireh/cases':
+        specifier: workspace:*
+        version: link:../../packages/cases
+      '@zireh/sync':
+        specifier: workspace:*
+        version: link:../../packages/sync
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@zireh/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
+      '@zireh/schema':
+        specifier: workspace:*
+        version: link:../../packages/schema
+
   packages/cases:
     dependencies:
       '@zireh/crypto':
