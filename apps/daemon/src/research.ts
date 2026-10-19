@@ -16,7 +16,7 @@ export interface ResearchRequest {
   readonly salt: string;
   readonly model: string;
   readonly maxTokens?: number;
-  readonly caseId?: string; // for the local privacy log only
+  readonly caseId?: string | undefined; // for the local privacy log only
 }
 
 const RETRIES = 2;
