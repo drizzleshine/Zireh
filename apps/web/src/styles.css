@@ -288,9 +288,18 @@ dialog h2 { font-size: var(--s-22); }
 .welcome h1 { font-family: var(--doc); font-weight: 500; font-size: var(--s-35); line-height: 1.2; letter-spacing: -0.015em; }
 .welcome .doc { color: var(--muted); }
 
+.main { min-width: 0; }
+.case-head h1 { overflow-wrap: anywhere; }
+
 @media (max-width: 900px) {
-  .shell { grid-template-columns: 1fr; }
+  .shell { display: block; height: auto; }
+  .rail, .main { overflow: visible; }
   .rail { border-right: 0; border-bottom: 1px solid var(--rule); }
+  .tabs { overflow-x: auto; scrollbar-width: none; }
+  .tabs button { flex: none; }
+  .case-head h1 { font-size: var(--s-22); }
+  .composer-foot .spacer { display: none; }
+  .levels { flex-wrap: wrap; }
   .compare { grid-template-columns: 1fr; }
   .case-head, .panel, .welcome { padding-left: 16px; padding-right: 16px; }
 }
