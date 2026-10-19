@@ -4,6 +4,7 @@ import { Fragment, useMemo, useRef, useState } from "react";
 import { formatUsd, research } from "../api.ts";
 import { myMemberId, save, savePseudonyms, useStore } from "../store.ts";
 import { LEVEL_COPY } from "./levels.ts";
+import { SearchBox } from "./SearchBox.tsx";
 
 interface PieceState extends PlannedPiece {
   status: "planned" | "sent" | "answered" | "failed";
@@ -152,6 +153,8 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
         </div>
         {!ready && status && <p className="level-note">{readinessNote(status, level)}</p>}
       </div>
+
+      {status?.relay.ok && <SearchBox caseId={caseId} />}
 
       {run && <RunView run={run} running={running} onSave={saveAsObservation} onTopUp={onTopUp} />}
     </section>
