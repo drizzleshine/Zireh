@@ -1,0 +1,54 @@
+import type { ModelPrice } from "@zireh/schema";
+
+/**
+ * Relay configuration from the environment.
+ *
+ * Upstream modes:
+ *  - "token-factory": NEBIUS_API_KEY set; models served by Nebius Token Factory.
+ *  - "local-dev": no key; the relay forwards to a local Ollama Nemotron model so the whole
+ *    system runs end to end. The UI shows this mode; it is never presented as Token Factory.
+ */
+export interface RelayConfig {
+  readonly port: number;
+  readonly dataDir: string;
+  readonly upstream:
+    | { readonly mode: "token-factory"; readonly baseUrl: string; readonly apiKey: string }
+    | { readonly mode: "local-dev"; readonly baseUrl: string; readonly localModel: string };
+  readonly prices: readonly ModelPrice[];
+  readonly tavilyApiKey?: string;
+  readonly searchPrice: number;
+  readonly usdPerZec: number;
+}
+
+/** µUSD per 1M tokens: provider list price plus a 20% relay margin. */
+const withMargin = (usdIn: number, usdOut: number) => ({ inputPerMTok: Math.ceil(usdIn * 1.2 * 1e6), outputPerMTok: Math.ceil(usdOut * 1.2 * 1e6) });
+
+export const DEFAULT_MODELS: readonly ModelPrice[] = [
+  { model: "nvidia/nemotron-3-super-120b-a12b", ...withMargin(0.3, 0.9) },
+  { model: "nvidia/Llama-3_1-Nemotron-Ultra-253B-v1", ...withMargin(0.6, 1.8) },
+];
+
+/** RELAY_MODELS="id:usdIn:usdOut,id:usdIn:usdOut" overrides the defaults. */
+function parseModels(spec: string | undefined): readonly ModelPrice[] {
+  if (!spec) return DEFAULT_MODELS;
+  return spec.split(",").map((entry) => {
+    const [model, usdIn, usdOut] = entry.split(":");
+    if (!model || !usdIn || !usdOut) throw new Error(`bad RELAY_MODELS entry: ${entry}`);
+    return { model, ...withMargin(Number(usdIn), Number(usdOut)) };
+  });
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): RelayConfig {
+  const apiKey = env.NEBIUS_API_KEY?.trim();
+  return {
+    port: Number(env.RELAY_PORT ?? 8787),
+    dataDir: env.RELAY_DATA_DIR ?? ".zireh/relay",
+    upstream: apiKey
+      ? { mode: "token-factory", baseUrl: env.NEBIUS_BASE_URL ?? "https://api.tokenfactory.nebius.com/v1", apiKey }
+      : { mode: "local-dev", baseUrl: env.OLLAMA_URL ?? "http://127.0.0.1:11434/v1", localModel: env.LOCAL_MODEL ?? "nemotron-3-nano:4b" },
+    prices: parseModels(env.RELAY_MODELS),
+    ...(env.TAVILY_API_KEY?.trim() ? { tavilyApiKey: env.TAVILY_API_KEY.trim() } : {}),
+    searchPrice: Number(env.RELAY_SEARCH_PRICE ?? 9600), // Tavily basic ≈ $0.008 + margin
+    usdPerZec: Number(env.USD_PER_ZEC ?? 50),
+  };
+}

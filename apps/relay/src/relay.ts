@@ -26,7 +26,7 @@ export interface StoredResponse {
   readonly body: unknown;
 }
 
-export function memoryResponseStore(ttlMs = 24 * 60 * 60 * 1000, now: () => number = Date.now): ResponseStore {
+export function memoryResponseStore(ttlMs = 15 * 60 * 1000, now: () => number = Date.now): ResponseStore {
   const items = new Map<string, { at: number; response: StoredResponse }>();
   return {
     get(id) {

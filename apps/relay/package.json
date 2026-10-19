@@ -7,6 +7,7 @@
     "start": "tsx src/main.ts"
   },
   "dependencies": {
+    "@hono/node-server": "^2.1.5",
     "@zireh/crypto": "workspace:*",
     "@zireh/llm": "workspace:*",
     "@zireh/schema": "workspace:*",
