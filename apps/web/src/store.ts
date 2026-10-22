@@ -124,34 +124,32 @@ function mergePseudonyms(mine: readonly Pseudonym[], theirs: readonly Pseudonym[
   return out;
 }
 
-function apply(rec: Records, collection: CollectionName, record: unknown) {
-  if (collection === "cases") {
-    rec.case = record as Case;
-    return;
-  }
-  if (collection === "pseudonyms") {
-    rec.pseudonyms = mergePseudonyms(rec.pseudonyms, (record as RecordOf<"pseudonyms">).entries);
-    return;
-  }
-  if (collection === "board") {
-    rec.board = { ...rec.board, ...(record as RecordOf<"board">).positions };
-    return;
-  }
+function apply(rec: Records, collection: CollectionName, record: unknown, local = false): Records {
+  if (collection === "cases") return { ...rec, case: record as Case };
+  if (collection === "pseudonyms") return { ...rec, pseudonyms: local ? [...(record as RecordOf<"pseudonyms">).entries] : mergePseudonyms(rec.pseudonyms, (record as RecordOf<"pseudonyms">).entries) };
+  if (collection === "board") return { ...rec, board: { ...rec.board, ...(record as RecordOf<"board">).positions } };
   const field = COLLECTION_FIELD[collection] as Exclude<keyof Records, "case" | "pseudonyms" | "board">;
   const list = rec[field] as { id: string }[];
   const item = record as { id: string };
-  const i = list.findIndex((x) => x.id === item.id);
-  if (i >= 0) list[i] = item;
-  else list.push(item);
+  return { ...rec, [field]: list.some((value) => value.id === item.id) ? list.map((value) => value.id === item.id ? item : value) : [...list, item] };
+}
+
+function updateWorkspace(caseId: string, update: (current: Workspace) => Workspace) {
+  state = { ...state, workspaces: state.workspaces.map((current) => current.caseId === caseId ? update(current) : current) };
+}
+
+function updateRecords(caseId: string, rec: Records) {
+  state = { ...state, cases: { ...state.cases, [caseId]: rec } };
 }
 
 /** Save a record locally and queue it, sealed, for the team. */
 export async function save<C extends CollectionName>(caseId: string, collection: C, record: RecordOf<C>) {
   const rec = state.cases[caseId];
   if (!rec) throw new Error("unknown case");
-  apply(rec, collection, record);
   const w = workspace(caseId);
-  w.outbox.push(await sealRecord(w.caseKey, collection, record));
+  const envelope = await sealRecord(w.caseKey, collection, record);
+  updateRecords(caseId, apply(state.cases[caseId]!, collection, record, true));
+  updateWorkspace(caseId, (current) => ({ ...current, outbox: [...current.outbox, envelope] }));
   emit();
   await persist(caseId);
   void syncCase(caseId);
@@ -160,23 +158,22 @@ export async function save<C extends CollectionName>(caseId: string, collection:
 export async function savePseudonyms(caseId: string, entries: Pseudonym[]) {
   const rec = state.cases[caseId];
   if (!rec) return;
-  rec.pseudonyms = mergePseudonyms(rec.pseudonyms, entries);
-  await save(caseId, "pseudonyms", { id: caseId, caseId, entries: rec.pseudonyms });
+  await save(caseId, "pseudonyms", { id: caseId, caseId, entries: mergePseudonyms(rec.pseudonyms, entries) });
 }
 
 /** Change how a hidden value is described, or stop hiding it (hint = null). */
 export async function editPseudonym(caseId: string, original: string, hint: string | null) {
   const rec = state.cases[caseId];
   if (!rec) return;
-  rec.pseudonyms = hint === null ? rec.pseudonyms.filter((p) => p.original !== original) : rec.pseudonyms.map((p) => (p.original === original ? { ...p, hint } : p));
-  await save(caseId, "pseudonyms", { id: caseId, caseId, entries: rec.pseudonyms });
+  const entries = hint === null ? rec.pseudonyms.filter((p) => p.original !== original) : rec.pseudonyms.map((p) => (p.original === original ? { ...p, hint } : p));
+  await save(caseId, "pseudonyms", { id: caseId, caseId, entries });
 }
 
 export async function createCase(input: { title: string; question: string; privacy: PrivacyLevel; memberName: string }): Promise<string> {
   const member = newMember(input.memberName);
   const c = newCase({ title: input.title, question: input.question, privacy: input.privacy, createdBy: member.id });
-  state.workspaces.push({ caseId: c.id, caseKey: generateCaseKey(), memberId: member.id, cursor: 0, outbox: [] });
-  state.cases[c.id] = emptyRecords(c);
+  state = { ...state, workspaces: [...state.workspaces, { caseId: c.id, caseKey: generateCaseKey(), memberId: member.id, cursor: 0, outbox: [] }] };
+  updateRecords(c.id, emptyRecords(c));
   await save(c.id, "cases", c);
   await save(c.id, "members", member);
   return c.id;
@@ -186,10 +183,10 @@ export async function createCase(input: { title: string; question: string; priva
 export async function joinCase(invite: Invite, memberName: string): Promise<string> {
   if (state.workspaces.some((w) => w.caseId === invite.caseId)) return invite.caseId;
   const member: Member = newMember(memberName);
-  state.workspaces.push({ caseId: invite.caseId, caseKey: invite.caseKey, memberId: member.id, cursor: 0, outbox: [] });
+  state = { ...state, workspaces: [...state.workspaces, { caseId: invite.caseId, caseKey: invite.caseKey, memberId: member.id, cursor: 0, outbox: [] }] };
   for (let attempt = 0; attempt < 3 && !state.cases[invite.caseId]; attempt++) await syncCase(invite.caseId);
   if (!state.cases[invite.caseId]) {
-    state.workspaces = state.workspaces.filter((w) => w.caseId !== invite.caseId);
+    state = { ...state, workspaces: state.workspaces.filter((w) => w.caseId !== invite.caseId) };
     emit();
     throw new Error("Couldn't open this case. The link may be wrong, or the case hasn't synced yet.");
   }
@@ -225,10 +222,11 @@ async function syncOnce(caseId: string) {
   const w = workspace(caseId);
   const token = caseToken(w.caseKey);
   try {
-    while (w.outbox.length) {
-      const batch = w.outbox.slice(0, 200);
+    while (workspace(caseId).outbox.length) {
+      const batch = workspace(caseId).outbox.slice(0, 200);
       const { cursor } = await api.push(caseId, token, batch);
-      w.outbox = w.outbox.slice(batch.length);
+      const pushed = new Set(batch.map((envelope) => envelope.sealed.ct));
+      updateWorkspace(caseId, (current) => ({ ...current, outbox: current.outbox.filter((envelope) => !pushed.has(envelope.sealed.ct)) }));
       // The host has fewer records than we've already seen: it was reset or replaced.
       if (cursor < w.cursor) queueMicrotask(() => void repairHost(caseId));
     }
@@ -236,7 +234,7 @@ async function syncOnce(caseId: string) {
     for (let page = 0; page < 20; page++) {
       let pulled;
       try {
-        pulled = await api.pull(caseId, token, w.cursor);
+        pulled = await api.pull(caseId, token, workspace(caseId).cursor);
       } catch (err) {
         if ((err as { status?: number }).status === 404 && state.cases[caseId]) {
           queueMicrotask(() => void repairHost(caseId)); // host doesn't know this case at all
@@ -251,17 +249,17 @@ async function syncOnce(caseId: string) {
       if (!state.cases[caseId]) {
         const head = opened.find((o) => o.collection === "cases");
         if (!head) return; // nothing usable yet; keep the cursor so these records are pulled again
-        state.cases[caseId] = emptyRecords(head.record as Case);
+        updateRecords(caseId, emptyRecords(head.record as Case));
       }
-      const rec = state.cases[caseId]!;
-      for (const o of opened) apply(rec, o.collection, o.record);
-      w.cursor = pulled.cursor;
+      let rec = state.cases[caseId]!;
+      for (const o of opened) rec = apply(rec, o.collection, o.record);
+      updateRecords(caseId, rec);
+      updateWorkspace(caseId, (current) => ({ ...current, cursor: pulled.cursor }));
       if (pulled.records.length === 0 || pulled.cursor >= pulled.head) break;
     }
-    w.syncedAt = new Date().toISOString();
-    delete w.syncError;
+    updateWorkspace(caseId, ({ syncError: _, ...current }) => ({ ...current, syncedAt: new Date().toISOString() }));
   } catch (err) {
-    w.syncError = (err as Error).message;
+    updateWorkspace(caseId, (current) => ({ ...current, syncError: (err as Error).message }));
   } finally {
     emit();
     await persist(caseId);
@@ -315,9 +313,12 @@ async function repairHost(caseId: string) {
   const queued = new Set(w.outbox.map((e) => `${e.collection}:${e.id}`));
   for (const [collection, record] of allRecords(caseId)) {
     const key = `${collection}:${record.id}`;
-    if (!onHost.has(key) && !queued.has(key)) w.outbox.push(await sealRecord(w.caseKey, collection, record as never));
+    if (!onHost.has(key) && !queued.has(key)) {
+      const envelope = await sealRecord(w.caseKey, collection, record as never);
+      updateWorkspace(caseId, (current) => ({ ...current, outbox: [...current.outbox, envelope] }));
+    }
   }
-  if (w.outbox.length) await syncCase(caseId);
+  if (workspace(caseId).outbox.length) await syncCase(caseId);
 }
 
 export function startSyncLoop(intervalMs = 8000) {
@@ -332,3 +333,6 @@ export function startSyncLoop(intervalMs = 8000) {
   tick();
   return setInterval(tick, intervalMs);
 }
+
+/** Stable snapshot for non-React consumers, including local backup and store regression tests. */
+export const getSnapshot = () => state;
