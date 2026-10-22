@@ -8,7 +8,7 @@ import { openAiCompatible } from "@zireh/llm";
 import { directTransport, startTor, torTransport, type Transport } from "@zireh/tor";
 import { Wallet } from "@zireh/wallet";
 import { createDaemon } from "./api.ts";
-import { ensureDir, fileLedgerStore, filePendingStore, fileProofStore } from "./stores.ts";
+import { ensureDir, fileLedgerStore, openMoneyStore } from "./stores.ts";
 
 const env = process.env;
 const port = Number(env.DAEMON_PORT ?? 7878);
@@ -55,8 +55,8 @@ if (env.ZIREH_TRANSPORT === "direct") {
 
 // Non-reasoning mode keeps each local stage around a second on a laptop.
 const local = openAiCompatible({ baseUrl: ollamaUrl, model: localModelId, extraBody: { reasoning_effort: "none" } });
-const wallet = new Wallet(fileProofStore(dataDir));
-const relay = new RelayClient({ baseUrl: relayUrl, transport, wallet, pending: filePendingStore(dataDir) });
+const wallet = new Wallet(openMoneyStore(dataDir));
+const relay = new RelayClient({ baseUrl: relayUrl, transport, wallet });
 const ledger = new Ledger(fileLedgerStore(dataDir));
 
 /** Calls that never got a definite answer (crash, dropped circuit) are re-sent with the same id. */

@@ -17,9 +17,12 @@ export function loadOrCreateMintKeys(dataDir: string): MintKeys {
 
 export function openRelayDb(dataDir: string): DatabaseSync {
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-  const db = new DatabaseSync(join(dataDir, "relay.db"));
+  const file = join(dataDir, "relay.db");
+  const db = new DatabaseSync(file);
+  chmodSync(file, 0o600);
   db.exec(`
     PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = FULL;
     CREATE TABLE IF NOT EXISTS spent (secret TEXT PRIMARY KEY) WITHOUT ROWID;
     CREATE TABLE IF NOT EXISTS responses (request_id TEXT PRIMARY KEY, at INTEGER NOT NULL, status INTEGER NOT NULL, body TEXT NOT NULL);
   `);
@@ -31,7 +34,7 @@ export function sqliteSpentStore(db: DatabaseSync): SpentStore {
   const exists = db.prepare("SELECT 1 FROM spent WHERE secret = ?");
   const insert = db.prepare("INSERT INTO spent (secret) VALUES (?)");
   return {
-    markSpent(secrets) {
+    markSpent(secrets, commit) {
       if (new Set(secrets).size !== secrets.length) return false;
       db.exec("BEGIN IMMEDIATE");
       try {
@@ -40,6 +43,7 @@ export function sqliteSpentStore(db: DatabaseSync): SpentStore {
           return false;
         }
         for (const s of secrets) insert.run(s);
+        commit?.();
         db.exec("COMMIT");
         return true;
       } catch (err) {

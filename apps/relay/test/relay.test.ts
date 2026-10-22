@@ -165,3 +165,30 @@ describe("top-up safety", () => {
     expect((await post("/v1/topup/mint", { quoteId: quote.quoteId, outputs: prepareTopup(keyset, 1000).outputs })).body.error).toBe("quote_unpaid");
   });
 });
+
+describe("F09 atomic client money movement", () => {
+  it("keeps the reservation and rolls back credited change when clearing pending fails", async () => {
+    const s = setup();
+    await fund(s.client, s.relayFetch, 65_536);
+    const call = await s.client.prepareChat(MODEL, ask, 100);
+    const reservedBalance = s.wallet.balance;
+    const broken = new RelayClient({ baseUrl: "http://relay.test", transport: directTransport(s.relayFetch), wallet: s.wallet,
+      pending: { ...s.client.pending, remove() { throw new Error("injected completion failure"); } } });
+    await expect(broken.send(call)).rejects.toThrow("injected completion failure");
+    expect(s.wallet.balance).toBe(reservedBalance);
+    expect(s.client.pending.list()).toHaveLength(1);
+    const { recovered } = await s.client.recover();
+    expect(recovered).toHaveLength(1);
+    expect(s.wallet.balance).toBe(65_536 - recovered[0]!.charged);
+    expect(s.client.pending.list()).toHaveLength(0);
+  });
+  it("keeps coins when writing the pending call fails", async () => {
+    const s = setup();
+    await fund(s.client, s.relayFetch, 1_048_576);
+    const client = new RelayClient({ baseUrl: "http://relay.test", transport: directTransport(s.relayFetch), wallet: s.wallet,
+      pending: { ...s.client.pending, save() { throw new Error("injected pending write failure"); } } });
+    await expect(client.prepareChat(MODEL, ask, 100)).rejects.toThrow("injected pending write failure");
+    expect(s.wallet.balance).toBe(1_048_576);
+    expect(client.pending.list()).toHaveLength(0);
+  });
+});

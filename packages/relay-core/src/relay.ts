@@ -114,8 +114,7 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
 
     const task = (async (): Promise<StoredResponse> => {
       try {
-        deps.mint.redeem(proofs);
-        deps.responses.put(requestId, { status: REDEEMED, body: { redeemed: paidAmount } }); // crash marker
+        deps.mint.redeem(proofs, () => deps.responses.put(requestId, { status: REDEEMED, body: { redeemed: paidAmount } }));
       } catch (err) {
         if (err instanceof MintError) {
           const code = err.code === "bad_request" ? "bad_request" : err.code;

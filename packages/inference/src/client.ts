@@ -16,7 +16,7 @@ import {
   type Usage,
 } from "@zireh/schema";
 import { newCircuitTag, type Transport } from "@zireh/tor";
-import { checkBill, maxCost, prepareChange, prepareTopup, sum, unblindAll, type BillCheck, type PendingOutputs, type Wallet } from "@zireh/wallet";
+import { checkBill, memoryMoneyStore, maxCost, prepareChange, prepareTopup, sum, unblindAll, type BillCheck, type PendingOutputs, type Wallet, type MoneyStore } from "@zireh/wallet";
 import { z } from "zod";
 
 /** Everything needed to send (or re-send) one paid call. Persisted before the first send. */
@@ -33,19 +33,23 @@ export interface PendingCall {
 }
 
 export interface PendingStore {
+  readonly money: MoneyStore;
   save(call: PendingCall): void;
   remove(requestId: string): void;
   list(): PendingCall[];
 }
 
-export function memoryPendingStore(): PendingStore {
-  const calls = new Map<string, PendingCall>();
+export function moneyPendingStore(money: MoneyStore): PendingStore {
   return {
-    save: (c) => void calls.set(c.requestId, c),
-    remove: (id) => void calls.delete(id),
-    list: () => [...calls.values()],
+    money,
+    save: (call) => money.put(`call:${call.requestId}`, call),
+    remove: (id) => money.remove(`call:${id}`),
+    list: () => money.list<PendingCall>("call:"),
   };
 }
+
+
+export const memoryPendingStore = (money: MoneyStore = memoryMoneyStore()): PendingStore => moneyPendingStore(money);
 
 export type CallResult =
   | { readonly kind: "chat"; readonly requestId: string; readonly content: string; readonly model: string; readonly usage: Usage; readonly charged: number; readonly bill: BillCheck }
@@ -82,7 +86,8 @@ export class RelayClient {
   readonly pending: PendingStore;
 
   constructor(private readonly options: RelayClientOptions) {
-    this.pending = options.pending ?? memoryPendingStore();
+    this.pending = options.pending ?? moneyPendingStore(options.wallet.money);
+    if (this.pending.money !== options.wallet.money) throw new Error("wallet and pending calls must share one transactional money store");
   }
 
   get transportKind(): Transport["kind"] {
@@ -174,19 +179,23 @@ export class RelayClient {
     body: (requestId: string, proofs: Proof[], blanks: PendingOutputs) => Record<string, unknown>,
     extra: Pick<PendingCall, "price" | "messages"> = {},
   ): PendingCall {
-    const proofs = this.options.wallet.take(hold);
-    const blanks = prepareChange(keyset, sum(proofs));
-    const requestId = randomId();
-    const call: PendingCall = { requestId, kind, path, proofs, blanks, keyset, body: body(requestId, proofs, blanks), ...extra };
-    this.pending.save(call);
-    return call;
+    return this.options.wallet.money.atomically(() => {
+      const proofs = this.options.wallet.take(hold);
+      const blanks = prepareChange(keyset, sum(proofs));
+      const requestId = randomId();
+      const call: PendingCall = { requestId, kind, path, proofs, blanks, keyset, body: body(requestId, proofs, blanks), ...extra };
+      this.pending.save(call);
+      return call;
+    });
   }
 
   /** Send (or re-send) a prepared call on the given circuit. Idempotent per requestId. */
   discardPrepared(call: PendingCall): void {
     if (!this.pending.list().some((c) => c.requestId === call.requestId)) return;
-    this.options.wallet.add(call.proofs);
-    this.pending.remove(call.requestId);
+    this.options.wallet.money.atomically(() => {
+      this.options.wallet.add(call.proofs);
+      this.pending.remove(call.requestId);
+    });
   }
 
   async send(call: PendingCall, circuitTag: string = newCircuitTag()): Promise<CallResult> {
@@ -206,8 +215,10 @@ export class RelayClient {
         const settlement = (err as RelayCallError & { settlement?: Settlement }).settlement;
         if (settlement) this.settle(call, settlement); // burned, then refunded as change
         else {
-          if (NOT_BURNED.has(err.code)) this.options.wallet.add(call.proofs); // never burned: give coins back
-          this.pending.remove(call.requestId);
+          this.options.wallet.money.atomically(() => {
+            if (NOT_BURNED.has(err.code)) this.options.wallet.add(call.proofs);
+            this.pending.remove(call.requestId);
+          });
         }
       }
       throw err; // retryable errors keep the call pending for `recover`
@@ -217,8 +228,10 @@ export class RelayClient {
   /** Credit change once: only a call that is still pending can be settled. */
   private settle(call: PendingCall, settlement: Settlement) {
     if (!this.pending.list().some((c) => c.requestId === call.requestId)) return;
-    this.pending.remove(call.requestId);
-    this.options.wallet.add(unblindAll(call.keyset, call.blanks, settlement.change));
+    this.options.wallet.money.atomically(() => {
+      this.options.wallet.add(unblindAll(call.keyset, call.blanks, settlement.change));
+      this.pending.remove(call.requestId);
+    });
   }
 
   /** Re-send every call that never got a definite answer (e.g. after a crash or dropped circuit). */

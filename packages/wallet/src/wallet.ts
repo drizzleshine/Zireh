@@ -8,21 +8,9 @@ export interface PendingOutputs {
   readonly secrets: readonly { secret: string; r: string }[];
 }
 
-/** Coins at rest. Implementations: memory (tests), file (daemon). */
-export interface ProofStore {
-  load(): Proof[];
-  save(proofs: readonly Proof[]): void;
-}
-
-export function memoryProofStore(initial: readonly Proof[] = []): ProofStore {
-  let proofs = [...initial];
-  return {
-    load: () => [...proofs],
-    save: (next) => {
-      proofs = [...next];
-    },
-  };
-}
+export type { MoneyStore as ProofStore } from "./store.ts";
+export { memoryMoneyStore as memoryProofStore } from "./store.ts";
+import type { MoneyStore } from "./store.ts";
 
 export class InsufficientFunds extends Error {
   constructor(
@@ -69,23 +57,23 @@ export function unblindAll(keyset: Keyset, pending: PendingOutputs, signatures: 
  * leads to sending the same coin twice; change is added when the settlement arrives.
  */
 export class Wallet {
-  constructor(private readonly store: ProofStore) {}
+  constructor(readonly money: MoneyStore) {}
 
   get balance(): number {
-    return sum(this.store.load());
+    return sum(this.money.load());
   }
 
   /** Add coins; a coin already held (same secret) is ignored. */
   add(proofs: readonly Proof[]): void {
-    const held = this.store.load();
+    const held = this.money.load();
     const seen = new Set(held.map((p) => p.secret));
     const fresh = proofs.filter((p) => !seen.has(p.secret) && seen.add(p.secret));
-    this.store.save([...held, ...fresh]);
+    this.money.save([...held, ...fresh]);
   }
 
   /** Take coins covering at least `amount`: largest first, then trim coins that aren't needed. */
   take(amount: number): Proof[] {
-    const all = this.store.load().sort((a, b) => b.amount - a.amount);
+    const all = this.money.load().sort((a, b) => b.amount - a.amount);
     if (sum(all) < amount) throw new InsufficientFunds(amount, sum(all));
     const chosen: Proof[] = [];
     let total = 0;
@@ -97,7 +85,7 @@ export class Wallet {
     // Drop the largest picks if the smaller ones alone still cover the amount.
     while (chosen.length > 1 && total - chosen[0]!.amount >= amount) total -= chosen.shift()!.amount;
     const taken = new Set(chosen.map((p) => p.secret));
-    this.store.save(all.filter((p) => !taken.has(p.secret)));
+    this.money.save(all.filter((p) => !taken.has(p.secret)));
     return chosen;
   }
 }

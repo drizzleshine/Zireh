@@ -26,14 +26,15 @@ export const publicKeyset = (keys: MintKeys): Keyset => ({
 /** Spent secrets must be stored durably and checked atomically by the relay. */
 export interface SpentStore {
   /** Marks all secrets spent; returns false (and marks nothing) if any was already spent. */
-  markSpent(secrets: readonly string[]): boolean;
+  markSpent(secrets: readonly string[], commit?: () => void): boolean;
 }
 
 export function memorySpentStore(): SpentStore {
   const spent = new Set<string>();
   return {
-    markSpent(secrets) {
+    markSpent(secrets, commit) {
       if (secrets.some((s) => spent.has(s)) || new Set(secrets).size !== secrets.length) return false;
+      commit?.();
       for (const s of secrets) spent.add(s);
       return true;
     },
@@ -74,13 +75,13 @@ export class Mint {
   }
 
   /** Verify and burn coins. Returns their total. All-or-nothing. */
-  redeem(proofs: readonly Proof[]): number {
+  redeem(proofs: readonly Proof[], commit?: () => void): number {
     for (const p of proofs) {
       if (!verifyToken(this.pair(p.amount, p.keysetId).privateKey, hexToBytes(p.secret), p.C)) {
         throw new MintError("token_invalid", "a coin failed verification");
       }
     }
-    if (!this.spent.markSpent(proofs.map((p) => p.secret))) throw new MintError("token_spent", "a coin was already spent");
+    if (!this.spent.markSpent(proofs.map((p) => p.secret), commit)) throw new MintError("token_spent", "a coin was already spent");
     return sum(proofs);
   }
 

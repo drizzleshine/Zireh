@@ -40,3 +40,16 @@ describe("relay storage", () => {
     expect(store.get("r1")).toBeUndefined();
   });
 });
+
+describe("F09 atomic relay spend marker", () => {
+  it("rolls back spent secrets when writing the crash marker fails", () => {
+    const db = openRelayDb(tempDir());
+    const spent = sqliteSpentStore(db);
+    const responses = sqliteResponseStore(db);
+    db.exec("CREATE TRIGGER fail_marker BEFORE INSERT ON responses BEGIN SELECT RAISE(ABORT, 'injected marker failure'); END");
+    expect(() => spent.markSpent(["atomic-coin"], () => responses.put("r", { status: 0, body: { redeemed: 1 } }))).toThrow("injected marker failure");
+    expect(responses.get("r")).toBeUndefined();
+    db.exec("DROP TRIGGER fail_marker");
+    expect(spent.markSpent(["atomic-coin"])).toBe(true);
+  });
+});
