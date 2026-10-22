@@ -31,6 +31,7 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export const api = {
+  researchResults: (caseId: string) => call<{ results: { requestId: string; runId: string; pieceId: string; question: string; content: string; answerExpired: boolean; charged: number; runSpent: number }[] }>(`/api/research/results?caseId=${caseId}`),
   sendResearch: (runId: string) => call<{ approved: true }>(`/api/research/${runId}/send`, {}),
   cancelResearch: (runId: string) => call<{ cancelled: true }>(`/api/research/${runId}/cancel`, {}),
   status: () => call<DaemonStatus>("/api/status"),

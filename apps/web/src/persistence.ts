@@ -133,7 +133,7 @@ class BrowserDatabase {
       next(0);
     });
   }
-  restore(workspace: WorkspaceData, entries: readonly StoredRecord[], outbox: readonly Envelope[]) {
+  restore(workspace: WorkspaceData, entries: readonly StoredRecord[], outbox: readonly Envelope[], history: readonly { id: string; caseId: string }[] = []) {
     return this.write((store) => {
       const ws = store.get(workspaceKey(workspace.caseId));
       ws.onsuccess = () => {
@@ -147,6 +147,11 @@ class BrowserDatabase {
           };
         }
         for (const envelope of outbox) store.put(envelope, outboxKey(workspace.caseId, envelope));
+        for (const entry of history) {
+          const key = `history:${workspace.caseId}:${entry.id}`;
+          const existing = store.get(key);
+          existing.onsuccess = () => { if (!existing.result) store.put(entry, key); };
+        }
       };
     });
   }

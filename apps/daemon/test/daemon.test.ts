@@ -375,3 +375,18 @@ describe("prepared research API", () => {
     }
   });
 });
+
+describe("durable research result lookup", () => {
+  it("returns real piece answers and the settled total for the requested case", async () => {
+    const s = setup();
+    await topUp(s.call, 65_536);
+    const caseId = "a".repeat(32);
+    const events = await readEvents(await s.call("/api/research", { task: "Is Ada Obi safe in Lagos?", level: "private", salt: randomSalt(), caseId }));
+    const done = events.at(-1);
+    const { results } = await (await s.call(`/api/research/results?caseId=${caseId}`)).json();
+    expect(results).toHaveLength(2);
+    expect(results.every((result: { content: string }) => result.content === "an answer")).toBe(true);
+    if (done?.type === "done") expect(results[0].runSpent).toBe(done.spent);
+    expect(await (await s.call(`/api/research/results?caseId=${"e".repeat(32)}`)).json()).toEqual({ results: [] });
+  });
+});

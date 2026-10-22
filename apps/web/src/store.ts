@@ -1,3 +1,4 @@
+import type { StoredResearch } from "./research-history.ts";
 import { caseToken, inviteFragment, newCase, newMember, type CaseRecords, type Invite } from "@zireh/cases";
 import { canonicalJson, decryptBackup, encryptBackup, fromBase64Url, generateCaseKey } from "@zireh/crypto";
 import { Collections, type Case, type CollectionName, type Member, type PrivacyLevel, type Pseudonym, type RecordOf } from "@zireh/schema";
@@ -352,13 +353,15 @@ export const getSnapshot = () => state;
 export async function backupCase(caseId: string, passphrase: string): Promise<string> {
   await localChanges;
   const w = workspace(caseId);
-  const records = (await database.entries()).filter(([key]) => key.startsWith(`record:${caseId}:`)).map(([, value]) => value as StoredRecord);
-  return JSON.stringify(await encryptBackup({ v: 1, workspace: w, records }, passphrase));
+  const entries = await database.entries();
+  const records = entries.filter(([key]) => key.startsWith(`record:${caseId}:`)).map(([, value]) => value as StoredRecord);
+  const history = entries.filter(([key]) => key.startsWith(`history:${caseId}:`)).map(([, value]) => value as StoredResearch);
+  return JSON.stringify(await encryptBackup({ v: 1, workspace: w, records, history }, passphrase));
 }
 
 export async function restoreCase(text: string, passphrase: string): Promise<string> {
   if (text.length > 64 * 1024 * 1024) throw new Error("Backup file exceeds 64 MiB");
-  const value = await decryptBackup(JSON.parse(text) as unknown, passphrase) as { v?: unknown; workspace?: Workspace; records?: StoredRecord[] };
+  const value = await decryptBackup(JSON.parse(text) as unknown, passphrase) as { v?: unknown; workspace?: Workspace; records?: StoredRecord[]; history?: StoredResearch[] };
   const w = value?.workspace;
   if (value?.v !== 1 || !w || !/^[0-9a-f]{32}$/.test(w.caseId) || !/^[0-9a-f]{32}$/.test(w.memberId) || typeof w.caseKey !== "string" || fromBase64Url(w.caseKey).length !== 32 || !Number.isSafeInteger(w.cursor) || w.cursor < 0 || !Array.isArray(w.outbox) || !Array.isArray(value.records)) throw new Error("Invalid case backup");
   const existing = state.workspaces.find((saved) => saved.caseId === w.caseId);
@@ -380,8 +383,10 @@ export async function restoreCase(text: string, passphrase: string): Promise<str
   }
   if (!records.some((entry) => entry.collection === "cases") || !records.some((entry) => entry.collection === "members" && entry.record.id === w.memberId)) throw new Error("Backup is missing the case or your membership");
   for (const envelope of w.outbox) if (!await openRecord(w.caseKey, envelope)) throw new Error("Invalid pending envelope in backup");
+  const history = value.history ?? [];
+  if (!Array.isArray(history) || history.some((entry) => !entry || entry.caseId !== w.caseId || !/^[0-9a-f]{32}$/.test(entry.id) || !entry.run || typeof entry.run.task !== "string" || !Array.isArray(entry.run.pieces) || !Array.isArray(entry.run.table) || !Array.isArray(entry.run.steps) || !Array.isArray(entry.run.blocked) || typeof entry.updatedAt !== "string")) throw new Error("Invalid research history in backup");
   const { outbox, ...metadata } = w;
-  await change(() => database.restore(metadata, records, outbox));
+  await change(() => database.restore(metadata, records, outbox, history));
   void syncCase(w.caseId);
   return w.caseId;
 }

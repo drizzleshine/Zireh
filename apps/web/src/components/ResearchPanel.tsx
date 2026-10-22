@@ -1,36 +1,12 @@
-import { extendTable } from "@zireh/redact";
+import { reconcileResearch, researchHistory, saveResearch, type Run, type PieceState, type StoredResearch } from "../research-history.ts";
+import { restore, extendTable } from "@zireh/redact";
 import { newObservation } from "@zireh/cases";
-import type { DaemonStatus, PlannedPiece, PrivacyLevel, Pseudonym, ResearchEvent, TraceStep } from "@zireh/schema";
+import type { DaemonStatus, PrivacyLevel, Pseudonym } from "@zireh/schema";
 import { Fragment, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { api, formatUsd, research } from "../api.ts";
 import { myMemberId, save, savePseudonyms, editPseudonym, useStore } from "../store.ts";
 import { LEVEL_COPY } from "./levels.ts";
 import { SearchBox } from "./SearchBox.tsx";
-
-interface PieceState extends PlannedPiece {
-  status: "planned" | "sent" | "answered" | "failed";
-  circuit?: string;
-  ms?: number;
-  charged?: number;
-  error?: string;
-}
-
-interface Run {
-  sourceTable?: string;
-  prepared?: { estimatedCost: number };
-  approved?: boolean;
-  task: string;
-  level: PrivacyLevel;
-  steps: { step: TraceStep; atMs: number }[];
-  table: readonly Pseudonym[];
-  pieces: PieceState[];
-  blocked: { question: string; score: number; inferences: string[] }[];
-  done?: Extract<ResearchEvent, { type: "done" }>;
-  error?: string;
-  saved?: boolean;
-  cancelled?: Extract<ResearchEvent, { type: "cancelled" }>;
-  cancelling?: boolean;
-}
 
 interface Props {
   caseId: string;
@@ -47,6 +23,7 @@ interface RunSlot {
   run?: Run;
   runId?: string;
   running: boolean;
+  historyError?: string;
   abort?: AbortController;
   draft?: { task: string; level: PrivacyLevel; contextIds: string[]; reviewBeforeSend?: boolean };
 }
@@ -55,8 +32,16 @@ const slotListeners = new Set<() => void>();
 const EMPTY: RunSlot = Object.freeze({ running: false }); // stable: snapshots must not change identity
 const getSlot = (caseId: string): RunSlot => slots.get(caseId) ?? EMPTY;
 function setSlot(caseId: string, update: (s: RunSlot) => RunSlot) {
-  slots.set(caseId, update(getSlot(caseId)));
+  const previous = getSlot(caseId);
+  const next = update(previous);
+  slots.set(caseId, next);
   for (const l of slotListeners) l();
+  if (next.run && next.runId && (next.run !== previous.run || next.runId !== previous.runId)) {
+    void saveResearch(caseId, next.runId, next.run).catch((error: Error) => {
+      slots.set(caseId, { ...getSlot(caseId), historyError: `Could not save research history: ${error.message}` });
+      for (const listener of slotListeners) listener();
+    });
+  }
 }
 function useSlot(caseId: string): RunSlot {
   return useSyncExternalStore(
@@ -72,11 +57,13 @@ function useSlot(caseId: string): RunSlot {
 
 export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Props) {
   const rec = useStore((s) => s.cases[caseId])!;
-  const { run, runId, running, abort, draft } = useSlot(caseId);
+  const { run, runId, running, abort, draft, historyError } = useSlot(caseId);
   const task = draft?.task ?? "";
   const level = draft?.level ?? rec.case.privacy;
   const contextIds = draft?.contextIds ?? [];
   const reviewBeforeSend = draft?.reviewBeforeSend ?? level === "paranoid";
+  const [history, setHistory] = useState<StoredResearch[]>([]);
+  const [pastId, setPastId] = useState<string>();
   const [phrase, setPhrase] = useState("");
   const [phraseError, setPhraseError] = useState<string>();
   const setDraft = (patch: Partial<NonNullable<RunSlot["draft"]>>) =>
@@ -92,6 +79,15 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
   const setRunning = (running: boolean) => setSlot(caseId, (s) => ({ ...s, running }));
 
   useEffect(() => {
+    let active = true;
+    const refresh = () => { void reconcileResearch(caseId).then((records) => { if (active) setHistory(records); }); };
+    void researchHistory(caseId).then((records) => { if (active) setHistory(records); });
+    refresh();
+    const timer = setInterval(refresh, 8000);
+    return () => { active = false; clearInterval(timer); };
+  }, [caseId, run?.done, run?.cancelled, status?.pendingCalls]);
+
+  useEffect(() => {
     if (!running || !runId || !run?.prepared || run.approved || run.cancelling || run.sourceTable === JSON.stringify(rec.pseudonyms)) return;
     setRun((run) => run ? { ...run, cancelling: true } : run);
     void api.cancelResearch(runId).catch(() => {});
@@ -100,10 +96,9 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
   const ready = status?.localModel.ok && (level === "local" || (status.relay.ok && (status.transport === "direct" || status.tor.ready)));
 
   async function start() {
-    const current: Run = { sourceTable: JSON.stringify(rec.pseudonyms), task, level, steps: [], table: [], pieces: [], blocked: [] };
+    const current: Run = { evidenceIds: contextIds, sourceTable: JSON.stringify(rec.pseudonyms), task, level, steps: [], table: [], pieces: [], blocked: [] };
     const controller = new AbortController();
-    setRun(current);
-    setSlot(caseId, ({ runId: _previous, ...s }) => ({ ...s, running: true, abort: controller }));
+    setSlot(caseId, ({ runId: _previous, ...s }) => ({ ...s, run: current, running: true, abort: controller }));
     const update = (fn: (r: Run) => void) =>
       setRun((r) => {
         if (!r) return r;
@@ -183,10 +178,20 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
   async function saveAsObservation() {
     if (!run?.done) return;
     const me = myMemberId(caseId);
-    const runId = crypto.randomUUID().replace(/-/g, "");
-    await save(caseId, "observations", newObservation(caseId, { kind: "ai", runId, requestedBy: me }, { text: `Q: ${run.task}\n\n${run.done.outcome.answer}`, evidenceIds: contextIds }));
+    const sourceRun = runId ?? crypto.randomUUID().replace(/-/g, "");
+    await save(caseId, "observations", newObservation(caseId, { kind: "ai", runId: sourceRun, requestedBy: me }, { text: `Q: ${run.task}\n\n${run.done.outcome.answer}`, evidenceIds: run.evidenceIds ?? [] }));
     setRun({ ...run, saved: true });
   }
+
+  const past = history.find((record) => record.id === pastId) ?? (!run ? history[0] : undefined);
+  const savePast = async () => {
+    if (!past) return;
+    const answer = past.run.done?.outcome.answer ?? past.run.recoveredAnswers?.filter((answer) => !answer.answerExpired).map((answer) => restore(answer.content, past.run.table)).join("\n\n");
+    if (!answer) return;
+    await save(caseId, "observations", newObservation(caseId, { kind: "ai", runId: past.id, requestedBy: myMemberId(caseId) }, { text: `Q: ${past.run.task}\n\n${answer}`, evidenceIds: past.run.evidenceIds ?? [] }));
+    await saveResearch(caseId, past.id, { ...past.run, saved: true });
+    setHistory(await researchHistory(caseId));
+  };
 
   return (
     <section className="panel" aria-label="Research">
@@ -258,7 +263,12 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
         Prepared on this computer. Review every request and hidden value below. Maximum cost {formatUsd(run.prepared.estimatedCost)}.
         <button className="btn primary" disabled={run.cancelling} onClick={() => void sendPrepared()}>Send reviewed requests</button>
       </div>}
+      {historyError && <p className="error" role="alert">{historyError}</p>}
       {run && <RunView run={run} running={running} onSave={saveAsObservation} onTopUp={onTopUp} />}
+      {history.length > 0 && <details className="field"><summary>Research history ({history.length})</summary>
+        {history.filter((record) => record.id !== runId).map((record) => <button className="btn quiet" key={record.id} onClick={() => setPastId(record.id)}>{record.run.task.slice(0, 100)} · {new Date(record.updatedAt).toLocaleString()}</button>)}
+      </details>}
+      {past && past.id !== runId && <section aria-label="Saved research"><h2>Saved research</h2><RunView run={past.run} running={false} onSave={savePast} onTopUp={onTopUp} /></section>}
     </section>
   );
 }
@@ -350,6 +360,11 @@ function RunView({ run, running, onSave, onTopUp }: { run: Run; running: boolean
         </div>
       )}
 
+      {run.recoveredAnswers && <article className="answer" aria-label="Recovered answers">
+        <p className="notice">The browser did not receive a final synthesis. These individual answers were recovered from the daemon.</p>
+        {run.recoveredAnswers.map((answer) => <div key={answer.requestId}><p className="doc">{answer.answerExpired ? "Answer text expired at the relay; its payment was settled." : restore(answer.content, run.table)}</p></div>)}
+        <div className="answer-foot"><span>Settled cost {formatUsd(run.recoveredSpent ?? 0)}</span>{!run.saved && <button className="btn small" onClick={onSave}>Save recovered answer as observation</button>}</div>
+      </article>}
       {run.done && (
         <article className="answer" aria-label="Answer">
           <div className="doc">

@@ -148,6 +148,17 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
       return json(200, { recovered: recovered.length + topups, failed: failed.map((f) => f.message), balance: deps.wallet.balance });
     },
 
+    "GET /api/research/results": async (_req, url) => {
+      const caseId = z.string().regex(/^[0-9a-f]{32}$/).parse(url.searchParams.get("caseId"));
+      const completed = deps.relay.completions().filter((entry) => entry.call.audit?.caseId === caseId);
+      const results = completed.flatMap(({ call, outcome }) => {
+        if (!("kind" in outcome) || outcome.kind !== "chat" || call.audit?.role === "decoy") return [];
+        const runId = call.audit?.runId ?? call.requestId;
+        const runSpent = completed.filter((entry) => (entry.call.audit?.runId ?? entry.call.requestId) === runId).reduce((total, entry) => total + entry.outcome.charged, 0);
+        return [{ requestId: call.requestId, runId, pieceId: call.audit?.pieceId ?? call.requestId, question: call.messages?.at(-1)?.content ?? "Recovered question", content: outcome.content, answerExpired: outcome.answerExpired ?? false, charged: outcome.charged, runSpent }];
+      });
+      return json(200, { results });
+    },
     "GET /api/receipts": async (_req, url) => {
       const caseId = url.searchParams.get("caseId") ?? undefined;
       const receipts = deps.ledger.receipts().filter((r) => !caseId || r.caseId === caseId);
