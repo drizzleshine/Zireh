@@ -2,7 +2,8 @@ import { caseToken, inviteFragment, newCase, newMember, type CaseRecords, type I
 import { generateCaseKey } from "@zireh/crypto";
 import type { Case, CollectionName, Member, PrivacyLevel, Pseudonym, RecordOf } from "@zireh/schema";
 import { openRecord, sealRecord, type Envelope } from "@zireh/sync";
-import { get, set } from "idb-keyval";
+import { get } from "idb-keyval";
+import { database, type StoredRecord, type WorkspaceData } from "./persistence.ts";
 import { useRef, useSyncExternalStore } from "react";
 import { api } from "./api.ts";
 
@@ -12,15 +13,7 @@ import { api } from "./api.ts";
  * inside an invite link fragment.
  */
 
-interface Workspace {
-  readonly caseId: string;
-  readonly caseKey: string;
-  readonly memberId: string;
-  cursor: number;
-  outbox: Envelope[];
-  syncedAt?: string;
-  syncError?: string;
-}
+interface Workspace extends WorkspaceData { readonly outbox: Envelope[] }
 
 type Records = { -readonly [K in keyof CaseRecords]: CaseRecords[K] extends readonly (infer T)[] ? T[] : CaseRecords[K] };
 
@@ -56,20 +49,38 @@ export function useStore<T>(select: (s: State) => T): T {
   });
 }
 
-async function persist(caseId?: string) {
-  await set("workspaces", state.workspaces);
-  if (caseId && state.cases[caseId]) await set(`case:${caseId}`, state.cases[caseId]);
+let localChanges = Promise.resolve();
+const channel = typeof window !== "undefined" && typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("zireh-records") : undefined;
+
+async function refresh() {
+  const entries = await database.entries();
+  const workspaces = entries.filter(([key]) => key.startsWith("workspace:")).map(([, value]) => {
+    const saved = value as WorkspaceData;
+    return { ...saved, outbox: entries.filter(([key]) => key.startsWith(`outbox:${saved.caseId}:`)).map(([, envelope]) => envelope as Envelope) };
+  });
+  const records = entries.filter(([key]) => key.startsWith("record:")).map(([, value]) => value as StoredRecord);
+  const cases: Record<string, Records> = {};
+  for (const entry of records) if (entry.collection === "cases") cases[entry.caseId] = emptyRecords(entry.record as Case);
+  for (const entry of records) if (cases[entry.caseId]) cases[entry.caseId] = apply(cases[entry.caseId]!, entry.collection, entry.record, true);
+  state = { loaded: true, workspaces, cases };
+  emit();
 }
+
+function change(work: () => Promise<void>, broadcast = true): Promise<void> {
+  const task = localChanges.then(async () => { await work(); await refresh(); if (broadcast) channel?.postMessage("changed"); });
+  localChanges = task.catch(() => {});
+  return task;
+}
+if (channel) channel.onmessage = () => { void change(async () => {}, false); };
 
 export async function load() {
   const workspaces = ((await get("workspaces")) as Workspace[] | undefined) ?? [];
-  const cases: Record<string, Records> = {};
+  const records: StoredRecord[] = [];
   for (const w of workspaces) {
     const rec = (await get(`case:${w.caseId}`)) as Records | undefined;
-    if (rec) cases[w.caseId] = { ...emptyRecords(rec.case), ...rec }; // older saves lack newer collections
+    if (rec) for (const [collection, record] of recordPairs({ ...emptyRecords(rec.case), ...rec })) records.push({ caseId: w.caseId, collection, record });
   }
-  state = { loaded: true, workspaces, cases };
-  emit();
+  await change(() => database.migrate(workspaces, records), false);
 }
 
 const workspace = (caseId: string) => {
@@ -134,24 +145,12 @@ function apply(rec: Records, collection: CollectionName, record: unknown, local 
   return { ...rec, [field]: list.some((value) => value.id === item.id) ? list.map((value) => value.id === item.id ? item : value) : [...list, item] };
 }
 
-function updateWorkspace(caseId: string, update: (current: Workspace) => Workspace) {
-  state = { ...state, workspaces: state.workspaces.map((current) => current.caseId === caseId ? update(current) : current) };
-}
-
-function updateRecords(caseId: string, rec: Records) {
-  state = { ...state, cases: { ...state.cases, [caseId]: rec } };
-}
-
 /** Save a record locally and queue it, sealed, for the team. */
 export async function save<C extends CollectionName>(caseId: string, collection: C, record: RecordOf<C>) {
-  const rec = state.cases[caseId];
-  if (!rec) throw new Error("unknown case");
+  if (!state.cases[caseId]) throw new Error("unknown case");
   const w = workspace(caseId);
   const envelope = await sealRecord(w.caseKey, collection, record);
-  updateRecords(caseId, apply(state.cases[caseId]!, collection, record, true));
-  updateWorkspace(caseId, (current) => ({ ...current, outbox: [...current.outbox, envelope] }));
-  emit();
-  await persist(caseId);
+  await change(() => database.save({ caseId, collection, record: record as { id: string } }, envelope));
   void syncCase(caseId);
 }
 
@@ -172,9 +171,9 @@ export async function editPseudonym(caseId: string, original: string, hint: stri
 export async function createCase(input: { title: string; question: string; privacy: PrivacyLevel; memberName: string }): Promise<string> {
   const member = newMember(input.memberName);
   const c = newCase({ title: input.title, question: input.question, privacy: input.privacy, createdBy: member.id });
-  state = { ...state, workspaces: [...state.workspaces, { caseId: c.id, caseKey: generateCaseKey(), memberId: member.id, cursor: 0, outbox: [] }] };
-  updateRecords(c.id, emptyRecords(c));
-  await save(c.id, "cases", c);
+  const w = { caseId: c.id, caseKey: generateCaseKey(), memberId: member.id, cursor: 0 };
+  const envelope = await sealRecord(w.caseKey, "cases", c);
+  await change(async () => { await database.putWorkspace(w); await database.save({ caseId: c.id, collection: "cases", record: c }, envelope); });
   await save(c.id, "members", member);
   return c.id;
 }
@@ -183,11 +182,10 @@ export async function createCase(input: { title: string; question: string; priva
 export async function joinCase(invite: Invite, memberName: string): Promise<string> {
   if (state.workspaces.some((w) => w.caseId === invite.caseId)) return invite.caseId;
   const member: Member = newMember(memberName);
-  state = { ...state, workspaces: [...state.workspaces, { caseId: invite.caseId, caseKey: invite.caseKey, memberId: member.id, cursor: 0, outbox: [] }] };
+  await change(() => database.putWorkspace({ caseId: invite.caseId, caseKey: invite.caseKey, memberId: member.id, cursor: 0 }));
   for (let attempt = 0; attempt < 3 && !state.cases[invite.caseId]; attempt++) await syncCase(invite.caseId);
   if (!state.cases[invite.caseId]) {
-    state = { ...state, workspaces: state.workspaces.filter((w) => w.caseId !== invite.caseId) };
-    emit();
+    await change(() => database.removeWorkspace(invite.caseId));
     throw new Error("Couldn't open this case. The link may be wrong, or the case hasn't synced yet.");
   }
   await save(invite.caseId, "members", member);
@@ -196,7 +194,7 @@ export async function joinCase(invite: Invite, memberName: string): Promise<stri
 
 /** Move one card on the board (shared with the team). */
 export async function moveOnBoard(caseId: string, itemId: string, x: number, y: number) {
-  await save(caseId, "board", { id: caseId, caseId, positions: { [itemId]: { x: Math.round(x), y: Math.round(y) } } });
+  await save(caseId, "board", { id: itemId, caseId, positions: { [itemId]: { x: Math.round(x), y: Math.round(y) } } });
 }
 
 export const inviteLink = (caseId: string): string => {
@@ -213,7 +211,8 @@ const syncing = new Map<string, Promise<void>>();
 export function syncCase(caseId: string): Promise<void> {
   const running = syncing.get(caseId);
   if (running) return running;
-  const task = syncOnce(caseId).finally(() => syncing.delete(caseId));
+  const run = async () => { await change(async () => {}, false); await syncOnce(caseId); };
+  const task = (globalThis.navigator?.locks ? navigator.locks.request(`zireh-sync:${caseId}`, run) : run()).finally(() => syncing.delete(caseId));
   syncing.set(caseId, task);
   return task;
 }
@@ -225,8 +224,7 @@ async function syncOnce(caseId: string) {
     while (workspace(caseId).outbox.length) {
       const batch = workspace(caseId).outbox.slice(0, 200);
       const { cursor } = await api.push(caseId, token, batch);
-      const pushed = new Set(batch.map((envelope) => envelope.sealed.ct));
-      updateWorkspace(caseId, (current) => ({ ...current, outbox: current.outbox.filter((envelope) => !pushed.has(envelope.sealed.ct)) }));
+      await change(() => database.acknowledge(caseId, batch));
       // The host has fewer records than we've already seen: it was reset or replaced.
       if (cursor < w.cursor) queueMicrotask(() => void repairHost(caseId));
     }
@@ -246,31 +244,19 @@ async function syncOnce(caseId: string) {
       // Open the whole batch first: the case record may come after records that belong to it
       // (e.g. after a host repair), and nothing may be skipped once the cursor moves past it.
       const opened = (await Promise.all(pulled.records.map((env) => openRecord(w.caseKey, env)))).filter((o) => o !== undefined);
-      if (!state.cases[caseId]) {
-        const head = opened.find((o) => o.collection === "cases");
-        if (!head) return; // nothing usable yet; keep the cursor so these records are pulled again
-        updateRecords(caseId, emptyRecords(head.record as Case));
-      }
-      let rec = state.cases[caseId]!;
-      for (const o of opened) rec = apply(rec, o.collection, o.record);
-      updateRecords(caseId, rec);
-      updateWorkspace(caseId, (current) => ({ ...current, cursor: pulled.cursor }));
+      if (!state.cases[caseId] && !opened.some((entry) => entry.collection === "cases")) return;
+      await change(() => database.pull(caseId, opened.map((entry) => ({ caseId, collection: entry.collection, record: entry.record as { id: string } })), pulled.cursor));
       if (pulled.records.length === 0 || pulled.cursor >= pulled.head) break;
     }
-    updateWorkspace(caseId, ({ syncError: _, ...current }) => ({ ...current, syncedAt: new Date().toISOString() }));
+    await change(() => database.patchWorkspace(caseId, { syncedAt: new Date().toISOString(), syncError: undefined }));
   } catch (err) {
-    updateWorkspace(caseId, (current) => ({ ...current, syncError: (err as Error).message }));
-  } finally {
-    emit();
-    await persist(caseId);
+    await change(() => database.patchWorkspace(caseId, { syncError: (err as Error).message }));
   }
-
 }
 
 /** Every record this device holds for a case, as (collection, record) pairs. */
-function allRecords(caseId: string): [CollectionName, { id: string }][] {
-  const rec = state.cases[caseId];
-  if (!rec) return [];
+function recordPairs(rec: Records): [CollectionName, { id: string }][] {
+  const caseId = rec.case.id;
   const out: [CollectionName, { id: string }][] = [["cases", rec.case]];
   const lists: [CollectionName, readonly { id: string }[]][] = [
     ["members", rec.members],
@@ -311,11 +297,11 @@ async function repairHost(caseId: string) {
     }
   }
   const queued = new Set(w.outbox.map((e) => `${e.collection}:${e.id}`));
-  for (const [collection, record] of allRecords(caseId)) {
+  for (const [collection, record] of (state.cases[caseId] ? recordPairs(state.cases[caseId]!) : [])) {
     const key = `${collection}:${record.id}`;
     if (!onHost.has(key) && !queued.has(key)) {
       const envelope = await sealRecord(w.caseKey, collection, record as never);
-      updateWorkspace(caseId, (current) => ({ ...current, outbox: [...current.outbox, envelope] }));
+      await change(() => database.queue(caseId, [envelope]));
     }
   }
   if (workspace(caseId).outbox.length) await syncCase(caseId);
