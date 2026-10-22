@@ -48,7 +48,10 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
 
   async function cloudModel(requested?: string): Promise<string> {
     const { prices } = await deps.relay.info();
-    if (requested && prices.some((p) => p.model === requested)) return requested;
+    if (requested) {
+      if (prices.some((p) => p.model === requested)) return requested;
+      throw new Error(`unknown relay model: ${requested}`);
+    }
     if (!prices[0]) throw new Error("the relay offers no models");
     return prices[0].model;
   }
@@ -62,10 +65,22 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
     const body = z
       .object({ model: z.string().optional(), messages: z.array(z.object({ role: z.string(), content: z.string() })).min(1), max_tokens: z.number().int().positive().max(4000).optional() })
       .parse(await req.json());
-    const level = PrivacyLevel.catch("standard").parse(req.headers.get("x-zireh-level") ?? "standard");
+    const modelLevel = body.model?.startsWith("zireh/") ? PrivacyLevel.parse(body.model.slice(7)) : undefined;
+    const header = req.headers.get("x-zireh-level");
+    const headerLevel = header === null ? undefined : PrivacyLevel.parse(header);
+    if (modelLevel && headerLevel && modelLevel !== headerLevel) return json(400, { error: { message: "model and privacy header disagree", type: "bad_request" } });
+    const level = headerLevel ?? modelLevel ?? "standard";
     const last = body.messages.at(-1)!;
     const earlier = body.messages.slice(0, -1).map((m) => `${m.role}: ${m.content}`);
-    const model = level === "local" ? deps.local.id : await cloudModel(body.model);
+    const requested = modelLevel ? undefined : body.model;
+    // Local mode never queries the relay, including for model discovery.
+    if (requested && level === "local") return json(400, { error: { message: "use zireh/local for local inference", type: "bad_request" } });
+    let model = deps.local.id;
+    if (level !== "local") {
+      const { prices } = await deps.relay.info();
+      if (requested && !prices.some((p) => p.model === requested)) return json(400, { error: { message: "unknown model", type: "bad_request" } });
+      model = await cloudModel(requested);
+    }
     let answer = "";
     let error: string | undefined;
     await runResearch(deps, { task: last.content, context: earlier.length ? [earlier.join("\n")] : [], level, table: [], salt: randomSalt(), model, ...(body.max_tokens ? { maxTokens: body.max_tokens } : {}) }, (e) => {

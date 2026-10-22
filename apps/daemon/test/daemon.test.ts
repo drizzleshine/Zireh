@@ -173,3 +173,27 @@ describe("daemon API", () => {
     expect(status.pendingCalls).toBe(0);
   });
 });
+
+describe("F01 compatibility privacy selection", () => {
+  const request = (daemon: ReturnType<typeof setup>["daemon"], model: string, level?: string) => daemon(new Request("http://127.0.0.1:7878/v1/chat/completions", {
+    method: "POST",
+    headers: { authorization: "Bearer zp-test-key", "content-type": "application/json", ...(level ? { "x-zireh-level": level } : {}) },
+    body: JSON.stringify({ model, messages: [{ role: "user", content: "Keep Ada Obi on this computer." }] }),
+  }));
+
+  it("honors zireh/local without contacting the relay", async () => {
+    const { daemon, seen } = setup();
+    const response = await request(daemon, "zireh/local");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ model: "zireh/local" });
+    expect(seen).toHaveLength(0);
+  });
+
+  it("rejects conflicting levels, invalid headers and unknown models", async () => {
+    const { daemon, seen } = setup();
+    for (const [model, level] of [["zireh/local", "private"], ["zireh/local", "invalid"], ["zireh/unknown", undefined], ["unknown/model", undefined]] as const) {
+      expect((await request(daemon, model, level)).status).toBe(400);
+    }
+    expect(seen).toHaveLength(0);
+  });
+});
