@@ -1,3 +1,4 @@
+import { observePayments } from "./audit.ts";
 import { randomId, randomSalt } from "@zireh/crypto";
 import { newCircuitTag, type Transport } from "@zireh/tor";
 import { RelayCallError, type RelayClient } from "@zireh/inference";
@@ -44,6 +45,7 @@ const ResearchBody = z.object({
  * allowed Origin, and address the daemon by a loopback Host (blocks DNS rebinding).
  */
 export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Response> {
+  observePayments(deps.relay, deps.ledger);
   const activeRuns = new Map<string, AbortController>();
   const sync = () => new SyncClient(deps.syncUrl, deps.transport.fetchFor(newCircuitTag()));
 
@@ -201,11 +203,10 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
     "POST /api/search": async (req) => {
       const body = z.object({ query: z.string().trim().min(2).max(400), table: z.array(Pseudonym).default([]), caseId: z.string().regex(/^[0-9a-f]{32}$/).optional() }).parse(await req.json());
       const red = await redactText(deps.local, body.query, body.table);
-      const call = await deps.relay.prepareSearch(red.text, 5);
+      const call = await deps.relay.prepareSearch(red.text, 5, { role: "real", ...(body.caseId ? { caseId: body.caseId } : {}) });
       const circuit = newCircuitTag();
       const result = await deps.relay.send(call, circuit);
       if (result.kind !== "search") throw new Error("unexpected result kind");
-      deps.ledger.record({ destination: "search", role: "real", payload: red.text, circuit, charged: result.charged, ...(body.caseId ? { caseId: body.caseId } : {}) });
       return json(200, { redactedQuery: red.text, hits: result.hits, table: red.table, charged: result.charged });
     },
 

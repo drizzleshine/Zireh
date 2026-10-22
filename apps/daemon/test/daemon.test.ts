@@ -1,4 +1,4 @@
-import { randomSalt } from "@zireh/crypto";
+import { randomSalt, sha256Hex } from "@zireh/crypto";
 import { RelayClient } from "@zireh/inference";
 import { Ledger } from "@zireh/ledger";
 import { scriptedModel, type ChatModel } from "@zireh/llm";
@@ -28,10 +28,10 @@ const local = scriptedModel((messages: readonly ChatMessage[]) => {
   return `local: ${user}`;
 }, "nemotron-3-nano:4b");
 
-function setup(localModel: ChatModel = local) {
+function setup(localModel: ChatModel = local, upstreamOverride?: ChatModel, dropChatReply?: () => boolean) {
   const seen: string[] = []; // every user message that reached the cloud model
   const searches: string[] = [];
-  const upstream = scriptedModel((messages) => {
+  const upstream = upstreamOverride ?? scriptedModel((messages) => {
     seen.push(messages.at(-1)!.content);
     return "an answer";
   });
@@ -43,7 +43,11 @@ function setup(localModel: ChatModel = local) {
     search: async (query) => { searches.push(query); return []; },
     responses: memoryResponseStore(),
   });
-  const relayFetch: FetchLike = (url, init) => relayHandler(new Request(url, init));
+  const relayFetch: FetchLike = async (url, init) => {
+    const response = await relayHandler(new Request(url, init));
+    if (url.endsWith("/v1/chat") && dropChatReply?.()) throw new Error("lost chat reply");
+    return response;
+  };
   const transport = directTransport(relayFetch);
   const wallet = new Wallet(memoryProofStore());
   const ledger = new Ledger();
@@ -286,5 +290,36 @@ describe("F12 whole-coin research funding", () => {
     expect(done?.type).toBe("done");
     if (done?.type === "done") expect(s.wallet.balance).toBe(1_048_576 - done.spent);
     expect(s.relay.pending.list()).toHaveLength(0);
+  });
+});
+
+describe("F13 truthful attempted payloads", () => {
+  it("updates the same failed receipt on recovery and preserves a verifiable full body", async () => {
+    let drop = true;
+    const s = setup(local, undefined, () => { const lost = drop; drop = false; return lost; });
+    await topUp(s.call, 65_536);
+    const call = await s.relay.prepareChat(MODEL, [{ role: "user", content: "x".repeat(3000) }], 10);
+    await expect(s.relay.send(call)).rejects.toMatchObject({ code: "network" });
+    expect(s.ledger.receipts()).toMatchObject([{ id: call.requestId, state: "failed" }]);
+    const { recovered } = await s.relay.recover();
+    expect(recovered).toHaveLength(1);
+    const receipts = s.ledger.receipts();
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({ id: call.requestId, state: "recovered", charged: recovered[0]!.charged });
+    expect(sha256Hex(receipts[0]!.payloadWire!)).toBe(receipts[0]!.payloadSha256);
+    expect(receipts[0]!.payloadWire!.length).toBeGreaterThan(3000);
+  });
+  it("logs the full request before the upstream receives it, even when it fails", async () => {
+    let s: ReturnType<typeof setup>;
+    s = setup(local, scriptedModel(() => {
+      expect(s.ledger.receipts()).toMatchObject([{ state: "attempted" }]);
+      throw new Error("upstream received the prompt then failed");
+    }));
+    await topUp(s.call, 65_536);
+    const call = await s.relay.prepareChat(MODEL, [{ role: "user", content: "x".repeat(3000) }], 10);
+    await expect(s.relay.send(call)).rejects.toThrow("upstream received");
+    const receipts = s.ledger.receipts();
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({ id: call.requestId, state: "failed", payloadWire: JSON.stringify(call.body) });
   });
 });

@@ -20,8 +20,8 @@ export function LogPanel({ caseId }: { caseId: string }) {
   return (
     <section className="panel" aria-label="Privacy log">
       <p className="doc" style={{ maxWidth: "70ch" }}>
-        Everything this computer has sent. The log stays here. Each row is exactly what left, after names were hidden, and its hash
-        lets you prove what a provider received.
+        Paid research and search requests attempted by this computer. The log stays here.
+        Each row keeps the complete request body and its hash; a failed attempt may still have reached the provider.
       </p>
       <div className="levels" role="group" aria-label="Which requests">
         <button aria-pressed={scope === "case"} onClick={() => setScope("case")}>
@@ -34,7 +34,7 @@ export function LogPanel({ caseId }: { caseId: string }) {
       <div className="summary">
         <div>
           <strong>{summary.calls}</strong>
-          <span>requests sent</span>
+          <span>requests attempted</span>
         </div>
         <div>
           <strong>{summary.decoys}</strong>
@@ -84,13 +84,16 @@ export function LogPanel({ caseId }: { caseId: string }) {
                     );
                   })()}
                   <div className="hash">sha256 {r.payloadSha256}</div>
+                  {r.payloadWire && <details><summary>Complete request body</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{r.payloadWire}</pre></details>}
+                  {(r.state === "failed" || r.state === "disputed") && r.error && <div className="error">{r.error}</div>}
                 </td>
                 <td>
                   {r.destination === "local" ? "Answered locally" : r.role === "decoy" ? "Decoy" : r.destination === "search" ? "Web search" : "Question"}
+                  {r.state && <div className="level-note">{r.state}</div>}
                   {r.circuit && <div className="level-note">circuit {r.circuit.slice(2, 8)}</div>}
                 </td>
                 <td className="num">
-                  {r.charged !== undefined ? formatUsd(r.charged) : "free"}
+                  {r.charged !== undefined ? formatUsd(r.charged) : r.destination === "local" ? "free" : "unsettled"}
                   {r.overcharged && <div className="error">billed more than used</div>}
                 </td>
               </tr>

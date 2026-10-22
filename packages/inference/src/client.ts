@@ -22,6 +22,7 @@ import { z } from "zod";
 /** Everything needed to send (or re-send) one paid call. Persisted before the first send. */
 export interface PendingCall {
   readonly requestId: string;
+  readonly audit?: { readonly role: "real" | "decoy"; readonly caseId?: string; readonly runId?: string; readonly pieceId?: string };
   readonly status?: "disputed" | "settlement-pending";
   readonly dispute?: string;
   readonly maxCharge?: number;
@@ -58,6 +59,17 @@ export type CallResult =
   | { readonly answerExpired?: boolean; readonly kind: "chat"; readonly requestId: string; readonly content: string; readonly model: string; readonly usage: Usage; readonly charged: number; readonly bill: BillCheck }
   | { readonly answerExpired?: boolean; readonly kind: "search"; readonly requestId: string; readonly hits: SearchHit[]; readonly charged: number };
 
+export interface RelayObserver {
+  attempt(call: PendingCall, circuit: string): void;
+  result(call: PendingCall, result: CallResult, recovered: boolean): void;
+  failure(call: PendingCall, error: Error, charged?: number): void;
+}
+export interface Completion {
+  readonly call: PendingCall;
+  readonly outcome: CallResult | { error: string; charged: number };
+  readonly reported: boolean;
+}
+
 export class RelayCallError extends Error {
   constructor(
     readonly code: RelayError["error"] | "network" | "settlement_disputed",
@@ -85,6 +97,9 @@ export interface RelayClientOptions {
  * connection never means paying twice or losing change.
  */
 export class RelayClient {
+  private observer: RelayObserver | undefined;
+  observe(observer: RelayObserver): void { this.observer = observer; }
+
   private infoCache: RelayInfo | undefined;
   readonly pending: PendingStore;
 
@@ -169,17 +184,17 @@ export class RelayClient {
   }
 
   /** Take coins for the worst case and persist the call. Nothing has left the device yet. */
-  async prepareChat(model: string, messages: readonly ChatMessage[], maxTokens: number): Promise<PendingCall> {
+  async prepareChat(model: string, messages: readonly ChatMessage[], maxTokens: number, audit?: PendingCall["audit"]): Promise<PendingCall> {
     const [price, { keyset }] = await Promise.all([this.priceOf(model), this.info()]);
     return this.prepare("chat", "/v1/chat", keyset, maxCost(price, messages, maxTokens), (requestId, proofs, blanks) => ({
       requestId,
       request: { model, messages, max_tokens: maxTokens },
       proofs,
       changeOutputs: blanks.outputs,
-    }), { price, messages });
+    }), { price, messages, ...(audit ? { audit } : {}) });
   }
 
-  async prepareSearch(query: string, maxResults: number): Promise<PendingCall> {
+  async prepareSearch(query: string, maxResults: number, audit?: PendingCall["audit"]): Promise<PendingCall> {
     const { keyset, searchPrice } = await this.info();
     return this.prepare("search", "/v1/search", keyset, searchPrice, (requestId, proofs, blanks) => ({
       requestId,
@@ -187,7 +202,7 @@ export class RelayClient {
       maxResults,
       proofs,
       changeOutputs: blanks.outputs,
-    }));
+    }), audit ? { audit } : {});
   }
 
   private prepare(
@@ -196,7 +211,7 @@ export class RelayClient {
     keyset: Keyset,
     hold: number,
     body: (requestId: string, proofs: Proof[], blanks: PendingOutputs) => Record<string, unknown>,
-    extra: Pick<PendingCall, "price" | "messages"> = {},
+    extra: Pick<PendingCall, "price" | "messages" | "audit"> = {},
   ): PendingCall {
     return this.options.wallet.money.atomically(() => {
       const proofs = this.options.wallet.take(hold);
@@ -217,29 +232,35 @@ export class RelayClient {
     });
   }
 
-  async send(call: PendingCall, circuitTag: string = newCircuitTag()): Promise<CallResult> {
+  async send(call: PendingCall, circuitTag: string = newCircuitTag(), recovered = false): Promise<CallResult> {
     const fetchFn = this.options.transport.fetchFor(circuitTag);
     try {
+      this.observer?.attempt(call, circuitTag);
       if (call.kind === "chat") {
         const res = await this.request(fetchFn, call.path, ChatPaidResponse, call.body);
-        this.settle(call, res.settlement);
-        await this.acknowledge(call.requestId);
         const bill = checkBill(call.price!, call.messages!, res.answerExpired ? undefined : res.content, res.settlement.usage, res.settlement.charged, (call.body.request as { max_tokens: number }).max_tokens);
-        return { answerExpired: res.answerExpired ?? false, kind: "chat", requestId: call.requestId, content: res.content, model: res.model, usage: res.settlement.usage, charged: res.settlement.charged, bill };
+        const result: CallResult = { answerExpired: res.answerExpired ?? false, kind: "chat", requestId: call.requestId, content: res.content, model: res.model, usage: res.settlement.usage, charged: res.settlement.charged, bill };
+        this.settle(call, res.settlement, result);
+        this.notifyCompletion(call.requestId, recovered);
+        await this.acknowledge(call.requestId);
+        return result;
       }
       const res = await this.request(fetchFn, call.path, SearchPaidResponse, call.body);
-      this.settle(call, res.settlement);
+      const result: CallResult = { answerExpired: res.answerExpired ?? false, kind: "search", requestId: call.requestId, hits: res.hits, charged: res.settlement.charged };
+      this.settle(call, res.settlement, result);
+      this.notifyCompletion(call.requestId, recovered);
       await this.acknowledge(call.requestId);
-      return { answerExpired: res.answerExpired ?? false, kind: "search", requestId: call.requestId, hits: res.hits, charged: res.settlement.charged };
+      return result;
     } catch (err) {
       if (err instanceof z.ZodError) {
         const reason = "Settlement disputed: the relay returned a malformed response";
         this.pending.save({ ...call, status: "disputed", dispute: reason });
+        this.observer?.failure(call, new Error(reason));
         throw new RelayCallError("settlement_disputed", reason, true);
       }
       if (err instanceof RelayCallError && !err.retryable) {
         const settlement = (err as RelayCallError & { settlement?: Settlement }).settlement;
-        if (settlement) { this.settle(call, settlement); await this.acknowledge(call.requestId); }
+        if (settlement) { this.settle(call, settlement, { error: err.message, charged: settlement.charged }); this.notifyCompletion(call.requestId, recovered); await this.acknowledge(call.requestId); }
         else if (NOT_BURNED.has(err.code)) {
           this.options.wallet.money.atomically(() => {
             this.options.wallet.add(call.proofs);
@@ -249,12 +270,13 @@ export class RelayClient {
           this.pending.save({ ...call, status: "settlement-pending" });
         }
       }
+      this.observer?.failure(call, err as Error);
       throw err; // retryable errors keep the call pending for `recover`
     }
   }
 
   /** Credit change once: only a call that is still pending can be settled. */
-  private settle(call: PendingCall, settlement: Settlement) {
+  private settle(call: PendingCall, settlement: Settlement, outcome: Completion["outcome"]) {
     if (!this.pending.list().some((c) => c.requestId === call.requestId)) return;
     const audit = checkSettlement(call.requestId, sum(call.proofs), call.maxCharge ?? sum(call.proofs), call.blanks.outputs.length, call.keyset.id, settlement);
     let change: Proof[];
@@ -268,10 +290,22 @@ export class RelayClient {
     }
     this.options.wallet.money.atomically(() => {
       this.options.wallet.add(change);
+      this.options.wallet.money.put(`completion:${call.requestId}`, { call, outcome, reported: false } satisfies Completion);
       this.options.wallet.money.put(`ack:${call.requestId}`, { requestId: call.requestId });
       this.pending.remove(call.requestId);
     });
   }
+
+  private notifyCompletion(requestId: string, recovered: boolean): void {
+    const key = `completion:${requestId}`;
+    const completion = this.options.wallet.money.get<Completion>(key);
+    if (!this.observer || !completion || completion.reported) return;
+    if ("kind" in completion.outcome) this.observer.result(completion.call, completion.outcome, recovered);
+    else this.observer.failure(completion.call, new Error(completion.outcome.error), completion.outcome.charged);
+    this.options.wallet.money.put(key, { ...completion, reported: true });
+  }
+
+  completions(): Completion[] { return this.options.wallet.money.list<Completion>("completion:"); }
 
   private async acknowledge(requestId: string): Promise<void> {
     if (!this.options.wallet.money.get(`ack:${requestId}`)) return;
@@ -286,13 +320,16 @@ export class RelayClient {
     const recovered: CallResult[] = [];
     const failed: RelayCallError[] = [];
     let topups = 0;
+    for (const completion of this.completions()) {
+      if (!completion.reported) this.notifyCompletion(completion.call.requestId, true);
+    }
     for (const pending of this.options.wallet.money.list<{ quote: TopupQuote }>("topup:")) {
       try { await this.redeemTopup(pending.quote); topups++; }
       catch (error) { if (error instanceof RelayCallError) failed.push(error); else throw error; }
     }
     for (const call of this.pending.list()) {
       try {
-        recovered.push(await this.send(call));
+        recovered.push(await this.send(call, newCircuitTag(), true));
       } catch (err) {
         if (err instanceof RelayCallError) failed.push(err);
         else throw err;

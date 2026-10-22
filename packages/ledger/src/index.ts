@@ -10,11 +10,11 @@ export interface LedgerStore {
 }
 
 export function memoryLedgerStore(): LedgerStore {
-  const receipts: Receipt[] = [];
+  const receipts = new Map<string, Receipt>();
   const runs = new Map<string, Run>();
   return {
-    appendReceipt: (r) => void receipts.push(r),
-    receipts: () => [...receipts],
+    appendReceipt: (r) => void receipts.set(r.id, r),
+    receipts: () => [...receipts.values()],
     putRun: (r) => void runs.set(r.id, r),
     runs: () => [...runs.values()],
   };
@@ -60,6 +60,9 @@ export class Ledger {
 
   /** Record exactly what was sent. The preview is the redacted text as it appeared on the wire. */
   record(entry: {
+    requestId?: string;
+    state?: Receipt["state"];
+    preview?: string;
     destination: Receipt["destination"];
     role: Receipt["role"];
     caseId?: string;
@@ -70,15 +73,18 @@ export class Ledger {
     overcharged?: boolean;
   }): Receipt {
     const wire = typeof entry.payload === "string" ? entry.payload : canonicalJson(entry.payload);
-    const preview = typeof entry.payload === "string" ? entry.payload : entry.payload.map((m) => m.content).at(-1) ?? "";
+    const preview = entry.preview ?? (typeof entry.payload === "string" ? entry.payload : entry.payload.map((m) => m.content).at(-1) ?? "");
     const receipt: Receipt = {
-      id: randomId(),
+      id: entry.requestId ?? randomId(),
+      ...(entry.requestId ? { requestId: entry.requestId } : {}),
+      state: entry.state ?? "settled",
+      payloadWire: wire,
       at: new Date().toISOString(),
       destination: entry.destination,
       role: entry.role,
       ...(entry.caseId ? { caseId: entry.caseId } : {}),
       payloadSha256: sha256Hex(wire),
-      payloadPreview: preview.slice(0, 2000),
+      payloadPreview: preview,
       ...(entry.circuit ? { circuit: entry.circuit } : {}),
       ...(entry.charged !== undefined ? { charged: entry.charged } : {}),
       ...(entry.expectedCharge !== undefined ? { expectedCharge: entry.expectedCharge } : {}),
@@ -86,6 +92,12 @@ export class Ledger {
     };
     this.store.appendReceipt(receipt);
     return receipt;
+  }
+
+  updateReceipt(id: string, patch: Partial<Pick<Receipt, "state" | "error" | "circuit" | "charged" | "expectedCharge" | "overcharged">>): void {
+    const current = this.store.receipts().find((receipt) => receipt.id === id);
+    if (!current) throw new Error(`unknown receipt ${id}`);
+    this.store.appendReceipt({ ...current, ...patch });
   }
 
   receipts(): Receipt[] {

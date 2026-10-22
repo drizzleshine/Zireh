@@ -1,3 +1,4 @@
+import { observePayments } from "./audit.ts";
 import { randomId } from "@zireh/crypto";
 import { RelayCallError, type PendingCall, type RelayClient } from "@zireh/inference";
 import type { Ledger } from "@zireh/ledger";
@@ -44,6 +45,7 @@ export async function runResearch(
   req: ResearchRequest,
   emit: (e: ResearchEvent) => void,
 ): Promise<void> {
+  observePayments(deps.relay, deps.ledger);
   const started = Date.now();
   const runId = req.runId ?? randomId();
   const submitted = new Set<string>();
@@ -94,7 +96,7 @@ export async function runResearch(
         if (req.signal?.aborted) return;
         let call: PendingCall;
         try {
-          call = await deps.relay.prepareChat(req.model, piece.messages, piece.maxTokens);
+          call = await deps.relay.prepareChat(req.model, piece.messages, piece.maxTokens, { role: piece.role, pieceId: piece.id, runId, ...(req.caseId ? { caseId: req.caseId } : {}) });
         } catch (error) {
           emit({ type: "piece", id: piece.id, status: "failed", error: (error as Error).message });
           return;
@@ -111,16 +113,6 @@ export async function runResearch(
             const result = await deps.relay.send(call, circuit);
             if (result.kind !== "chat") throw new Error("unexpected result kind");
             deps.ledger.advance(call.requestId, "settled", { charged: result.charged, usage: result.usage });
-            deps.ledger.record({
-              destination: "relay",
-              role: piece.role,
-              ...(req.caseId ? { caseId: req.caseId } : {}),
-              payload: piece.messages,
-              circuit,
-              charged: result.charged,
-              expectedCharge: result.bill.expected,
-              overcharged: result.bill.overcharged,
-            });
             spent += result.charged;
             settled.add(piece.id);
             answers.set(piece.id, result.content);

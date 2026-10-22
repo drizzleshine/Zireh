@@ -24,6 +24,11 @@ export interface Run {
 
 /** One line of the privacy log: exactly what left the device, and what it cost. */
 export interface Receipt {
+  readonly requestId?: string;
+  readonly state?: "attempted" | "delivered" | "failed" | "settled" | "recovered" | "disputed";
+  readonly error?: string;
+  readonly payloadWire?: string; // exact serialized body; local-only
+
   readonly id: string;
   readonly at: string;
   readonly destination: "relay" | "search" | "local";

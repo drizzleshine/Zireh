@@ -73,13 +73,13 @@ export function fileLedgerStore(dir: string): LedgerStore {
   const receiptsFile = join(dir, "receipts.jsonl");
   const runsFile = join(dir, "runs.json");
   return {
-    appendReceipt: (r) => appendFileSync(receiptsFile, `${JSON.stringify(r)}\n`, { mode: 0o600 }),
+    appendReceipt: (r) => appendFileSync(receiptsFile, `${JSON.stringify(r)}\n`, { mode: 0o600, flush: true }),
     receipts: () =>
       existsSync(receiptsFile)
-        ? readFileSync(receiptsFile, "utf8")
+        ? [...new Map(readFileSync(receiptsFile, "utf8")
             .split("\n")
             .filter(Boolean)
-            .map((l) => JSON.parse(l) as Receipt)
+            .map((line) => { const receipt = JSON.parse(line) as Receipt; return [receipt.id, receipt] as const; })).values()]
         : [],
     putRun: (run) => {
       const runs = readJson<Run[]>(runsFile, []).filter((r) => r.id !== run.id);
