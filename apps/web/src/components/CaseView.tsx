@@ -1,6 +1,7 @@
 import type { DaemonStatus } from "@zireh/schema";
 import { useState } from "react";
 import { inviteLink, useStore } from "../store.ts";
+import { BackupDialog } from "./BackupDialog.tsx";
 import { BoardPanel } from "./BoardPanel.tsx";
 import { ConcludePanel } from "./ConcludePanel.tsx";
 import { EvidencePanel } from "./EvidencePanel.tsx";
@@ -21,6 +22,7 @@ export function CaseView({ caseId, status, onBalanceChange, onTopUp }: Props) {
   const rec = useStore((s) => s.cases[caseId]);
   const ws = useStore((s) => s.workspaces.find((w) => w.caseId === caseId));
   const [tab, setTab] = useState<Tab>("research");
+  const [backup, setBackup] = useState(false);
   const [copied, setCopied] = useState(false);
 
   if (!rec) return <section className="panel">Opening case…</section>;
@@ -37,6 +39,7 @@ export function CaseView({ caseId, status, onBalanceChange, onTopUp }: Props) {
 
   return (
     <>
+      {backup && <BackupDialog caseId={caseId} onClose={() => setBackup(false)} />}
       <header className="case-head">
         <h1>{rec.case.title}</h1>
         <p className="case-question">{rec.case.question}</p>
@@ -44,6 +47,7 @@ export function CaseView({ caseId, status, onBalanceChange, onTopUp }: Props) {
           <span>{rec.members.map((m) => m.name).join(", ")}</span>
           <span>{ws?.syncError ? `Not synced: ${ws.syncError}` : ws?.outbox.length ? "Saving…" : ws?.syncedAt ? "Synced, end-to-end encrypted" : "Not synced yet"}</span>
           <span className="spacer" />
+          <button className="btn small" onClick={() => setBackup(true)}>Back up case</button>
           <button
             className="btn small"
             onClick={async () => {

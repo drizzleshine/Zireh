@@ -2,6 +2,7 @@ import { parseInvite, type Invite } from "@zireh/cases";
 import type { DaemonStatus } from "@zireh/schema";
 import { useCallback, useEffect, useState } from "react";
 import { api, DaemonError } from "./api.ts";
+import { BackupDialog } from "./components/BackupDialog.tsx";
 import { CaseView } from "./components/CaseView.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { HowItWorks } from "./components/HowItWorks.tsx";
@@ -21,7 +22,7 @@ export function App() {
     if (id) setHome(false);
     setSelectedRaw(id);
   };
-  const [dialog, setDialog] = useState<"wallet" | "new-case" | "how" | undefined>();
+  const [dialog, setDialog] = useState<"wallet" | "new-case" | "how" | "import" | undefined>();
   const [invite, setInvite] = useState<Invite | undefined>(() => parseInvite(location.hash));
   const caseIds = useStore((s) => s.workspaces.map((w) => w.caseId).join(","));
 
@@ -56,6 +57,7 @@ export function App() {
         onTopUp={() => setDialog("wallet")}
         onNewCase={() => setDialog("new-case")}
         onDemo={async () => setSelected(await createDemoCase("You"))}
+        onImport={() => setDialog("import")}
         onHow={() => setDialog("how")}
         onHome={() => {
           setHome(true);
@@ -74,6 +76,7 @@ export function App() {
         )}
         </ErrorBoundary>
       </main>
+      {dialog === "import" && <BackupDialog onClose={() => setDialog(undefined)} onImported={setSelected} />}
       {dialog === "how" && <HowItWorks onClose={() => setDialog(undefined)} />}
       {dialog === "wallet" && <WalletDialog onClose={() => setDialog(undefined)} onBalanceChange={refresh} />}
       {dialog === "new-case" && (

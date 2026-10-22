@@ -140,3 +140,33 @@ describe("F11 authenticated record revisions", () => {
     expect(store.getSnapshot().workspaces[0]!.replayWarnings).toBe(2);
   });
 });
+
+describe("encrypted case backup restore", () => {
+  it("restores the workspace key, evidence, revisions and unsent envelopes without duplicating records", async () => {
+    remote.push.mockRejectedValue(new Error("offline"));
+    remote.pull.mockRejectedValue(new Error("offline"));
+    const store = await import("../src/store.ts");
+    await store.load();
+    const id = await store.createCase({ title: "confidential case", question: "private question", privacy: "private", memberName: "Ada" });
+    const evidence = newEvidence(id, store.myMemberId(id), { title: "source", kind: "note", body: "confidential source" });
+    await store.save(id, "evidence", evidence);
+    await store.syncCase(id);
+    const key = store.getSnapshot().workspaces[0]!.caseKey;
+    const backup = await store.backupCase(id, "a long unique backup passphrase");
+    expect(backup).not.toContain(key);
+    expect(backup).not.toContain("confidential source");
+    const { database } = await import("../src/persistence.ts");
+    await database.clear();
+    await store.load();
+    expect(store.getSnapshot().workspaces).toHaveLength(0);
+    expect(await store.restoreCase(backup, "a long unique backup passphrase")).toBe(id);
+    await store.syncCase(id);
+    expect(store.getSnapshot().workspaces[0]!.caseKey).toBe(key);
+    expect(store.getSnapshot().cases[id]!.evidence).toEqual([evidence]);
+    expect(store.getSnapshot().workspaces[0]!.outbox).toHaveLength(3);
+    await store.restoreCase(backup, "a long unique backup passphrase");
+    await store.syncCase(id);
+    expect(store.getSnapshot().cases[id]!.evidence).toHaveLength(1);
+    expect(store.getSnapshot().workspaces[0]!.outbox).toHaveLength(3);
+  });
+});

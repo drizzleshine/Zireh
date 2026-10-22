@@ -133,6 +133,23 @@ class BrowserDatabase {
       next(0);
     });
   }
+  restore(workspace: WorkspaceData, entries: readonly StoredRecord[], outbox: readonly Envelope[]) {
+    return this.write((store) => {
+      const ws = store.get(workspaceKey(workspace.caseId));
+      ws.onsuccess = () => {
+        if (ws.result && ws.result.caseKey !== workspace.caseKey) { store.transaction.abort(); return; }
+        if (!ws.result) store.put(workspace, workspaceKey(workspace.caseId));
+        for (const entry of entries) {
+          const current = store.get(recordKey(entry));
+          current.onsuccess = () => {
+            const saved = current.result as StoredRecord | undefined;
+            if (!saved || compareRevisions(entry.envelope ? envelopeRevision(entry.envelope) : LEGACY_REVISION, saved.envelope ? envelopeRevision(saved.envelope) : LEGACY_REVISION) > 0) store.put(entry, recordKey(entry));
+          };
+        }
+        for (const envelope of outbox) store.put(envelope, outboxKey(workspace.caseId, envelope));
+      };
+    });
+  }
   migrate(workspaces: readonly (WorkspaceData & { outbox: Envelope[] })[], records: readonly StoredRecord[]) {
     return this.write((store) => {
       const request = store.get("migrated-v1");

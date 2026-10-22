@@ -1,6 +1,6 @@
 import { caseToken, inviteFragment, newCase, newMember, type CaseRecords, type Invite } from "@zireh/cases";
-import { generateCaseKey } from "@zireh/crypto";
-import type { Case, CollectionName, Member, PrivacyLevel, Pseudonym, RecordOf } from "@zireh/schema";
+import { canonicalJson, decryptBackup, encryptBackup, fromBase64Url, generateCaseKey } from "@zireh/crypto";
+import { Collections, type Case, type CollectionName, type Member, type PrivacyLevel, type Pseudonym, type RecordOf } from "@zireh/schema";
 import { compareRevisions, envelopeRevision, LEGACY_REVISION, assertSyncable, takeSyncBatch, openRecord, sealRecord, type Envelope } from "@zireh/sync";
 import { get } from "idb-keyval";
 import { database, type StoredRecord, type WorkspaceData } from "./persistence.ts";
@@ -346,3 +346,42 @@ export function startSyncLoop(intervalMs = 8000) {
 
 /** Stable snapshot for non-React consumers, including local backup and store regression tests. */
 export const getSnapshot = () => state;
+
+
+/** Case keys and complete records leave the browser only inside this passphrase-encrypted file. */
+export async function backupCase(caseId: string, passphrase: string): Promise<string> {
+  await localChanges;
+  const w = workspace(caseId);
+  const records = (await database.entries()).filter(([key]) => key.startsWith(`record:${caseId}:`)).map(([, value]) => value as StoredRecord);
+  return JSON.stringify(await encryptBackup({ v: 1, workspace: w, records }, passphrase));
+}
+
+export async function restoreCase(text: string, passphrase: string): Promise<string> {
+  if (text.length > 64 * 1024 * 1024) throw new Error("Backup file exceeds 64 MiB");
+  const value = await decryptBackup(JSON.parse(text) as unknown, passphrase) as { v?: unknown; workspace?: Workspace; records?: StoredRecord[] };
+  const w = value?.workspace;
+  if (value?.v !== 1 || !w || !/^[0-9a-f]{32}$/.test(w.caseId) || !/^[0-9a-f]{32}$/.test(w.memberId) || typeof w.caseKey !== "string" || fromBase64Url(w.caseKey).length !== 32 || !Number.isSafeInteger(w.cursor) || w.cursor < 0 || !Array.isArray(w.outbox) || !Array.isArray(value.records)) throw new Error("Invalid case backup");
+  const existing = state.workspaces.find((saved) => saved.caseId === w.caseId);
+  if (existing && existing.caseKey !== w.caseKey) throw new Error("This case already exists with a different key; import into a separate browser profile");
+  const seen = new Set<string>();
+  const records: StoredRecord[] = [];
+  for (const entry of value.records) {
+    if (entry.caseId !== w.caseId || !Object.hasOwn(Collections, entry.collection)) throw new Error("Invalid case record in backup");
+    const record = Collections[entry.collection].parse(entry.record) as { id: string; caseId?: string };
+    if (entry.collection === "cases" ? record.id !== w.caseId : record.caseId !== undefined && record.caseId !== w.caseId) throw new Error("Backup contains another case's records");
+    const key = `${entry.collection}:${record.id}`;
+    if (seen.has(key)) throw new Error("Backup contains duplicate record ids");
+    seen.add(key);
+    if (entry.envelope) {
+      const opened = await openRecord(w.caseKey, entry.envelope);
+      if (!opened || canonicalJson(opened.record) !== canonicalJson(record)) throw new Error("Backup revision does not match its record");
+    }
+    records.push({ ...entry, record });
+  }
+  if (!records.some((entry) => entry.collection === "cases") || !records.some((entry) => entry.collection === "members" && entry.record.id === w.memberId)) throw new Error("Backup is missing the case or your membership");
+  for (const envelope of w.outbox) if (!await openRecord(w.caseKey, envelope)) throw new Error("Invalid pending envelope in backup");
+  const { outbox, ...metadata } = w;
+  await change(() => database.restore(metadata, records, outbox));
+  void syncCase(w.caseId);
+  return w.caseId;
+}

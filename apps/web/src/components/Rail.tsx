@@ -12,9 +12,10 @@ interface Props {
   onDemo: () => void;
   onHome: () => void;
   onHow: () => void;
+  onImport: () => void;
 }
 
-export function Rail({ status, daemonError, selected, onSelect, onTopUp, onNewCase, onDemo, onHome, onHow }: Props) {
+export function Rail({ status, daemonError, selected, onSelect, onTopUp, onNewCase, onDemo, onHome, onHow, onImport }: Props) {
   const cases = useStore((s) => s.workspaces.map((w) => ({ id: w.caseId, c: s.cases[w.caseId]?.case, members: s.cases[w.caseId]?.members.length ?? 0 })));
 
   return (
@@ -83,6 +84,7 @@ export function Rail({ status, daemonError, selected, onSelect, onTopUp, onNewCa
           <button className="btn quiet" onClick={onNewCase}>
             + New case
           </button>
+          <button className="btn quiet" onClick={onImport}>Import encrypted backup</button>
           <button className="btn quiet" onClick={onDemo}>
             Try the demo
           </button>
