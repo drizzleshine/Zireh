@@ -1,3 +1,4 @@
+import { TeamDialog } from "./TeamDialog.tsx";
 import type { DaemonStatus } from "@zireh/schema";
 import { useState } from "react";
 import { inviteLink, useStore } from "../store.ts";
@@ -22,6 +23,7 @@ export function CaseView({ caseId, status, onBalanceChange, onTopUp }: Props) {
   const rec = useStore((s) => s.cases[caseId]);
   const ws = useStore((s) => s.workspaces.find((w) => w.caseId === caseId));
   const [tab, setTab] = useState<Tab>("research");
+  const [team, setTeam] = useState(false);
   const [backup, setBackup] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -39,14 +41,16 @@ export function CaseView({ caseId, status, onBalanceChange, onTopUp }: Props) {
 
   return (
     <>
+      {team && <TeamDialog caseId={caseId} onClose={() => setTeam(false)} />}
       {backup && <BackupDialog caseId={caseId} onClose={() => setBackup(false)} />}
       <header className="case-head">
         <h1>{rec.case.title}</h1>
         <p className="case-question">{rec.case.question}</p>
         <div className="case-meta">
-          <span>{rec.members.map((m) => m.name).join(", ")}</span>
+          <span>{rec.members.filter((member) => !member.removedAt).map((m) => m.name).join(", ")}</span>
           <span>{ws?.syncError ? `Not synced: ${ws.syncError}` : ws?.outbox.length ? "Saving…" : ws?.syncedAt ? "Synced, end-to-end encrypted" : "Not synced yet"}</span>
           <span className="spacer" />
+          <button className="btn small" onClick={() => setTeam(true)} disabled={ws?.needsInvite}>Manage members</button>
           <button className="btn small" onClick={() => setBackup(true)}>Back up case</button>
           <button
             className="btn small"
@@ -69,12 +73,13 @@ export function CaseView({ caseId, status, onBalanceChange, onTopUp }: Props) {
           ))}
         </div>
       </header>
-      {tab === "research" && <ResearchPanel caseId={caseId} status={status} onBalanceChange={onBalanceChange} onTopUp={onTopUp} />}
-      {tab === "evidence" && <EvidencePanel caseId={caseId} />}
-      {tab === "board" && <BoardPanel caseId={caseId} />}
-      {tab === "findings" && <FindingsPanel caseId={caseId} />}
-      {tab === "conclude" && <ConcludePanel caseId={caseId} />}
-      {tab === "log" && <LogPanel caseId={caseId} />}
+      {ws?.needsInvite && <p className="notice" role="alert">This case key has been rotated. Editing is paused. Ask the case creator for an updated invite. Your existing local copy can still be backed up.</p>}
+      {!ws?.needsInvite && tab === "research" && <ResearchPanel caseId={caseId} status={status} onBalanceChange={onBalanceChange} onTopUp={onTopUp} />}
+      {!ws?.needsInvite && tab === "evidence" && <EvidencePanel caseId={caseId} />}
+      {!ws?.needsInvite && tab === "board" && <BoardPanel caseId={caseId} />}
+      {!ws?.needsInvite && tab === "findings" && <FindingsPanel caseId={caseId} />}
+      {!ws?.needsInvite && tab === "conclude" && <ConcludePanel caseId={caseId} />}
+      {!ws?.needsInvite && tab === "log" && <LogPanel caseId={caseId} />}
     </>
   );
 }

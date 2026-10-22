@@ -7,6 +7,10 @@ export interface WorkspaceData {
   readonly caseKey: string;
   readonly memberId: string;
   readonly cursor: number;
+  readonly syncId?: string;
+  readonly keyEpoch?: number;
+  readonly needsInvite?: boolean;
+  readonly notices?: readonly { syncId: string; token: string; envelope: Envelope }[];
   readonly replayWarnings?: number;
   readonly syncedAt?: string;
   readonly syncError?: string | undefined;
@@ -58,14 +62,18 @@ class BrowserDatabase {
     request.onsuccess = () => { if (request.result) store.put({ ...request.result, ...patch }, workspaceKey(caseId)); };
   }
   removeWorkspace(caseId: string) { return this.write((store) => { store.delete(workspaceKey(caseId)); }); }
-  save(entry: StoredRecord, envelope: Envelope) {
+  save(entry: StoredRecord, envelope: Envelope, expectedKey?: string) {
     return this.write((store) => {
+      const workspace = store.get(workspaceKey(entry.caseId));
+      workspace.onsuccess = () => {
+      if (expectedKey && workspace.result?.caseKey !== expectedKey) { store.transaction.abort(); return; }
       const current = store.get(recordKey(entry));
       current.onsuccess = () => {
         const saved = current.result as StoredRecord | undefined;
         if (saved && compareRevisions(envelopeRevision(envelope), saved.envelope ? envelopeRevision(saved.envelope) : LEGACY_REVISION) <= 0) { store.transaction.abort(); return; }
         store.put({ ...entry, envelope, echoPending: true }, recordKey(entry));
         store.put(envelope, outboxKey(entry.caseId, envelope));
+      };
       };
     });
   }
@@ -131,6 +139,31 @@ class BrowserDatabase {
         };
       };
       next(0);
+    });
+  }
+  rotate(expectedKey: string, expectedOutbox: readonly Envelope[], workspace: WorkspaceData, records: readonly StoredRecord[], outbox: readonly Envelope[]) {
+    return this.write((store) => {
+      const ws = store.get(workspaceKey(workspace.caseId));
+      ws.onsuccess = () => {
+        if (!ws.result || ws.result.caseKey !== expectedKey) { store.transaction.abort(); return; }
+        const prefix = `outbox:${workspace.caseId}:`;
+        const pending = store.openCursor(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
+        const found: string[] = [];
+        pending.onsuccess = () => {
+          const cursor = pending.result;
+          if (cursor) { found.push((cursor.value as Envelope).sealed.ct); cursor.delete(); cursor.continue(); return; }
+          if (found.length !== expectedOutbox.length || expectedOutbox.some((envelope) => !found.includes(envelope.sealed.ct))) { store.transaction.abort(); return; }
+          store.put(workspace, workspaceKey(workspace.caseId));
+          for (const entry of records) store.put(entry, recordKey(entry));
+          for (const envelope of outbox) store.put(envelope, outboxKey(workspace.caseId, envelope));
+        };
+      };
+    });
+  }
+  acknowledgeNotice(caseId: string, ciphertext: string) {
+    return this.write((store) => {
+      const request = store.get(workspaceKey(caseId));
+      request.onsuccess = () => { if (request.result) store.put({ ...request.result, notices: (request.result.notices ?? []).filter((notice: { envelope: Envelope }) => notice.envelope.sealed.ct !== ciphertext) }, workspaceKey(caseId)); };
     });
   }
   restore(workspace: WorkspaceData, entries: readonly StoredRecord[], outbox: readonly Envelope[], history: readonly { id: string; caseId: string }[] = []) {

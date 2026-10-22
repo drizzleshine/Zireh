@@ -170,3 +170,56 @@ describe("encrypted case backup restore", () => {
     expect(store.getSnapshot().workspaces[0]!.outbox).toHaveLength(3);
   });
 });
+
+describe("member removal and case-key rotation", () => {
+  it("re-seals every record in a fresh namespace and lets only a retained member update access", async () => {
+    const hosts = new Map<string, { token: string; records: import("@zireh/sync").StoredEnvelope[] }>();
+    remote.push.mockImplementation(async (id, token, records) => {
+      let host = hosts.get(id);
+      if (!host) { host = { token, records: [] }; hosts.set(id, host); }
+      if (host.token !== token) throw new Error("wrong token");
+      for (const record of records) if (!host.records.some((saved) => saved.sealed.ct === record.sealed.ct)) host.records.push({ ...record, seq: host.records.length + 1 });
+      return { cursor: host.records.length };
+    });
+    remote.pull.mockImplementation(async (id, token, after) => {
+      const host = hosts.get(id);
+      if (!host || host.token !== token) throw new Error("unknown namespace or token");
+      return { records: host.records.filter((record) => record.seq > after), cursor: host.records.length, head: host.records.length };
+    });
+    const store = await import("../src/store.ts");
+    await store.load();
+    const id = await store.createCase({ title: "rotation", question: "question", privacy: "private", memberName: "Owner" });
+    const removed = newMember("Bo"), retained = newMember("Cy");
+    await store.save(id, "members", removed);
+    await store.save(id, "members", retained);
+    const evidence = newEvidence(id, store.myMemberId(id), { kind: "note", title: "source", body: "private source" });
+    await store.save(id, "evidence", evidence);
+    await store.syncCase(id);
+    const before = structuredClone(store.getSnapshot().cases[id]!);
+    const old = structuredClone(store.getSnapshot().workspaces[0]!);
+    await store.removeMember(id, removed.id);
+    const current = store.getSnapshot().workspaces[0]!;
+    expect(current.caseKey).not.toBe(old.caseKey);
+    expect(current.syncId).not.toBe(id);
+    expect(store.getSnapshot().cases[id]!.members.find((member) => member.id === removed.id)?.removedAt).toBeDefined();
+    const { openRecord } = await import("@zireh/sync");
+    const sealed = hosts.get(current.syncId!)!.records.find((record) => record.id === evidence.id)!;
+    expect(await openRecord(old.caseKey, sealed)).toBeUndefined();
+    expect(await openRecord(current.caseKey, sealed)).toMatchObject({ record: evidence });
+    const invite = { caseId: id, caseKey: current.caseKey, syncId: current.syncId!, keyEpoch: current.keyEpoch! };
+    const { database } = await import("../src/persistence.ts");
+    await database.clear();
+    await set("workspaces", [{ ...old, memberId: retained.id }]);
+    await set(`case:${id}`, before);
+    await store.load();
+    await store.joinCase(invite, "Cy");
+    await store.syncCase(id);
+    expect(store.getSnapshot().workspaces[0]!.caseKey).toBe(invite.caseKey);
+    expect(store.getSnapshot().cases[id]!.evidence).toEqual([evidence]);
+    await database.clear();
+    await set("workspaces", [{ ...old, memberId: removed.id }]);
+    await store.load();
+    await expect(store.joinCase(invite, "Bo")).rejects.toThrow("does not retain your membership");
+    expect(store.getSnapshot().workspaces[0]!.caseKey).toBe(old.caseKey);
+  });
+});

@@ -57,6 +57,15 @@ export async function openRecord(caseKey: string, envelope: Envelope): Promise<{
   } catch { return undefined; }
 }
 
+/** Re-encrypt an authenticated payload without changing its revision or authorship. */
+export async function rekeyRecord(oldKey: string, newKey: string, envelope: Envelope): Promise<Envelope> {
+  if (!await openRecord(oldKey, envelope)) throw new Error("Cannot rotate an invalid record");
+  const rev = envelope.sealed.rev;
+  const aad = context(envelope.collection, envelope.id, rev);
+  const value = await openJson<unknown>(oldKey, envelope.sealed, aad);
+  return { id: envelope.id, collection: envelope.collection, sealed: { ...await sealJson(newKey, value, aad), ...(rev ? { rev } : {}) } };
+}
+
 export class SyncError extends Error {
   constructor(
     message: string,

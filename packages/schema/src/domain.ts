@@ -10,6 +10,7 @@ export const Member = z.object({
   id: Id, // opaque, random per case
   name: z.string().min(1).max(60),
   joinedAt: Iso,
+  removedAt: Iso.optional(),
 });
 export type Member = z.infer<typeof Member>;
 
@@ -21,6 +22,8 @@ export const Case = z.object({
   privacy: PrivacyLevel,
   createdAt: Iso,
   createdBy: Id,
+  keyEpoch: z.number().int().nonnegative().optional(),
+  nextSyncId: Id.optional(),
 });
 export type Case = z.infer<typeof Case>;
 

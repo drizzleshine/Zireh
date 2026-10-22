@@ -1,8 +1,8 @@
 import type { StoredResearch } from "./research-history.ts";
 import { caseToken, inviteFragment, newCase, newMember, type CaseRecords, type Invite } from "@zireh/cases";
-import { canonicalJson, decryptBackup, encryptBackup, fromBase64Url, generateCaseKey } from "@zireh/crypto";
+import { canonicalJson, decryptBackup, encryptBackup, fromBase64Url, generateCaseKey, randomId } from "@zireh/crypto";
 import { Collections, type Case, type CollectionName, type Member, type PrivacyLevel, type Pseudonym, type RecordOf } from "@zireh/schema";
-import { compareRevisions, envelopeRevision, LEGACY_REVISION, assertSyncable, takeSyncBatch, openRecord, sealRecord, type Envelope } from "@zireh/sync";
+import { compareRevisions, envelopeRevision, LEGACY_REVISION, rekeyRecord, assertSyncable, takeSyncBatch, openRecord, sealRecord, type Envelope } from "@zireh/sync";
 import { get } from "idb-keyval";
 import { database, type StoredRecord, type WorkspaceData } from "./persistence.ts";
 import { useRef, useSyncExternalStore } from "react";
@@ -150,9 +150,10 @@ function apply(rec: Records, collection: CollectionName, record: unknown, local 
 export async function save<C extends CollectionName>(caseId: string, collection: C, record: RecordOf<C>) {
   if (!state.cases[caseId]) throw new Error("unknown case");
   const w = workspace(caseId);
+  if (w.needsInvite) throw new Error("This case key was rotated. Open an updated invite before editing.");
   const envelope = await sealRecord(w.caseKey, collection, record, await database.reserveRevision(caseId, collection, (record as { id: string }).id));
   assertSyncable(envelope);
-  await change(() => database.save({ caseId, collection, record: record as { id: string } }, envelope));
+  await change(() => database.save({ caseId, collection, record: record as { id: string } }, envelope, w.caseKey));
   void syncCase(caseId);
 }
 
@@ -182,9 +183,14 @@ export async function createCase(input: { title: string; question: string; priva
 
 /** Join from an invite: pull the case, then add yourself as a member. */
 export async function joinCase(invite: Invite, memberName: string): Promise<string> {
-  if (state.workspaces.some((w) => w.caseId === invite.caseId)) return invite.caseId;
+  const existing = state.workspaces.find((workspace) => workspace.caseId === invite.caseId);
+  if (existing) {
+    if (existing.caseKey === invite.caseKey) return invite.caseId;
+    await acceptRotatedInvite(invite);
+    return invite.caseId;
+  }
   const member: Member = newMember(memberName);
-  await change(() => database.putWorkspace({ caseId: invite.caseId, caseKey: invite.caseKey, memberId: member.id, cursor: 0 }));
+  await change(() => database.putWorkspace({ caseId: invite.caseId, caseKey: invite.caseKey, memberId: member.id, cursor: 0, ...(invite.syncId ? { syncId: invite.syncId, keyEpoch: invite.keyEpoch } : {}) }));
   for (let attempt = 0; attempt < 3 && !state.cases[invite.caseId]; attempt++) await syncCase(invite.caseId);
   if (!state.cases[invite.caseId]) {
     await change(() => database.removeWorkspace(invite.caseId));
@@ -201,7 +207,7 @@ export async function moveOnBoard(caseId: string, itemId: string, x: number, y: 
 
 export const inviteLink = (caseId: string): string => {
   const w = workspace(caseId);
-  return `${location.origin}/#${inviteFragment({ caseId, caseKey: w.caseKey })}`;
+  return `${location.origin}/#${inviteFragment({ caseId, caseKey: w.caseKey, ...(w.syncId ? { syncId: w.syncId, keyEpoch: w.keyEpoch ?? 1 } : {}) })}`;
 };
 
 export const myMemberId = (caseId: string): string => workspace(caseId).memberId;
@@ -223,11 +229,16 @@ async function syncOnce(caseId: string) {
   const w = workspace(caseId);
   const token = caseToken(w.caseKey);
   try {
+    for (const notice of w.notices ?? []) {
+      await api.push(notice.syncId, notice.token, [notice.envelope]);
+      await change(() => database.acknowledgeNotice(caseId, notice.envelope.sealed.ct));
+    }
+    if (w.needsInvite) return;
     while (workspace(caseId).outbox.length) {
       let batch = takeSyncBatch(workspace(caseId).outbox);
       let cursor: number;
       for (;;) {
-        try { ({ cursor } = await api.push(caseId, token, batch)); break; }
+        try { ({ cursor } = await api.push(w.syncId ?? caseId, token, batch)); break; }
         catch (error) {
           if ((error as { status?: number }).status !== 413 || batch.length < 2) throw error;
           batch = batch.slice(0, Math.ceil(batch.length / 2));
@@ -241,7 +252,7 @@ async function syncOnce(caseId: string) {
     for (let page = 0; page < 20; page++) {
       let pulled;
       try {
-        pulled = await api.pull(caseId, token, workspace(caseId).cursor);
+        pulled = await api.pull(w.syncId ?? caseId, token, workspace(caseId).cursor);
       } catch (err) {
         if ((err as { status?: number }).status === 404 && state.cases[caseId]) {
           queueMicrotask(() => void repairHost(caseId)); // host doesn't know this case at all
@@ -261,6 +272,10 @@ async function syncOnce(caseId: string) {
       }))).filter((entry) => entry !== undefined);
       if (!state.cases[caseId] && !opened.some((entry) => entry.collection === "cases")) return;
       await change(() => database.pull(caseId, opened.map((entry) => ({ caseId, collection: entry.collection, record: entry.record as { id: string }, envelope: entry.envelope })), pulled.cursor, pulled.records.length - opened.length));
+      if ((state.cases[caseId]?.case.keyEpoch ?? 0) > (w.keyEpoch ?? 0) && state.cases[caseId]?.case.nextSyncId) {
+        await change(() => database.patchWorkspace(caseId, { needsInvite: true }));
+        break;
+      }
       if (pulled.records.length === 0 || pulled.cursor >= pulled.head) break;
     }
     await change(() => database.patchWorkspace(caseId, { syncedAt: new Date().toISOString(), syncError: undefined }));
@@ -296,11 +311,12 @@ function recordPairs(rec: Records): [CollectionName, { id: string }][] {
 async function repairHost(caseId: string) {
   const w = workspace(caseId);
   const token = caseToken(w.caseKey);
+  if (w.needsInvite) return;
   const onHost = new Map<string, ReturnType<typeof envelopeRevision>>();
   let after = 0;
   try {
     for (;;) {
-      const page = await api.pull(caseId, token, after);
+      const page = await api.pull(w.syncId ?? caseId, token, after);
       for (const envelope of page.records) {
         if (!await openRecord(w.caseKey, envelope)) continue;
         const key = `${envelope.collection}:${envelope.id}`;
@@ -389,4 +405,73 @@ export async function restoreCase(text: string, passphrase: string): Promise<str
   await change(() => database.restore(metadata, records, outbox, history));
   void syncCase(w.caseId);
   return w.caseId;
+}
+
+
+/** A fresh namespace prevents the previous case-token holder from reading or writing future data. */
+export async function removeMember(caseId: string, memberId: string): Promise<void> {
+  await syncCase(caseId);
+  const w = workspace(caseId);
+  const rec = state.cases[caseId]!;
+  if (w.memberId !== rec.case.createdBy) throw new Error("Only the case creator can remove a member");
+  if (memberId === w.memberId) throw new Error("The case creator cannot remove themselves");
+  if (!rec.members.some((member) => member.id === memberId && !member.removedAt)) throw new Error("Unknown active member");
+  if (w.outbox.length || w.syncError || w.needsInvite) throw new Error("Sync this case successfully before rotating its key");
+  const key = generateCaseKey(), syncId = randomId(), epoch = (w.keyEpoch ?? 0) + 1;
+  const entries = (await database.entries()).filter(([key]) => key.startsWith(`record:${caseId}:`)).map(([, value]) => value as StoredRecord);
+  const noticeRecord = { ...rec.case, keyEpoch: epoch, nextSyncId: syncId };
+  const notice = await sealRecord(w.caseKey, "cases", noticeRecord, await database.reserveRevision(caseId, "cases", caseId));
+  const records: StoredRecord[] = [];
+  for (const entry of entries) {
+    let record = entry.record;
+    let envelope: Envelope;
+    if (entry.collection === "members" && record.id === memberId) record = { ...record, removedAt: new Date().toISOString() } as Member;
+    if (entry.collection === "cases") { const { nextSyncId: _, ...head } = record as Case; record = { ...head, keyEpoch: epoch } as Case; }
+    if (record !== entry.record || !entry.envelope) envelope = await sealRecord(key, entry.collection, record as never, await database.reserveRevision(caseId, entry.collection, record.id));
+    else envelope = await rekeyRecord(w.caseKey, key, entry.envelope);
+    assertSyncable(envelope);
+    records.push({ caseId, collection: entry.collection, record, envelope, echoPending: true });
+  }
+  const { outbox: _, ...metadata } = w;
+  const next: WorkspaceData = { ...metadata, caseKey: key, syncId, keyEpoch: epoch, cursor: 0, needsInvite: false, notices: [...(w.notices ?? []), { syncId: w.syncId ?? caseId, token: caseToken(w.caseKey), envelope: notice }] };
+  await change(() => database.rotate(w.caseKey, w.outbox, next, records, records.map((entry) => entry.envelope!)));
+  await syncCase(caseId);
+}
+
+async function acceptRotatedInvite(invite: Invite): Promise<void> {
+  const w = workspace(invite.caseId);
+  if (!invite.syncId || !invite.keyEpoch || invite.keyEpoch <= (w.keyEpoch ?? 0)) throw new Error("This invite is older than your current case key");
+  const incoming = new Map<string, StoredRecord>();
+  let cursor = 0;
+  for (;;) {
+    const page = await api.pull(invite.syncId, caseToken(invite.caseKey), cursor);
+    for (const envelope of page.records) {
+      const opened = await openRecord(invite.caseKey, envelope);
+      if (!opened) throw new Error("Invalid record in rotated case");
+      const record = opened.record as { id: string; caseId?: string };
+      if (opened.collection === "cases" ? record.id !== invite.caseId : record.caseId !== undefined && record.caseId !== invite.caseId) throw new Error("Rotated invite contains another case");
+      const key = `${opened.collection}:${record.id}`;
+      const prior = incoming.get(key)?.envelope;
+      if (!prior || compareRevisions(envelopeRevision(envelope), envelopeRevision(prior)) > 0) incoming.set(key, { caseId: invite.caseId, collection: opened.collection, record, envelope, echoPending: false });
+    }
+    cursor = page.cursor;
+    if (!page.records.length || cursor >= page.head) break;
+  }
+  const head = incoming.get(`cases:${invite.caseId}`)?.record as Case | undefined;
+  const me = incoming.get(`members:${w.memberId}`)?.record as Member | undefined;
+  if (!head || head.createdBy !== state.cases[invite.caseId]!.case.createdBy || head.keyEpoch !== invite.keyEpoch || !me || me.removedAt) throw new Error("This invite does not retain your membership in the current case");
+  const outbox: Envelope[] = [];
+  const local = (await database.entries()).filter(([key]) => key.startsWith(`record:${invite.caseId}:`)).map(([, value]) => value as StoredRecord);
+  for (const entry of local) {
+    if (entry.collection === "cases" || entry.collection === "members") continue;
+    const key = `${entry.collection}:${entry.record.id}`;
+    const remote = incoming.get(key);
+    if (remote?.envelope && compareRevisions(envelopeRevision(remote.envelope), entry.envelope ? envelopeRevision(entry.envelope) : LEGACY_REVISION) >= 0) continue;
+    const envelope = entry.envelope ? await rekeyRecord(w.caseKey, invite.caseKey, entry.envelope) : await sealRecord(invite.caseKey, entry.collection, entry.record as never, await database.reserveRevision(invite.caseId, entry.collection, entry.record.id));
+    incoming.set(key, { ...entry, envelope, echoPending: true });
+    outbox.push(envelope);
+  }
+  const { outbox: _, ...metadata } = w;
+  await change(() => database.rotate(w.caseKey, w.outbox, { ...metadata, caseKey: invite.caseKey, syncId: invite.syncId!, keyEpoch: invite.keyEpoch!, cursor, needsInvite: false }, [...incoming.values()], outbox));
+  void syncCase(invite.caseId);
 }

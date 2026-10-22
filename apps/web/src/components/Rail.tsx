@@ -16,7 +16,7 @@ interface Props {
 }
 
 export function Rail({ status, daemonError, selected, onSelect, onTopUp, onNewCase, onDemo, onHome, onHow, onImport }: Props) {
-  const cases = useStore((s) => s.workspaces.map((w) => ({ id: w.caseId, c: s.cases[w.caseId]?.case, members: s.cases[w.caseId]?.members.length ?? 0 })));
+  const cases = useStore((s) => s.workspaces.map((w) => ({ id: w.caseId, c: s.cases[w.caseId]?.case, members: s.cases[w.caseId]?.members.filter((member) => !member.removedAt).length ?? 0 })));
 
   return (
     <nav className="rail" aria-label="Zireh">

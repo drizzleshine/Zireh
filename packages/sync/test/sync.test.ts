@@ -49,3 +49,15 @@ describe("F11 revision authentication", () => {
     expect(await openRecord(key, { ...env, sealed: { ...env.sealed, rev: { lamport: 7, deviceId: "b".repeat(32) } } })).toBeUndefined();
   });
 });
+
+describe("case key rotation", () => {
+  it("preserves the record and authenticated revision while revoking the previous key", async () => {
+    const { rekeyRecord } = await import("../src/index.ts");
+    const oldKey = generateCaseKey(), newKey = generateCaseKey();
+    const c = sampleCase();
+    const original = await sealRecord(oldKey, "cases", c);
+    const rotated = await rekeyRecord(oldKey, newKey, original);
+    expect(await openRecord(newKey, rotated)).toEqual(await openRecord(oldKey, original));
+    expect(await openRecord(oldKey, rotated)).toBeUndefined();
+  });
+});
