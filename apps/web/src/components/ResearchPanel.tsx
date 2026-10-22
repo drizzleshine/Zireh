@@ -1,3 +1,4 @@
+import { evidenceContext } from "../evidence.ts";
 import { reconcileResearch, researchHistory, saveResearch, type Run, type PieceState, type StoredResearch } from "../research-history.ts";
 import { restore, extendTable } from "@zireh/redact";
 import { newObservation } from "@zireh/cases";
@@ -61,6 +62,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
   const task = draft?.task ?? "";
   const level = draft?.level ?? rec.case.privacy;
   const contextIds = draft?.contextIds ?? [];
+  const context = evidenceContext(rec.evidence, contextIds);
   const reviewBeforeSend = draft?.reviewBeforeSend ?? level === "paranoid";
   const [history, setHistory] = useState<StoredResearch[]>([]);
   const [pastId, setPastId] = useState<string>();
@@ -96,7 +98,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
   const ready = status?.localModel.ok && (level === "local" || (status.relay.ok && (status.transport === "direct" || status.tor.ready)));
 
   async function start() {
-    const current: Run = { evidenceIds: contextIds, sourceTable: JSON.stringify(rec.pseudonyms), task, level, steps: [], table: [], pieces: [], blocked: [] };
+    const current: Run = { evidenceIds: context.entries.map((entry) => entry.id), sourceTable: JSON.stringify(rec.pseudonyms), task, level, steps: [], table: [], pieces: [], blocked: [] };
     const controller = new AbortController();
     setSlot(caseId, ({ runId: _previous, ...s }) => ({ ...s, run: current, running: true, abort: controller }));
     const update = (fn: (r: Run) => void) =>
@@ -115,7 +117,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
           table: rec.pseudonyms,
           salt: rec.case.salt,
           caseId,
-          context: rec.evidence.filter((e) => contextIds.includes(e.id) && e.kind !== "image").map((e) => `${e.title}\n${e.body}`),
+          context: context.entries.map((entry) => entry.text),
         },
         (e) => {
           if (e.type === "started") setSlot(caseId, (s) => ({ ...s, runId: e.runId }));
@@ -219,6 +221,8 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
               ))}
           </div>
         )}
+        {context.entries.filter((entry) => entry.truncated).map((entry) => <p className="notice" key={entry.id}>{entry.title}: research will use the first {entry.used.toLocaleString()} of {entry.total.toLocaleString()} characters. The complete source remains in Evidence.</p>)}
+        {context.omitted > 0 && <p className="notice">Only the first 20 selected sources will be included. {context.omitted} source(s) will be omitted.</p>}
         {level !== "local" && <label className="level-note"><input type="checkbox" checked={reviewBeforeSend} onChange={(event) => setDraft({ reviewBeforeSend: event.target.checked })} disabled={running} /> Review prepared requests before sending</label>}
         <details className="field">
           <summary>Always hide phrases</summary>

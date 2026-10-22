@@ -1,3 +1,4 @@
+import { evidenceDownload } from "../evidence.ts";
 import { memberName, newEvidence, newObservation } from "@zireh/cases";
 import type { Evidence } from "@zireh/schema";
 import { useState } from "react";
@@ -15,6 +16,7 @@ const KINDS: { id: Evidence["kind"]; label: string }[] = [
 
 export function EvidencePanel({ caseId }: { caseId: string }) {
   const rec = useStore((s) => s.cases[caseId])!;
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(rec.evidence.length === 0);
   const [kind, setKind] = useState<Evidence["kind"]>("note");
   const [title, setTitle] = useState("");
@@ -123,14 +125,23 @@ export function EvidencePanel({ caseId }: { caseId: string }) {
             {e.kind === "image" ? (
               <img className="evidence-image" src={e.body} alt={e.title} />
             ) : (
-              <p className="doc">{e.body.length > 900 ? `${e.body.slice(0, 900)}…` : e.body}</p>
+              <div>
+                <p className="doc" style={{ whiteSpace: "pre-wrap" }}>{expanded.has(e.id) ? e.body : e.body.length > 900 ? `${e.body.slice(0, 900)}…` : e.body}</p>
+                {e.body.length > 900 && <button className="btn small" aria-expanded={expanded.has(e.id)} onClick={() => setExpanded((previous) => { const next = new Set(previous); if (next.has(e.id)) next.delete(e.id); else next.add(e.id); return next; })}>{expanded.has(e.id) ? "Collapse document" : `Read full document (${e.body.length.toLocaleString()} characters)`}</button>}
+              </div>
             )}
             <div className="meta">
               <span>{KINDS.find((k) => k.id === e.kind)?.label ?? e.kind}</span>
               <span>Added by {memberName(rec, e.addedBy)}</span>
               <span title={e.sha256}>sha256 {e.sha256.slice(0, 12)}</span>
               <span style={{ flex: 1 }} />
-              <Comments caseId={caseId} targetId={e.id} />
+              <button className="btn small" onClick={() => {
+              const { blob, filename } = evidenceDownload(e);
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a"); link.href = url; link.download = filename; link.click();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+            }}>Download full evidence</button>
+            <Comments caseId={caseId} targetId={e.id} />
               <button className="btn small" onClick={() => setNoting(noting === e.id ? undefined : e.id)}>
                 Add observation
               </button>
