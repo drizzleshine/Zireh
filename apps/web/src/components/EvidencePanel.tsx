@@ -39,7 +39,8 @@ export function EvidencePanel({ caseId }: { caseId: string }) {
           className="composer"
           onSubmit={(e) => {
             e.preventDefault();
-            void add();
+            setError(undefined);
+            void add().catch((error: Error) => setError(error.message));
           }}
         >
           <div className="levels" role="group" aria-label="Kind of evidence">
@@ -86,7 +87,6 @@ export function EvidencePanel({ caseId }: { caseId: string }) {
               />
               {body.startsWith("data:image/") && <ImageRedactor src={body} onChange={setBody} />}
               {imageNote && <span className="hint">{imageNote}</span>}
-              {error && <p className="error">{error}</p>}
             </div>
           ) : (
             <div className="field">
@@ -95,6 +95,7 @@ export function EvidencePanel({ caseId }: { caseId: string }) {
               <span className="hint">Encrypted before it leaves this browser. When you include it in a question, names in it are hidden first.</span>
             </div>
           )}
+          {error && <p className="error" role="alert">{error}</p>}
           <div className="composer-foot">
             <span className="spacer" />
             {rec.evidence.length > 0 && (

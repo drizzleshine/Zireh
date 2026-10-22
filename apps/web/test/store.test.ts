@@ -65,3 +65,51 @@ describe("F10 atomic record and outbox writes", () => {
     expect(await database.entries()).toEqual([]);
   });
 });
+
+describe("F15 byte-bounded synchronization", () => {
+  it("pushes two large documents in separate successful requests", async () => {
+    const member = newMember("Ada");
+    const c = newCase({ title: "case", question: "question", privacy: "private", createdBy: member.id });
+    const key = generateCaseKey();
+    const documents = ["a", "b"].map((body) => newEvidence(c.id, member.id, { kind: "document", title: body, body: body.repeat(1_600_000) }));
+    const outbox = await Promise.all(documents.map((record) => sealRecord(key, "evidence", record)));
+    await set("workspaces", [{ caseId: c.id, caseKey: key, memberId: member.id, cursor: 0, outbox }]);
+    await set(`case:${c.id}`, { case: c, members: [member], evidence: documents });
+    const sizes: number[] = [];
+    remote.push.mockImplementation(async (_case, _token, records) => {
+      const size = new TextEncoder().encode(JSON.stringify({ records })).byteLength;
+      sizes.push(size);
+      if (size > 4 * 1024 * 1024) throw Object.assign(new Error("too large"), { status: 413 });
+      return { cursor: 2 };
+    });
+    remote.pull.mockResolvedValue({ records: [], cursor: 2, head: 2 });
+    const store = await import("../src/store.ts");
+    await store.load();
+    await store.syncCase(c.id);
+    expect(store.getSnapshot().workspaces[0]!.outbox).toHaveLength(0);
+    expect(sizes).toHaveLength(2);
+    expect(sizes.every((size) => size < 3.5 * 1024 * 1024)).toBe(true);
+  });
+});
+
+describe("F15 adaptive rejection recovery", () => {
+  it("splits a rejected batch and acknowledges only its successful pieces", async () => {
+    const member = newMember("Ada");
+    const c = newCase({ title: "case", question: "question", privacy: "private", createdBy: member.id });
+    const key = generateCaseKey();
+    const documents = ["a", "b"].map((body) => newEvidence(c.id, member.id, { kind: "note", title: body, body }));
+    const outbox = await Promise.all(documents.map((record) => sealRecord(key, "evidence", record)));
+    await set("workspaces", [{ caseId: c.id, caseKey: key, memberId: member.id, cursor: 0, outbox }]);
+    await set(`case:${c.id}`, { case: c, members: [member], evidence: documents });
+    remote.push.mockImplementation(async (_case, _token, records) => {
+      if (records.length > 1) throw Object.assign(new Error("too large"), { status: 413 });
+      return { cursor: 2 };
+    });
+    remote.pull.mockResolvedValue({ records: [], cursor: 2, head: 2 });
+    const store = await import("../src/store.ts");
+    await store.load();
+    await store.syncCase(c.id);
+    expect(remote.push).toHaveBeenCalledTimes(3);
+    expect(store.getSnapshot().workspaces[0]!.outbox).toHaveLength(0);
+  });
+});

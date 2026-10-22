@@ -2,10 +2,9 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { caseTokenHash } from "@zireh/cases";
-import { Envelope, type StoredEnvelope } from "@zireh/sync";
+import { MAX_SYNC_BODY_BYTES, Envelope, type StoredEnvelope } from "@zireh/sync";
 import { z } from "zod";
 
-const MAX_BODY_BYTES = 4 * 1024 * 1024;
 const MAX_RECORDS_PER_PUSH = 200;
 const MAX_RECORDS_PER_PULL = 500;
 
@@ -68,9 +67,9 @@ export function createSyncHost(db: DatabaseSync): (req: Request) => Promise<Resp
     }
 
     if (req.method === "POST") {
-      if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return json(413, { error: "too large" });
+      if (Number(req.headers.get("content-length") ?? 0) > MAX_SYNC_BODY_BYTES) return json(413, { error: "too large" });
       const text = await req.text();
-      if (text.length > MAX_BODY_BYTES) return json(413, { error: "too large" });
+      if (new TextEncoder().encode(text).byteLength > MAX_SYNC_BODY_BYTES) return json(413, { error: "too large" });
       const parsed = z.object({ records: z.array(Envelope).min(1).max(MAX_RECORDS_PER_PUSH) }).safeParse(JSON.parse(text || "null"));
       if (!parsed.success) return json(400, { error: "invalid records" });
       db.exec("BEGIN IMMEDIATE");

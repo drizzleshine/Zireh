@@ -1,7 +1,7 @@
 import { caseToken, inviteFragment, newCase, newMember, type CaseRecords, type Invite } from "@zireh/cases";
 import { generateCaseKey } from "@zireh/crypto";
 import type { Case, CollectionName, Member, PrivacyLevel, Pseudonym, RecordOf } from "@zireh/schema";
-import { openRecord, sealRecord, type Envelope } from "@zireh/sync";
+import { assertSyncable, takeSyncBatch, openRecord, sealRecord, type Envelope } from "@zireh/sync";
 import { get } from "idb-keyval";
 import { database, type StoredRecord, type WorkspaceData } from "./persistence.ts";
 import { useRef, useSyncExternalStore } from "react";
@@ -150,6 +150,7 @@ export async function save<C extends CollectionName>(caseId: string, collection:
   if (!state.cases[caseId]) throw new Error("unknown case");
   const w = workspace(caseId);
   const envelope = await sealRecord(w.caseKey, collection, record);
+  assertSyncable(envelope);
   await change(() => database.save({ caseId, collection, record: record as { id: string } }, envelope));
   void syncCase(caseId);
 }
@@ -222,8 +223,15 @@ async function syncOnce(caseId: string) {
   const token = caseToken(w.caseKey);
   try {
     while (workspace(caseId).outbox.length) {
-      const batch = workspace(caseId).outbox.slice(0, 200);
-      const { cursor } = await api.push(caseId, token, batch);
+      let batch = takeSyncBatch(workspace(caseId).outbox);
+      let cursor: number;
+      for (;;) {
+        try { ({ cursor } = await api.push(caseId, token, batch)); break; }
+        catch (error) {
+          if ((error as { status?: number }).status !== 413 || batch.length < 2) throw error;
+          batch = batch.slice(0, Math.ceil(batch.length / 2));
+        }
+      }
       await change(() => database.acknowledge(caseId, batch));
       // The host has fewer records than we've already seen: it was reset or replaced.
       if (cursor < w.cursor) queueMicrotask(() => void repairHost(caseId));

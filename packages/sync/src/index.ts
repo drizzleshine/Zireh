@@ -80,3 +80,5 @@ export class SyncClient {
     return this.call(`/v1/cases/${caseId}/records?after=${after}`, token, PullResponse);
   }
 }
+
+export * from "./batches.ts";
