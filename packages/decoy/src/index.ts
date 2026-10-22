@@ -36,7 +36,7 @@ const ATTEMPTS = 4;
  * no invented placeholders) and tries again until it has `n`. Fewer than `n` is an error:
  * the caller sends nothing rather than fewer decoys than the level promises.
  */
-export async function makeDecoys(model: ChatModel, realQuestion: string, n: number): Promise<string[]> {
+export async function makeDecoys(model: ChatModel, realQuestion: string, n: number, accept: (text: string) => boolean = () => true): Promise<string[]> {
   if (n === 0) return [];
   const Reply = z.object({ decoys: z.array(z.string().trim().max(800)).min(1) });
   const real = realQuestion.trim().toLowerCase();
@@ -59,7 +59,7 @@ export async function makeDecoys(model: ChatModel, realQuestion: string, n: numb
     }
     for (const d of decoys) {
       const ok = d.toLowerCase() !== real && lengthOk(d, realQuestion) && placeholdersOk(d, realQuestion) && !tooSimilar(d, realQuestion);
-      if (ok && !usable.some((u) => u.toLowerCase() === d.toLowerCase() || tooSimilar(u, d))) usable.push(d);
+      if (ok && accept(d) && !usable.some((u) => u.toLowerCase() === d.toLowerCase() || tooSimilar(u, d))) usable.push(d);
     }
   }
   if (usable.length < n) throw new Error(`decoy: only ${usable.length} of ${n} decoys were usable`);

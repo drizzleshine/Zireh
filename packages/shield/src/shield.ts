@@ -2,7 +2,7 @@ import { randomId, shuffle } from "@zireh/crypto";
 import { makeDecoys } from "@zireh/decoy";
 import { checkLeak, generalize, passes, type LeakReport } from "@zireh/leakcheck";
 import type { ChatModel } from "@zireh/llm";
-import { applyTable, redactText, restore, withHints } from "@zireh/redact";
+import { applyTable, findLeaks, redactText, restore, withHints } from "@zireh/redact";
 import { LEVELS, type ChatMessage, type OutboundPiece, type PrivacyLevel, type Pseudonym, type TraceStep } from "@zireh/schema";
 import { reassemble, splitTask, type Reassembled } from "@zireh/split";
 
@@ -146,11 +146,18 @@ export async function compile(local: ChatModel, input: ShieldInput, hooks: Compi
   const pieces: OutboundPiece[] = [];
   for (const a of approved) {
     pieces.push({ id: randomId(), role: "real", question: a.question, messages: buildMessages(a.question, salt), maxTokens, leakScore: a.score });
-    for (const d of await makeDecoys(local, a.question, policy.decoys)) {
+    for (const d of await makeDecoys(local, a.question, policy.decoys, (text) => findLeaks(text, red.table).length === 0)) {
       pieces.push({ id: randomId(), role: "decoy", question: d, messages: buildMessages(d, salt), maxTokens });
     }
   }
-  const shuffled = shuffle(pieces);
+  // One gate for every outbound type, after all generation and message decoration.
+  const gated = pieces.map((piece) => {
+    const question = withHints(applyTable(piece.question, red.table), red.table);
+    const messages = buildMessages(question, salt);
+    if (findLeaks(JSON.stringify(messages), red.table).length) throw new Error("outbound privacy gate blocked a hidden value");
+    return { ...piece, question, messages };
+  });
+  const shuffled = shuffle(gated);
   const decoyCount = shuffled.filter((p) => p.role === "decoy").length;
   step({
     stage: "decoy",

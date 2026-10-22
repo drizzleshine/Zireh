@@ -108,3 +108,15 @@ describe("finish", () => {
     expect(outcome.trace.at(-1)!.detail).toContain("discarded 2 decoy answers");
   });
 });
+
+describe("F03 final outbound gate", () => {
+  const input = { task: "How can reporters document intimidation?", level: "private" as const, salt, table: [{ original: "Lagos", placeholder: "[PLACE_1]", kind: "place" as const, hint: "a city" }] };
+  it("replaces decoys containing hidden values and checks all wire messages", async () => {
+    const plan = await compile(fakeLocal({ pieces: [input.task], decoys: ["Where can tourists buy train tickets in Lagos?", "Which trees tolerate coastal salt spray best?"] }), input);
+    expect(plan.pieces).toHaveLength(2);
+    expect(JSON.stringify(plan.pieces)).not.toContain("Lagos");
+  });
+  it("sends nothing if the promised number of safe decoys cannot be generated", async () => {
+    await expect(compile(fakeLocal({ pieces: [input.task], decoys: ["Where can tourists buy train tickets in Lagos?"] }), input)).rejects.toThrow(/decoy/);
+  });
+});
