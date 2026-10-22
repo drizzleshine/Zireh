@@ -31,6 +31,7 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export const api = {
+  sendResearch: (runId: string) => call<{ approved: true }>(`/api/research/${runId}/send`, {}),
   cancelResearch: (runId: string) => call<{ cancelled: true }>(`/api/research/${runId}/cancel`, {}),
   status: () => call<DaemonStatus>("/api/status"),
   quote: (credits: number) => call<TopupQuote>("/api/wallet/quote", { credits }),
@@ -46,6 +47,7 @@ export const api = {
 };
 
 export interface ResearchInput {
+  readonly reviewBeforeSend?: boolean;
   readonly task: string;
   readonly context: string[];
   readonly level: PrivacyLevel;

@@ -24,6 +24,7 @@ export type EntityKind = z.infer<typeof EntityKind>;
 
 /** One reversible substitution. The mapping lives only on the device (encrypted when shared). */
 export const Pseudonym = z.object({
+  manual: z.boolean().optional(),
   original: z.string().min(1),
   placeholder: z.string().regex(/^\[[A-Z]+_\d+\]$/),
   kind: EntityKind,

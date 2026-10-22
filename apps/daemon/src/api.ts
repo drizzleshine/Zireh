@@ -30,6 +30,7 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
 const ResearchBody = z.object({
+  reviewBeforeSend: z.boolean().optional(),
   task: z.string().trim().min(3).max(4000),
   context: z.array(z.string().max(20_000)).max(20).default([]),
   level: PrivacyLevel,
@@ -47,6 +48,7 @@ const ResearchBody = z.object({
 export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Response> {
   observePayments(deps.relay, deps.ledger);
   const activeRuns = new Map<string, AbortController>();
+  const approvals = new Map<string, () => void>();
   const sync = () => new SyncClient(deps.syncUrl, deps.transport.fetchFor(newCircuitTag()));
 
   async function cloudModel(requested?: string): Promise<string> {
@@ -158,6 +160,9 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
       const model = body.level === "local" ? deps.local.id : await cloudModel(body.model);
       const runId = randomId();
       const cancellation = new AbortController();
+      const needsReview = body.reviewBeforeSend ?? body.level === "paranoid";
+      let approve!: () => void;
+      const approval = new Promise<void>((resolve) => { approve = resolve; });
       const cancel = () => cancellation.abort();
       req.signal.addEventListener("abort", cancel, { once: true });
       if (req.signal.aborted) cancel();
@@ -168,6 +173,7 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
           // Stop scheduling on disconnect; already submitted calls still settle safely.
           let open = true;
           const emit = (e: ResearchEvent) => {
+            if (e.type === "prepared") approvals.set(runId, approve);
             if (!open) return;
             try {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
@@ -177,11 +183,12 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
             }
           };
           try {
-            await runResearch(deps, { ...body, model, runId, signal: cancellation.signal }, emit);
+            await runResearch(deps, { ...body, model, runId, signal: cancellation.signal, ...(needsReview ? { waitForApproval: () => approval } : {}) }, emit);
           } catch (err) {
             emit({ type: "error", message: (err as Error).message });
           } finally {
             activeRuns.delete(runId);
+            approvals.delete(runId);
             req.signal.removeEventListener("abort", cancel);
             if (open) controller.close();
           }
@@ -236,7 +243,14 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
   return async (req) => {
     const url = new URL(req.url);
     const cancelMatch = req.method === "POST" && /^\/api\/research\/([0-9a-f]{32})\/cancel$/.exec(url.pathname);
-    const route = cancelMatch ? async () => {
+    const sendMatch = req.method === "POST" && /^\/api\/research\/([0-9a-f]{32})\/send$/.exec(url.pathname);
+    const route = sendMatch ? async () => {
+      const approve = approvals.get(sendMatch[1]!);
+      if (!approve) return json(409, { error: "This run is not waiting for review" });
+      approvals.delete(sendMatch[1]!);
+      approve();
+      return json(200, { approved: true });
+    } : cancelMatch ? async () => {
       const controller = activeRuns.get(cancelMatch[1]!);
       if (!controller) return json(404, { error: "unknown or completed run" });
       controller.abort();

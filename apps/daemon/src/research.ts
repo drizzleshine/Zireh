@@ -12,6 +12,7 @@ import { InsufficientFunds, maxCost, type Wallet } from "@zireh/wallet";
 
 export interface ResearchRequest {
   readonly signal?: AbortSignal;
+  readonly waitForApproval?: () => Promise<void>;
   readonly runId?: string;
   readonly task: string;
   readonly context: readonly string[];
@@ -71,7 +72,7 @@ export async function runResearch(
     emit({
       type: "plan",
       table: plan.table,
-      pieces: plan.pieces.map((p) => ({ id: p.id, role: p.role, question: p.question, wire: p.messages.at(-1)!.content, ...(p.leakScore !== undefined ? { leakScore: p.leakScore } : {}) })),
+      pieces: plan.pieces.map((p) => ({ id: p.id, role: p.role, question: p.question, messages: p.messages, wire: p.messages.at(-1)!.content, ...(p.leakScore !== undefined ? { leakScore: p.leakScore } : {}) })),
       blocked: plan.blocked.map((b) => ({ question: b.question, score: b.report.score, inferences: b.report.inferences })),
     });
 
@@ -88,6 +89,18 @@ export async function runResearch(
     // half a plan pending (and later re-sent by recovery) without the user expecting it.
     const needed = plan.pieces.reduce((n, p) => n + maxCost(price, p.messages, p.maxTokens), 0);
     if (deps.wallet.balance < needed) throw new InsufficientFunds(needed, deps.wallet.balance);
+    if (req.waitForApproval) {
+      emit({ type: "prepared", runId, estimatedCost: needed });
+      await new Promise<void>((resolve, reject) => {
+        const aborted = () => { cleanup(); reject(req.signal?.reason ?? new Error("Cancelled")); };
+        const cleanup = () => req.signal?.removeEventListener("abort", aborted);
+        if (req.signal?.aborted) { aborted(); return; }
+        req.signal?.addEventListener("abort", aborted, { once: true });
+        req.waitForApproval!().then(() => { cleanup(); resolve(); }, (error: unknown) => { cleanup(); reject(error); });
+      });
+      req.signal?.throwIfAborted();
+      if (deps.wallet.balance < needed) throw new InsufficientFunds(needed, deps.wallet.balance);
+    }
 
     await pool(
       plan.pieces,

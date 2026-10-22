@@ -1,8 +1,9 @@
+import { extendTable } from "@zireh/redact";
 import { newObservation } from "@zireh/cases";
 import type { DaemonStatus, PlannedPiece, PrivacyLevel, Pseudonym, ResearchEvent, TraceStep } from "@zireh/schema";
-import { Fragment, useMemo, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { api, formatUsd, research } from "../api.ts";
-import { myMemberId, save, savePseudonyms, useStore } from "../store.ts";
+import { myMemberId, save, savePseudonyms, editPseudonym, useStore } from "../store.ts";
 import { LEVEL_COPY } from "./levels.ts";
 import { SearchBox } from "./SearchBox.tsx";
 
@@ -15,6 +16,9 @@ interface PieceState extends PlannedPiece {
 }
 
 interface Run {
+  sourceTable?: string;
+  prepared?: { estimatedCost: number };
+  approved?: boolean;
   task: string;
   level: PrivacyLevel;
   steps: { step: TraceStep; atMs: number }[];
@@ -44,7 +48,7 @@ interface RunSlot {
   runId?: string;
   running: boolean;
   abort?: AbortController;
-  draft?: { task: string; level: PrivacyLevel; contextIds: string[] };
+  draft?: { task: string; level: PrivacyLevel; contextIds: string[]; reviewBeforeSend?: boolean };
 }
 const slots = new Map<string, RunSlot>();
 const slotListeners = new Set<() => void>();
@@ -72,10 +76,13 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
   const task = draft?.task ?? "";
   const level = draft?.level ?? rec.case.privacy;
   const contextIds = draft?.contextIds ?? [];
+  const reviewBeforeSend = draft?.reviewBeforeSend ?? level === "paranoid";
+  const [phrase, setPhrase] = useState("");
+  const [phraseError, setPhraseError] = useState<string>();
   const setDraft = (patch: Partial<NonNullable<RunSlot["draft"]>>) =>
     setSlot(caseId, (s) => ({ ...s, draft: { task, level, contextIds, ...s.draft, ...patch } }));
   const setTask = (t: string) => setDraft({ task: t });
-  const setLevel = (l: PrivacyLevel) => setDraft({ level: l });
+  const setLevel = (l: PrivacyLevel) => setDraft({ level: l, reviewBeforeSend: l === "paranoid" });
   const setContextIds = (fn: (ids: string[]) => string[]) => setDraft({ contextIds: fn(contextIds) });
   const setRun = (next: Run | undefined | ((r: Run | undefined) => Run | undefined)) =>
     setSlot(caseId, (s) => {
@@ -84,10 +91,16 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
     });
   const setRunning = (running: boolean) => setSlot(caseId, (s) => ({ ...s, running }));
 
+  useEffect(() => {
+    if (!running || !runId || !run?.prepared || run.approved || run.cancelling || run.sourceTable === JSON.stringify(rec.pseudonyms)) return;
+    setRun((run) => run ? { ...run, cancelling: true } : run);
+    void api.cancelResearch(runId).catch(() => {});
+  }, [running, runId, run, rec.pseudonyms]);
+
   const ready = status?.localModel.ok && (level === "local" || (status.relay.ok && (status.transport === "direct" || status.tor.ready)));
 
   async function start() {
-    const current: Run = { task, level, steps: [], table: [], pieces: [], blocked: [] };
+    const current: Run = { sourceTable: JSON.stringify(rec.pseudonyms), task, level, steps: [], table: [], pieces: [], blocked: [] };
     const controller = new AbortController();
     setRun(current);
     setSlot(caseId, ({ runId: _previous, ...s }) => ({ ...s, running: true, abort: controller }));
@@ -103,6 +116,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
         {
           task,
           level,
+          reviewBeforeSend,
           table: rec.pseudonyms,
           salt: rec.case.salt,
           caseId,
@@ -110,6 +124,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
         },
         (e) => {
           if (e.type === "started") setSlot(caseId, (s) => ({ ...s, runId: e.runId }));
+          else if (e.type === "prepared") update((r) => { r.prepared = { estimatedCost: e.estimatedCost }; });
           else if (e.type === "cancelled") { update((r) => { r.cancelled = e; r.cancelling = false; }); onBalanceChange(); }
           else if (e.type === "step") update((r) => r.steps.push({ step: e.step, atMs: e.atMs }));
           else if (e.type === "redacted") update((r) => (r.table = e.table));
@@ -140,6 +155,29 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
     } finally {
       setRunning(false);
     }
+  }
+
+  async function changeHideRule(original: string, remove = false) {
+    setPhraseError(undefined);
+    try {
+      if (running) {
+        setRun((run) => run ? { ...run, cancelling: true } : run);
+        if (runId) await api.cancelResearch(runId); else abort?.abort();
+      }
+      if (remove) await editPseudonym(caseId, original, null);
+      else {
+        const entries = extendTable(rec.pseudonyms, [{ text: original.trim(), kind: "other" }]).map((entry) => entry.original.toLowerCase() === original.trim().toLowerCase() ? { ...entry, manual: true } : entry);
+        await save(caseId, "pseudonyms", { id: caseId, caseId, entries });
+      }
+      setPhrase("");
+    } catch (error) { setPhraseError((error as Error).message); }
+  }
+
+  async function sendPrepared() {
+    if (!runId || !run?.prepared || run.approved || run.cancelling) return;
+    setRun({ ...run, approved: true });
+    try { await api.sendResearch(runId); }
+    catch (error) { setRun((run) => run ? { ...run, approved: false, error: (error as Error).message } : run); }
   }
 
   async function saveAsObservation() {
@@ -176,6 +214,16 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
               ))}
           </div>
         )}
+        {level !== "local" && <label className="level-note"><input type="checkbox" checked={reviewBeforeSend} onChange={(event) => setDraft({ reviewBeforeSend: event.target.checked })} disabled={running} /> Review prepared requests before sending</label>}
+        <details className="field">
+          <summary>Always hide phrases</summary>
+          <label htmlFor="hide-phrase">Phrase to keep on this computer</label>
+          <input id="hide-phrase" className="input" maxLength={500} value={phrase} onChange={(event) => setPhrase(event.target.value)} />
+          <button className="btn small" disabled={phrase.trim().length < 2 || !!run?.cancelling} onClick={() => void changeHideRule(phrase)}>Always hide this phrase</button>
+          {rec.pseudonyms.filter((entry) => entry.manual).map((entry) => <div className="row" key={entry.original}>{entry.original} <button className="btn small" onClick={() => void changeHideRule(entry.original, true)}>Remove saved hide rule</button></div>)}
+          <p className="hint">Changing a rule cancels preparation. Prepare again to review the updated requests. Automatic detection still applies when a saved rule is removed.</p>
+          {phraseError && <p className="error">{phraseError}</p>}
+        </details>
         <div className="composer-foot">
           <div className="levels" role="group" aria-label="Privacy level">
             {(Object.keys(LEVEL_COPY) as PrivacyLevel[]).map((l) => (
@@ -197,7 +245,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
             </button>
           ) : (
             <button className="btn primary" disabled={!task.trim() || !ready} onClick={start}>
-              Ask privately
+              {reviewBeforeSend && level !== "local" ? "Prepare requests" : "Ask privately"}
             </button>
           )}
         </div>
@@ -206,6 +254,10 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
 
       {status?.relay.ok && status.relay.search && <SearchBox caseId={caseId} />}
 
+      {running && run?.prepared && !run.approved && !run.cancelled && <div className="notice" role="status">
+        Prepared on this computer. Review every request and hidden value below. Maximum cost {formatUsd(run.prepared.estimatedCost)}.
+        <button className="btn primary" disabled={run.cancelling} onClick={() => void sendPrepared()}>Send reviewed requests</button>
+      </div>}
       {run && <RunView run={run} running={running} onSave={saveAsObservation} onTopUp={onTopUp} />}
     </section>
   );
@@ -244,9 +296,9 @@ function RunView({ run, running, onSave, onTopUp }: { run: Run; running: boolean
             </div>
           )}
         </section>
-        <section className="column provider" aria-label="What the provider saw">
+        <section className="column provider" aria-label="Requests for the provider">
           <h2>
-            What the provider saw{" "}
+            {run.pieces.some((piece) => piece.status !== "planned") ? "Requests sent to the provider" : "Prepared for the provider"}{" "}
             <span className="tag">{run.level === "local" ? "nothing" : run.pieces.length ? `${run.pieces.length} unrelated requests` : running ? "preparing…" : ""}</span>
           </h2>
           {run.level === "local" && run.done && <p className="provider-note">Answered by the model on this computer. Nothing was sent.</p>}
@@ -262,7 +314,7 @@ function RunView({ run, running, onSave, onTopUp }: { run: Run; running: boolean
               <p>{b.inferences.join("; ")}</p>
             </div>
           ))}
-          {decoys > 0 && <p className="provider-note">Each request went out separately, on its own Tor circuit, paid with its own coins. The provider can't tell the {decoys} decoys from the {real} real questions. Only you can.</p>}
+          {decoys > 0 && <p className="provider-note">The plan contains {real} real questions and {decoys} decoys. Each submitted request uses its own Tor isolation identity and coins.</p>}
         </section>
       </div>
 
@@ -343,6 +395,7 @@ function Envelope({ piece, index }: { piece: PieceState; index: number }) {
           <p className="wire">{piece.wire}</p>
         );
       })()}
+      {piece.messages && <details><summary>All request messages</summary><pre className="wire">{piece.messages.map((message) => `${message.role}: ${message.content}`).join("\n\n")}</pre></details>}
       <div className="meta">
         <span className={`role ${piece.role}`}>{piece.role === "real" ? "Real question" : "Decoy, answer discarded"}</span>
         {piece.circuit && <span>circuit {piece.circuit.slice(2, 8)}</span>}

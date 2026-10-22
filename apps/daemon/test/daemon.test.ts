@@ -323,3 +323,55 @@ describe("F13 truthful attempted payloads", () => {
     expect(receipts[0]).toMatchObject({ id: call.requestId, state: "failed", payloadWire: JSON.stringify(call.body) });
   });
 });
+
+describe("prepared research approval", () => {
+  it("sends nothing until the reviewed plan is explicitly approved", async () => {
+    const s = setup();
+    await topUp(s.call, 65_536);
+    let approve!: () => void;
+    let prepared!: () => void;
+    const gate = new Promise<void>((resolve) => { approve = resolve; });
+    const ready = new Promise<void>((resolve) => { prepared = resolve; });
+    const events: ResearchEvent[] = [];
+    const running = runResearch({ ...s, local }, { task: "Is Ada Obi safe in Lagos?", context: [], level: "private", table: [], salt: randomSalt(), model: MODEL, waitForApproval: () => gate }, (event) => {
+      events.push(event);
+      if (event.type === "prepared") prepared();
+    });
+    await Promise.race([ready, running]);
+    expect(s.seen).toHaveLength(0);
+    expect(events.at(-1)).toMatchObject({ type: "prepared" });
+    approve();
+    await running;
+    expect(s.seen).toHaveLength(4);
+  });
+});
+
+describe("prepared research API", () => {
+  it("requires explicit Send and permits cancellation without disclosing a piece", async () => {
+    const s = setup();
+    await topUp(s.call, 65_536);
+    for (const action of ["send", "cancel"] as const) {
+      const seenBefore = s.seen.length;
+      const response = await s.call("/api/research", { task: "Is Ada Obi safe in Lagos?", level: "private", salt: randomSalt(), reviewBeforeSend: true });
+      const reader = response.body!.getReader();
+      let runId = "";
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) throw new Error("research ended before review");
+        const event = JSON.parse(new TextDecoder().decode(chunk.value).slice(6)) as ResearchEvent;
+        if (event.type === "started") runId = event.runId;
+        if (event.type === "prepared") break;
+      }
+      expect(s.seen).toHaveLength(seenBefore);
+      expect((await s.call(`/api/research/${runId}/${action}`, {})).status).toBe(200);
+      let final: ResearchEvent | undefined;
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        final = JSON.parse(new TextDecoder().decode(chunk.value).slice(6)) as ResearchEvent;
+      }
+      expect(final?.type).toBe(action === "send" ? "done" : "cancelled");
+      expect(s.seen).toHaveLength(seenBefore + (action === "send" ? 4 : 0));
+    }
+  });
+});
