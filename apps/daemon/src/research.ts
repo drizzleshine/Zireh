@@ -25,8 +25,20 @@ export interface ResearchRequest {
 }
 
 const RETRIES = 4;
-/** Settle each piece before reserving the next, so even one large coin can fund the plan. */
-const CONCURRENCY = 1;
+/** Four circuits at once avoids the rendezvous failures seen with unbounded fan-out. */
+const CONCURRENCY = 4;
+export const SEND_JITTER_MS = 3000;
+
+/** Independent CSPRNG jitter; cancellation wakes sleeping, unsent workers immediately. */
+function jitter(signal?: AbortSignal): Promise<void> {
+  const random = crypto.getRandomValues(new Uint32Array(1))[0]! / 2 ** 32;
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); signal?.removeEventListener("abort", done); resolve(); };
+    const timer = setTimeout(done, 1 + Math.floor(random * SEND_JITTER_MS));
+    signal?.addEventListener("abort", done, { once: true });
+    if (signal?.aborted) done();
+  });
+}
 
 /** Run tasks with at most `limit` in flight. */
 async function pool<T>(items: readonly T[], limit: number, run: (item: T) => Promise<void>): Promise<void> {
@@ -102,19 +114,19 @@ export async function runResearch(
       if (deps.wallet.balance < needed) throw new InsufficientFunds(needed, deps.wallet.balance);
     }
 
-    await pool(
-      plan.pieces,
-      CONCURRENCY,
-      async (piece) => {
+    const calls = await deps.relay.prepareChats(req.model, plan.pieces.map((piece) => ({
+      messages: piece.messages, maxTokens: piece.maxTokens,
+      audit: { role: piece.role, pieceId: piece.id, runId, ...(req.caseId ? { caseId: req.caseId } : {}) },
+    })));
+    const unsent = new Set(calls);
+    try {
+      await pool(
+        plan.pieces.map((piece, index) => ({ piece, call: calls[index]! })),
+        CONCURRENCY,
+        async ({ piece, call }) => {
+        await jitter(req.signal);
         if (req.signal?.aborted) return;
-        let call: PendingCall;
-        try {
-          call = await deps.relay.prepareChat(req.model, piece.messages, piece.maxTokens, { role: piece.role, pieceId: piece.id, runId, ...(req.caseId ? { caseId: req.caseId } : {}) });
-        } catch (error) {
-          emit({ type: "piece", id: piece.id, status: "failed", error: (error as Error).message });
-          return;
-        }
-        if (req.signal?.aborted) { deps.relay.discardPrepared(call); return; }
+        unsent.delete(call);
         deps.ledger.startRun(call.requestId, piece.id, maxCost(price, piece.messages, piece.maxTokens));
         for (let attempt = 0; attempt <= RETRIES; attempt++) {
           const circuit = newCircuitTag(); // a dropped circuit is replaced, never reused
@@ -132,7 +144,7 @@ export async function runResearch(
             emit({ type: "piece", id: piece.id, status: "answered", circuit, ms: Date.now() - t0, charged: result.charged });
             return;
           } catch (err) {
-            const retryable = err instanceof RelayCallError && err.retryable;
+            const retryable = err instanceof RelayCallError && err.retryable && err.code !== "settlement_disputed";
             if (retryable && attempt < RETRIES) {
               if (attempt === 0) deps.ledger.advance(call.requestId, "submission-unknown");
               await new Promise((r) => setTimeout(r, 750 * (attempt + 1))); // let Tor settle
@@ -144,7 +156,10 @@ export async function runResearch(
           }
         }
       },
-    );
+      );
+    } finally {
+      for (const call of unsent) deps.relay.discardPrepared(call);
+    }
 
     if (req.signal?.aborted) { cancelled(); return; }
     const outcome = await finish(deps.local, plan, answers, onStep, req.signal);

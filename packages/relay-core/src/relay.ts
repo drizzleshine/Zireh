@@ -4,6 +4,7 @@ import {
   ChatPaidRequest,
   MintRequest,
   SearchPaidRequest,
+  SwapRequest,
   TopupQuoteRequest,
   type ModelPrice,
   type RelayError,
@@ -252,6 +253,28 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
       }
       deps.watcher.markMinted(body.quoteId, () => deps.responses.put(`topup:${body.quoteId}`, { status: 200, body: { outputsHash, signatures } }));
       deps.onEvent?.("topup", credits);
+      return json(200, { signatures });
+    },
+
+    "POST /v1/swap": async (req) => {
+      const body = await parse(req, SwapRequest);
+      if (body instanceof Response) return body;
+      const id = `swap:${body.requestId}`;
+      const outputsHash = sha256Hex(canonicalJson(body));
+      const stored = deps.responses.get(id);
+      if (stored) {
+        const reply = stored.body as { outputsHash: string; signatures: unknown };
+        return reply.outputsHash === outputsHash ? json(200, { signatures: reply.signatures }) : fail(409, "bad_request", "swap already used with different inputs or outputs");
+      }
+      // Validate and sign before redeeming. Burn + final signatures share one transaction;
+      // a crash can leave either the original coins or the complete replayable response.
+      const signatures = deps.mint.issue(body.outputs, sum(body.proofs));
+      try {
+        deps.mint.redeem(body.proofs, () => deps.responses.put(id, { status: 200, body: { outputsHash, signatures } }));
+      } catch (error) {
+        if (error instanceof MintError) return fail(400, error.code, error.message);
+        throw error;
+      }
       return json(200, { signatures });
     },
 

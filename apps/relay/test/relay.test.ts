@@ -281,3 +281,39 @@ describe("foreground retry after background settlement", () => {
     expect(s.wallet.balance).toBe(65_536 - first.charged);
   });
 });
+
+describe("G1 recoverable swaps", () => {
+  it("recovers a lost swap reply without paying upstream or crediting twice", async () => {
+    let calls = 0;
+    const s = setup(scriptedModel(() => { calls++; return "answer"; }));
+    await fund(s.client, s.relayFetch, 1_048_576);
+    let lost = true;
+    const client = new RelayClient({ baseUrl: "http://relay.test", wallet: s.wallet, transport: directTransport(async (url, init) => {
+      const response = await s.relayFetch(url, init);
+      if (url.endsWith("/v1/swap") && lost) { lost = false; throw new Error("lost swap reply"); }
+      return response;
+    }) });
+    await expect(client.swap([256, 256, 256, 256])).rejects.toMatchObject({ code: "network" });
+    expect(s.wallet.balance).toBe(0);
+    const restarted = new RelayClient({ baseUrl: "http://relay.test", wallet: s.wallet, transport: directTransport(s.relayFetch) });
+    await restarted.recover();
+    expect(s.wallet.balance).toBe(1_048_576);
+    expect(s.wallet.money.load().filter((p) => p.amount === 256).length).toBeGreaterThanOrEqual(4);
+    await restarted.recover();
+    expect(s.wallet.balance).toBe(1_048_576);
+    expect(calls).toBe(0);
+  });
+});
+
+it("G1 recovery never submits unsent plan reservations and startup returns their coins", async () => {
+  const s = setup();
+  await fund(s.client, s.relayFetch, 1_048_576);
+  const calls = await s.client.prepareChats(MODEL, Array.from({ length: 4 }, () => ({ messages: ask, maxTokens: 100 })));
+  expect(calls).toHaveLength(4);
+  expect(s.client.pending.list().every((call) => call.status === "reserved")).toBe(true);
+  expect((await s.client.recover()).recovered).toHaveLength(0);
+  const reopened = new RelayClient({ baseUrl: "http://relay.test", transport: directTransport(s.relayFetch), wallet: s.wallet });
+  reopened.discardUnsent();
+  expect(reopened.pending.list()).toHaveLength(0);
+  expect(s.wallet.balance).toBe(1_048_576);
+});

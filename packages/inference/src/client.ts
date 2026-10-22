@@ -5,6 +5,7 @@ import {
   RelayError,
   RelayInfo,
   SearchPaidResponse,
+  SwapRequest,
   TopupQuote,
   type ChatMessage,
   type FetchLike,
@@ -16,14 +17,14 @@ import {
   type Usage,
 } from "@zireh/schema";
 import { newCircuitTag, type Transport } from "@zireh/tor";
-import { checkBill, checkSettlement, memoryMoneyStore, maxCost, prepareChange, prepareTopup, sum, unblindAll, type BillCheck, type PendingOutputs, type Wallet, type MoneyStore } from "@zireh/wallet";
+import { checkBill, checkSettlement, InsufficientFunds, memoryMoneyStore, prepareOutputs, splitAmount, maxCost, prepareChange, prepareTopup, sum, unblindAll, type BillCheck, type PendingOutputs, type Wallet, type MoneyStore } from "@zireh/wallet";
 import { z } from "zod";
 
 /** Everything needed to send (or re-send) one paid call. Persisted before the first send. */
 export interface PendingCall {
   readonly requestId: string;
   readonly audit?: { readonly role: "real" | "decoy"; readonly caseId?: string; readonly runId?: string; readonly pieceId?: string };
-  readonly status?: "disputed" | "settlement-pending";
+  readonly status?: "reserved" | "disputed" | "settlement-pending";
   readonly dispute?: string;
   readonly maxCharge?: number;
   readonly kind: "chat" | "search";
@@ -34,6 +35,13 @@ export interface PendingCall {
   readonly keyset: Keyset;
   readonly price?: ModelPrice;
   readonly messages?: readonly ChatMessage[];
+}
+
+interface PendingSwap {
+  readonly requestId: string;
+  readonly keyset: Keyset;
+  readonly outputs: PendingOutputs;
+  readonly body: z.infer<typeof SwapRequest>;
 }
 
 export interface PendingStore {
@@ -183,6 +191,70 @@ export class RelayClient {
     return this.options.wallet.balance;
   }
 
+  /** Exchange enough coins into exact independent holds plus untouched-value change. */
+  async swap(amounts: readonly number[]): Promise<void> {
+    if (!amounts.length || amounts.some((n) => !Number.isSafeInteger(n) || n <= 0)) throw new Error("invalid swap amounts");
+    const { keyset } = await this.info();
+    const money = this.options.wallet.money;
+    const pending = money.atomically(() => {
+      const proofs = this.options.wallet.take(amounts.reduce((n, a) => n + a, 0));
+      const outputs = prepareOutputs(keyset, [...amounts.flatMap(splitAmount), ...splitAmount(sum(proofs) - amounts.reduce((n, a) => n + a, 0))]);
+      const requestId = randomId();
+      const body = SwapRequest.parse({ requestId, proofs, outputs: outputs.outputs });
+      const saved = { requestId, keyset, outputs, body } satisfies PendingSwap;
+      money.put(`swap:${requestId}`, saved);
+      return saved;
+    });
+    await this.redeemSwap(pending);
+  }
+
+  private async redeemSwap(pending: PendingSwap): Promise<void> {
+    const money = this.options.wallet.money;
+    let signatures: z.infer<typeof MintResponse>["signatures"];
+    try {
+      ({ signatures } = await this.request(this.options.transport.fetchFor(newCircuitTag()), "/v1/swap", MintResponse, pending.body));
+    } catch (error) {
+      if (error instanceof RelayCallError && NOT_BURNED.has(error.code)) money.atomically(() => {
+        if (!money.get(`swap:${pending.requestId}`)) return;
+        this.options.wallet.add(pending.body.proofs);
+        money.remove(`swap:${pending.requestId}`);
+      });
+      throw error;
+    }
+    if (signatures.length !== pending.outputs.outputs.length || signatures.some((sig, i) => sig.keysetId !== pending.keyset.id || sig.amount !== pending.outputs.outputs[i]!.amount)) {
+      throw new RelayCallError("settlement_disputed", "Swap signatures do not match the saved outputs", true);
+    }
+    const proofs = unblindAll(pending.keyset, pending.outputs, signatures);
+    money.atomically(() => {
+      if (!money.get(`swap:${pending.requestId}`)) return;
+      this.options.wallet.add(proofs);
+      money.put(`swapped:${pending.requestId}`, { amount: sum(proofs) });
+      money.remove(`swap:${pending.requestId}`);
+    });
+  }
+
+  /** Reserve the entire plan atomically. A denomination shortage triggers one zero-fee swap. */
+  async prepareChats(model: string, pieces: readonly { messages: readonly ChatMessage[]; maxTokens: number; audit?: PendingCall["audit"] }[]): Promise<PendingCall[]> {
+    const [price, { keyset }] = await Promise.all([this.priceOf(model), this.info()]);
+    const holds = pieces.map((p) => maxCost(price, p.messages, p.maxTokens));
+    const needed = holds.reduce((n, a) => n + a, 0);
+    if (this.options.wallet.balance < needed) throw new InsufficientFunds(needed, this.options.wallet.balance);
+    const allocate = () => this.options.wallet.money.atomically(() => pieces.map((p, i) => this.prepare("chat", "/v1/chat", keyset, holds[i]!, (requestId, proofs, blanks) => ({
+      requestId, request: { model, messages: p.messages, max_tokens: p.maxTokens }, proofs, changeOutputs: blanks.outputs,
+    }), { price, messages: p.messages, ...(p.audit ? { audit: p.audit } : {}) }, true)));
+    try { return allocate(); }
+    catch (error) {
+      if (!(error instanceof InsufficientFunds)) throw error;
+      await this.swap(holds);
+      return allocate();
+    }
+  }
+
+  /** Startup only: these reservations were never submitted and must never be recovered as sends. */
+  discardUnsent(): void {
+    for (const call of this.pending.list()) if (call.status === "reserved") this.discardPrepared(call);
+  }
+
   /** Take coins for the worst case and persist the call. Nothing has left the device yet. */
   async prepareChat(model: string, messages: readonly ChatMessage[], maxTokens: number, audit?: PendingCall["audit"]): Promise<PendingCall> {
     const [price, { keyset }] = await Promise.all([this.priceOf(model), this.info()]);
@@ -212,12 +284,13 @@ export class RelayClient {
     hold: number,
     body: (requestId: string, proofs: Proof[], blanks: PendingOutputs) => Record<string, unknown>,
     extra: Pick<PendingCall, "price" | "messages" | "audit"> = {},
+    reserved = false,
   ): PendingCall {
     return this.options.wallet.money.atomically(() => {
       const proofs = this.options.wallet.take(hold);
       const blanks = prepareChange(keyset, sum(proofs));
       const requestId = randomId();
-      const call: PendingCall = { requestId, maxCharge: hold, kind, path, proofs, blanks, keyset, body: body(requestId, proofs, blanks), ...extra };
+      const call: PendingCall = { requestId, maxCharge: hold, kind, path, proofs, blanks, keyset, body: body(requestId, proofs, blanks), ...(reserved ? { status: "reserved" as const } : {}), ...extra };
       this.pending.save(call);
       return call;
     });
@@ -239,6 +312,11 @@ export class RelayClient {
       await this.acknowledge(call.requestId);
       if ("kind" in completed.outcome) return completed.outcome;
       throw new RelayCallError("upstream_error", completed.outcome.error, false);
+    }
+    if (call.status === "reserved") {
+      if (!this.pending.list().some((saved) => saved.requestId === call.requestId)) throw new Error("reservation was released");
+      call = { ...call, status: "settlement-pending" };
+      this.pending.save(call); // durable submission intent before any network activity
     }
     const fetchFn = this.options.transport.fetchFor(circuitTag);
     try {
@@ -334,7 +412,12 @@ export class RelayClient {
       try { await this.redeemTopup(pending.quote); topups++; }
       catch (error) { if (error instanceof RelayCallError) failed.push(error); else throw error; }
     }
+    for (const swap of this.options.wallet.money.list<PendingSwap>("swap:")) {
+      try { await this.redeemSwap(swap); }
+      catch (error) { if (error instanceof RelayCallError) failed.push(error); else throw error; }
+    }
     for (const call of this.pending.list()) {
+      if (call.status === "reserved") continue;
       try {
         recovered.push(await this.send(call, newCircuitTag(), true));
       } catch (err) {

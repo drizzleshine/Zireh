@@ -130,6 +130,12 @@ it isn't.
 **Tavily** (optional): the relay offers paid web search through Tavily; the daemon redacts the
 query first and sends it over Tor like any other call.
 
+Research reserves separate coins for the complete plan before sending any question. If needed,
+a zero-fee blind swap splits large coins first; interrupted swaps recover from the durable journal.
+Up to four pieces run concurrently, each with an independent random 1–3000 ms delay and a fresh
+Tor circuit. Real questions and decoys use the same schedule. Stop releases unsent reservations;
+submitted calls still settle. Timing correlation remains a limit of Tor.
+
 ## Architecture
 
 A monorepo of small packages in strict layers. A package may only import from lower layers;

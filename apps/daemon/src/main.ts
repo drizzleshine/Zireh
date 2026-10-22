@@ -57,6 +57,7 @@ if (env.ZIREH_TRANSPORT === "direct") {
 const local = openAiCompatible({ baseUrl: ollamaUrl, model: localModelId, extraBody: { reasoning_effort: "none" } });
 const wallet = new Wallet(openMoneyStore(dataDir));
 const relay = new RelayClient({ baseUrl: relayUrl, transport, wallet });
+relay.discardUnsent();
 const ledger = new Ledger(fileLedgerStore(dataDir));
 
 /** Calls that never got a definite answer (crash, dropped circuit) are re-sent with the same id. */

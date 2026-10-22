@@ -75,6 +75,16 @@ export class Wallet {
   take(amount: number): Proof[] {
     const all = this.money.load().sort((a, b) => b.amount - a.amount);
     if (sum(all) < amount) throw new InsufficientFunds(amount, sum(all));
+    // Prefer an exact subset. With binary denominations, descending exact selection is
+    // complete; it preserves the independent holds made by a whole-plan swap.
+    const exact: Proof[] = [];
+    let remaining = amount;
+    for (const proof of all) if (proof.amount <= remaining) { exact.push(proof); remaining -= proof.amount; }
+    if (remaining === 0) {
+      const taken = new Set(exact.map((p) => p.secret));
+      this.money.save(all.filter((p) => !taken.has(p.secret)));
+      return exact;
+    }
     const chosen: Proof[] = [];
     let total = 0;
     for (const p of all) {

@@ -7,7 +7,7 @@ import type { ChatMessage, FetchLike } from "@zireh/schema";
 import { directTransport } from "@zireh/tor";
 import { generateMintKeys, memoryProofStore, memorySpentStore, Mint, Wallet } from "@zireh/wallet";
 import { fixedRate, simulatedWatcher } from "@zireh/zcash";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createDaemon } from "../src/api.ts";
 import { runResearch, type ResearchEvent } from "../src/research.ts";
 
@@ -410,5 +410,54 @@ describe("settled receipt replay", () => {
     await s.relay.send(call);
     expect(s.ledger.receipts()).toMatchObject([{ id: call.requestId, state: "settled", charged: first.charged }]);
     expect(s.ledger.receipts()).toHaveLength(1);
+  });
+});
+
+
+describe("G1 whole-plan allocation and scheduling", () => {
+  it("swaps one large coin, reserves the whole plan, and overlaps independently jittered sends", async () => {
+    vi.useFakeTimers();
+    try {
+      const starts: number[] = [];
+      const ends: number[] = [];
+      const upstream = { id: MODEL, async chat() {
+        starts.push(Date.now());
+        await new Promise((r) => setTimeout(r, 4000));
+        ends.push(Date.now());
+        return { content: "answer", model: MODEL, usage: { prompt_tokens: 1, completion_tokens: 1 } };
+      } };
+      const s = setup(local, upstream);
+      await topUp(s.call, 1_048_576);
+      let reservedAtFirstSend = 0;
+      let first = true;
+      const events: ResearchEvent[] = [];
+      const running = runResearch({ ...s, local }, { task: "Is Ada Obi safe in Lagos?", context: [], level: "private", table: [], salt: randomSalt(), model: MODEL }, (event) => {
+        events.push(event);
+        if (first && event.type === "piece" && event.status === "sent") { first = false; reservedAtFirstSend = s.relay.pending.list().length; }
+      });
+      await vi.runAllTimersAsync();
+      await running;
+      expect(reservedAtFirstSend).toBe(4);
+      expect(starts).toHaveLength(4);
+      expect(Math.max(...starts)).toBeLessThan(Math.min(...ends));
+      expect(starts.every((t) => !ends.includes(t))).toBe(true);
+      expect(s.wallet.money.list("swapped:")).toHaveLength(1);
+      expect(s.relay.pending.list()).toHaveLength(0);
+      const done = events.at(-1);
+      expect(done?.type).toBe("done");
+      if (done?.type === "done") expect(s.wallet.balance).toBe(1_048_576 - done.spent);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("rolls back every reservation and sends no chat if allocation fails", async () => {
+    const s = setup();
+    await topUp(s.call, 1_048_576);
+    let saves = 0;
+    const save = s.relay.pending.save;
+    s.relay.pending.save = (call) => { save(call); if (++saves === 2) throw new Error("journal unavailable"); };
+    await expect(runResearch({ ...s, local }, { task: "Is Ada Obi safe in Lagos?", context: [], level: "private", table: [], salt: randomSalt(), model: MODEL }, () => {})).rejects.toThrow("journal unavailable");
+    expect(s.seen).toHaveLength(0);
+    expect(s.relay.pending.list()).toHaveLength(0);
+    expect(s.wallet.balance).toBe(1_048_576);
   });
 });

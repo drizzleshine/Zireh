@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ChatRequest, Usage } from "./chat.ts";
-import { BlindedMessage, BlindSignature, Keyset, ModelPrice, Proof } from "./money.ts";
+import { Amount, BlindedMessage, BlindSignature, Keyset, ModelPrice, Proof } from "./money.ts";
 
 /** Relay HTTP contract. Validated on both sides; the relay trusts nothing else. */
 
@@ -29,6 +29,13 @@ export type QuoteState = z.infer<typeof QuoteState>;
 
 export const MintRequest = z.object({ quoteId: z.string(), outputs: z.array(BlindedMessage).min(1).max(64) });
 export const MintResponse = z.object({ signatures: z.array(BlindSignature) });
+
+/** Zero-fee denomination exchange; the complete response is committed with the burn. */
+export const SwapRequest = z.object({
+  requestId: z.string().regex(/^[0-9a-f]{32}$/),
+  proofs: z.array(Proof).min(1).max(64),
+  outputs: z.array(BlindedMessage.extend({ amount: Amount })).min(1).max(512),
+});
 
 export const ChatPaidRequest = z.object({
   requestId: z.string().regex(/^[0-9a-f]{32}$/), // idempotency key
