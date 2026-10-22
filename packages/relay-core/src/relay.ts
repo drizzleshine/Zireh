@@ -20,10 +20,25 @@ export type SearchFn = (query: string, maxResults: number) => Promise<SearchHit[
 export interface ResponseStore {
   get(requestId: string): StoredResponse | undefined;
   put(requestId: string, response: StoredResponse): void;
+  acknowledge(requestId: string): void;
 }
 export interface StoredResponse {
   readonly status: number;
   readonly body: unknown;
+}
+
+/** Remove answer material while keeping the financial recovery response. */
+export function settlementOnly(response: StoredResponse): StoredResponse | undefined {
+  if (response.status === 0) return response;
+  const body = response.body as Record<string, unknown>;
+  if (!body || typeof body !== "object" || !body.settlement) return undefined;
+  return { status: response.status, body: {
+    settlement: body.settlement,
+    answerExpired: true,
+    ...(typeof body.model === "string" ? { model: body.model, content: "" } : {}),
+    ...(Array.isArray(body.hits) ? { hits: [] } : {}),
+    ...(body.error ? { error: body.error, message: "Answer expired; settlement is retained" } : {}),
+  } };
 }
 
 export function memoryResponseStore(ttlMs = 15 * 60 * 1000, now: () => number = Date.now): ResponseStore {
@@ -33,13 +48,16 @@ export function memoryResponseStore(ttlMs = 15 * 60 * 1000, now: () => number = 
       const hit = items.get(id);
       if (!hit) return undefined;
       if (now() - hit.at > ttlMs) {
-        items.delete(id);
-        return undefined;
+        const financial = settlementOnly(hit.response);
+        if (!financial) { items.delete(id); return undefined; }
+        hit.response = financial;
       }
       return hit.response;
     },
-    put(id, response) {
-      items.set(id, { at: now(), response });
+    put(id, response) { items.set(id, { at: now(), response }); },
+    acknowledge(id) {
+      const hit = items.get(id);
+      if (hit) hit.response = settlementOnly(hit.response) ?? hit.response;
     },
   };
 }
@@ -77,24 +95,11 @@ async function parse<S extends z.ZodType>(req: Request, schema: S): Promise<z.in
 export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response> {
   const inFlight = new Map<string, Promise<StoredResponse>>();
 
-  /**
-   * Shared settlement path for every paid call: idempotency, hold check, burn, upstream, change.
-   * The requestId acts as a bearer secret for its own result: it is 128 random bits, chosen by
-   * the client and only ever sent to the relay inside Tor.
-   */
-  async function paid(
-    requestId: string,
-    proofs: z.infer<typeof ChatPaidRequest>["proofs"],
-    blanks: z.infer<typeof ChatPaidRequest>["changeOutputs"],
-    hold: number,
-    work: () => Promise<{ body: Record<string, unknown>; cost: number; usage: Settlement["usage"] }>,
-    kind: "chat" | "search",
-  ): Promise<Response> {
+  function resume(requestId: string, blanks: z.infer<typeof ChatPaidRequest>["changeOutputs"]): Response | Promise<Response> | undefined {
     // A retry while the first attempt is still running in this process waits for it.
     const running = inFlight.get(requestId);
     if (running) {
-      const r = await running;
-      return json(r.status, r.body);
+      return running.then((r) => json(r.status, r.body));
     }
     const stored = deps.responses.get(requestId);
     if (stored && stored.status !== REDEEMED) return json(stored.status, stored.body);
@@ -108,6 +113,24 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
       deps.onEvent?.("refund", refunded);
       return json(response.status, response.body);
     }
+    return undefined;
+  }
+
+  /**
+   * Shared settlement path for every paid call: idempotency, hold check, burn, upstream, change.
+   * The requestId acts as a bearer secret for its own result: it is 128 random bits, chosen by
+   * the client and only ever sent to the relay inside Tor.
+   */
+  async function paid(
+    requestId: string,
+    proofs: z.infer<typeof ChatPaidRequest>["proofs"],
+    blanks: z.infer<typeof ChatPaidRequest>["changeOutputs"],
+    hold: number,
+    work: () => Promise<{ body: Record<string, unknown>; cost: number; usage: Settlement["usage"] }>,
+    kind: "chat" | "search",
+  ): Promise<Response> {
+    const replay = resume(requestId, blanks);
+    if (replay) return replay;
     const paidAmount = sum(proofs);
     if (paidAmount < hold) return fail(402, "insufficient_funds", `this call needs ${hold} credits, got ${paidAmount}`);
     if (blanks.length < blankOutputCount(paidAmount)) return fail(400, "bad_request", "not enough blank outputs for change");
@@ -150,6 +173,12 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
   }
 
   const routes: Record<string, (req: Request, url: URL) => Promise<Response>> = {
+    "POST /v1/settlement/ack": async (req) => {
+      const body = await parse(req, z.object({ requestId: z.string().regex(/^[0-9a-f]{32}$/) }));
+      if (body instanceof Response) return body;
+      deps.responses.acknowledge(body.requestId);
+      return json(200, { ok: true });
+    },
     "GET /v1/info": async () => {
       const info: RelayInfo = {
         keyset: deps.mint.keyset,
@@ -212,6 +241,8 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
     "POST /v1/chat": async (req) => {
       const body = await parse(req, ChatPaidRequest);
       if (body instanceof Response) return body;
+      const replay = resume(body.requestId, body.changeOutputs);
+      if (replay) return replay;
       const model = deps.models.get(body.request.model);
       if (!model) return fail(404, "unknown_model", `model ${body.request.model} is not offered`);
       const hold = maxCost(model.price, body.request.messages, body.request.max_tokens);
@@ -227,6 +258,8 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
     "POST /v1/search": async (req) => {
       const body = await parse(req, SearchPaidRequest);
       if (body instanceof Response) return body;
+      const replay = resume(body.requestId, body.changeOutputs);
+      if (replay) return replay;
       const search = deps.search;
       if (!search) return fail(404, "not_found", "search is not enabled on this relay");
       return paid(body.requestId, body.proofs, body.changeOutputs, deps.searchPrice, async () => ({
@@ -244,7 +277,7 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
     try {
       return await route(req, url);
     } catch (err) {
-      return fail(500, "bad_request", `internal error: ${(err as Error).message.slice(0, 120)}`);
+      return fail(503, "upstream_error", `internal error: ${(err as Error).message.slice(0, 120)}`);
     }
   };
 }

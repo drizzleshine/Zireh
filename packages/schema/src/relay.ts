@@ -48,6 +48,7 @@ export const Settlement = z.object({
 export type Settlement = z.infer<typeof Settlement>;
 
 export const ChatPaidResponse = z.object({
+  answerExpired: z.boolean().optional(),
   content: z.string(),
   model: z.string(),
   settlement: Settlement,
@@ -71,6 +72,7 @@ export const SearchHit = z.object({
 export type SearchHit = z.infer<typeof SearchHit>;
 
 export const SearchPaidResponse = z.object({
+  answerExpired: z.boolean().optional(),
   hits: z.array(SearchHit),
   settlement: Settlement,
 });

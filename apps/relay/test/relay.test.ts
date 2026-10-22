@@ -10,7 +10,7 @@ import { createRelay, memoryResponseStore } from "@zireh/relay-core";
 const MODEL = "nvidia/nemotron-3-super-120b-a12b";
 const price: ModelPrice = { model: MODEL, inputPerMTok: 300_000, outputPerMTok: 900_000 };
 
-function setup(upstream: ChatModel = scriptedModel(() => "the answer is 42")) {
+function setup(upstream: ChatModel = scriptedModel(() => "the answer is 42"), responses = memoryResponseStore()) {
   const watcher = simulatedWatcher(fixedRate(50));
   const handler = createRelay({
     mint: new Mint(generateMintKeys(), memorySpentStore()),
@@ -18,7 +18,7 @@ function setup(upstream: ChatModel = scriptedModel(() => "the answer is 42")) {
     models: new Map([[MODEL, { upstream, price }]]),
     search: async (q) => [{ title: `About ${q}`, url: "https://example.org", content: "..." }],
     searchPrice: 2000,
-    responses: memoryResponseStore(),
+    responses,
   });
   const relayFetch: FetchLike = (url, init) => handler(new Request(url, init));
   const wallet = new Wallet(memoryProofStore());
@@ -216,5 +216,27 @@ describe("F08 settlement conservation", () => {
     const { recovered } = await s.client.recover();
     expect(recovered).toHaveLength(1);
     expect(s.wallet.balance).toBe(65_536 - recovered[0]!.charged);
+  });
+});
+
+describe("F07 durable settlement recovery", () => {
+  it("recovers change after the answer expires", async () => {
+    let now = 0;
+    const s = setup(scriptedModel(() => "private answer"), memoryResponseStore(15 * 60_000, () => now));
+    await fund(s.client, s.relayFetch, 524_288);
+    let drop = true;
+    const client = new RelayClient({ baseUrl: "http://relay.test", wallet: s.wallet,
+      transport: directTransport(async (url, init) => {
+        const res = await s.handler(new Request(url, init));
+        if (drop && url.endsWith("/v1/chat")) { drop = false; throw new Error("lost reply"); }
+        return res;
+      }) });
+    const call = await client.prepareChat(MODEL, ask, 100);
+    await expect(client.send(call)).rejects.toMatchObject({ code: "network" });
+    now += 16 * 60_000;
+    const { recovered } = await client.recover();
+    expect(recovered).toMatchObject([{ kind: "chat", content: "", answerExpired: true }]);
+    expect(s.wallet.balance).toBe(524_288 - recovered[0]!.charged);
+    expect(client.pending.list()).toHaveLength(0);
   });
 });

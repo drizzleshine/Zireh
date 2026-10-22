@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { generateMintKeys, type MintKeys, type SpentStore } from "@zireh/wallet";
-import type { ResponseStore, StoredResponse } from "@zireh/relay-core";
+import { settlementOnly, type ResponseStore, type StoredResponse } from "@zireh/relay-core";
 
 /** Mint keys live in one owner-only file. Losing it invalidates all outstanding coins. */
 export function loadOrCreateMintKeys(dataDir: string): MintKeys {
@@ -55,22 +55,31 @@ export function sqliteSpentStore(db: DatabaseSync): SpentStore {
 }
 
 /**
- * Replies are kept only long enough to recover a dropped connection (default 15 min),
- * because they contain answers. Prompts are never stored.
+ * Answers stop being served after 15 minutes or acknowledgement. Financial recovery
+ * responses and crash markers persist indefinitely. Prompts are never stored.
  */
 export function sqliteResponseStore(db: DatabaseSync, ttlMs = 15 * 60 * 1000): ResponseStore {
   const get = db.prepare("SELECT status, body, at FROM responses WHERE request_id = ?");
   const put = db.prepare("INSERT OR REPLACE INTO responses (request_id, at, status, body) VALUES (?, ?, ?, ?)");
-  const sweep = db.prepare("DELETE FROM responses WHERE at < ?");
+  const redact = db.prepare("UPDATE responses SET body = ? WHERE request_id = ?");
   return {
     get(id) {
       const row = get.get(id) as { status: number; body: string; at: number } | undefined;
-      if (!row || Date.now() - row.at > ttlMs) return undefined;
-      return { status: row.status, body: JSON.parse(row.body) } satisfies StoredResponse;
+      if (!row) return undefined;
+      const response = { status: row.status, body: JSON.parse(row.body) } satisfies StoredResponse;
+      if (Date.now() - row.at <= ttlMs) return response;
+      const financial = settlementOnly(response);
+      if (financial) redact.run(JSON.stringify(financial.body), id);
+      return financial;
     },
     put(id, response) {
-      sweep.run(Date.now() - ttlMs);
       put.run(id, Date.now(), response.status, JSON.stringify(response.body));
+    },
+    acknowledge(id) {
+      const row = get.get(id) as { status: number; body: string } | undefined;
+      if (!row) return;
+      const financial = settlementOnly({ status: row.status, body: JSON.parse(row.body) });
+      if (financial) redact.run(JSON.stringify(financial.body), id);
     },
   };
 }

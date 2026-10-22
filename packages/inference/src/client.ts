@@ -22,7 +22,7 @@ import { z } from "zod";
 /** Everything needed to send (or re-send) one paid call. Persisted before the first send. */
 export interface PendingCall {
   readonly requestId: string;
-  readonly status?: "disputed";
+  readonly status?: "disputed" | "settlement-pending";
   readonly dispute?: string;
   readonly maxCharge?: number;
   readonly kind: "chat" | "search";
@@ -55,8 +55,8 @@ export function moneyPendingStore(money: MoneyStore): PendingStore {
 export const memoryPendingStore = (money: MoneyStore = memoryMoneyStore()): PendingStore => moneyPendingStore(money);
 
 export type CallResult =
-  | { readonly kind: "chat"; readonly requestId: string; readonly content: string; readonly model: string; readonly usage: Usage; readonly charged: number; readonly bill: BillCheck }
-  | { readonly kind: "search"; readonly requestId: string; readonly hits: SearchHit[]; readonly charged: number };
+  | { readonly answerExpired?: boolean; readonly kind: "chat"; readonly requestId: string; readonly content: string; readonly model: string; readonly usage: Usage; readonly charged: number; readonly bill: BillCheck }
+  | { readonly answerExpired?: boolean; readonly kind: "search"; readonly requestId: string; readonly hits: SearchHit[]; readonly charged: number };
 
 export class RelayCallError extends Error {
   constructor(
@@ -207,12 +207,14 @@ export class RelayClient {
       if (call.kind === "chat") {
         const res = await this.request(fetchFn, call.path, ChatPaidResponse, call.body);
         this.settle(call, res.settlement);
-        const bill = checkBill(call.price!, call.messages!, res.content, res.settlement.usage, res.settlement.charged, (call.body.request as { max_tokens: number }).max_tokens);
-        return { kind: "chat", requestId: call.requestId, content: res.content, model: res.model, usage: res.settlement.usage, charged: res.settlement.charged, bill };
+        await this.acknowledge(call.requestId);
+        const bill = checkBill(call.price!, call.messages!, res.answerExpired ? undefined : res.content, res.settlement.usage, res.settlement.charged, (call.body.request as { max_tokens: number }).max_tokens);
+        return { answerExpired: res.answerExpired ?? false, kind: "chat", requestId: call.requestId, content: res.content, model: res.model, usage: res.settlement.usage, charged: res.settlement.charged, bill };
       }
       const res = await this.request(fetchFn, call.path, SearchPaidResponse, call.body);
       this.settle(call, res.settlement);
-      return { kind: "search", requestId: call.requestId, hits: res.hits, charged: res.settlement.charged };
+      await this.acknowledge(call.requestId);
+      return { answerExpired: res.answerExpired ?? false, kind: "search", requestId: call.requestId, hits: res.hits, charged: res.settlement.charged };
     } catch (err) {
       if (err instanceof z.ZodError) {
         const reason = "Settlement disputed: the relay returned a malformed response";
@@ -221,12 +223,14 @@ export class RelayClient {
       }
       if (err instanceof RelayCallError && !err.retryable) {
         const settlement = (err as RelayCallError & { settlement?: Settlement }).settlement;
-        if (settlement) this.settle(call, settlement); // burned, then refunded as change
-        else {
+        if (settlement) { this.settle(call, settlement); await this.acknowledge(call.requestId); }
+        else if (NOT_BURNED.has(err.code)) {
           this.options.wallet.money.atomically(() => {
-            if (NOT_BURNED.has(err.code)) this.options.wallet.add(call.proofs);
+            this.options.wallet.add(call.proofs);
             this.pending.remove(call.requestId);
           });
+        } else if (this.pending.list().some((pending) => pending.requestId === call.requestId)) {
+          this.pending.save({ ...call, status: "settlement-pending" });
         }
       }
       throw err; // retryable errors keep the call pending for `recover`
@@ -248,8 +252,17 @@ export class RelayClient {
     }
     this.options.wallet.money.atomically(() => {
       this.options.wallet.add(change);
+      this.options.wallet.money.put(`ack:${call.requestId}`, { requestId: call.requestId });
       this.pending.remove(call.requestId);
     });
+  }
+
+  private async acknowledge(requestId: string): Promise<void> {
+    if (!this.options.wallet.money.get(`ack:${requestId}`)) return;
+    try {
+      await this.request(this.options.transport.fetchFor(newCircuitTag()), "/v1/settlement/ack", z.object({ ok: z.literal(true) }), { requestId });
+      this.options.wallet.money.remove(`ack:${requestId}`);
+    } catch { /* Coins are already committed; retry the durable acknowledgement later. */ }
   }
 
   /** Re-send every call that never got a definite answer (e.g. after a crash or dropped circuit). */
@@ -264,6 +277,7 @@ export class RelayClient {
         else throw err;
       }
     }
+    for (const ack of this.options.wallet.money.list<{ requestId: string }>("ack:")) await this.acknowledge(ack.requestId);
     return { recovered, failed };
   }
 }

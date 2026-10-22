@@ -53,3 +53,19 @@ describe("F09 atomic relay spend marker", () => {
     expect(spent.markSpent(["atomic-coin"])).toBe(true);
   });
 });
+
+describe("F07 financial retention", () => {
+  it("retains settlement signatures and crash markers across expiry and reopening", async () => {
+    const dir = tempDir();
+    const store = sqliteResponseStore(openRelayDb(dir), 1);
+    const settlement = { requestId: "financial", charged: 5, usage: { prompt_tokens: 0, completion_tokens: 0 }, change: [] };
+    store.put("financial", { status: 200, body: { model: "m", content: "private answer", settlement } });
+    store.put("marker", { status: 0, body: { redeemed: 100 } });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const reopened = sqliteResponseStore(openRelayDb(dir), 1);
+    expect(reopened.get("financial")).toMatchObject({ body: { content: "", answerExpired: true, settlement } });
+    expect(reopened.get("marker")).toEqual({ status: 0, body: { redeemed: 100 } });
+    reopened.acknowledge("financial");
+    expect(reopened.get("financial")).toMatchObject({ body: { settlement } });
+  });
+});
