@@ -44,6 +44,7 @@ const ResearchBody = z.object({
  * allowed Origin, and address the daemon by a loopback Host (blocks DNS rebinding).
  */
 export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Response> {
+  const activeRuns = new Map<string, AbortController>();
   const sync = () => new SyncClient(deps.syncUrl, deps.transport.fetchFor(newCircuitTag()));
 
   async function cloudModel(requested?: string): Promise<string> {
@@ -153,10 +154,16 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
     "POST /api/research": async (req) => {
       const body = ResearchBody.parse(await req.json());
       const model = body.level === "local" ? deps.local.id : await cloudModel(body.model);
+      const runId = randomId();
+      const cancellation = new AbortController();
+      const cancel = () => cancellation.abort();
+      req.signal.addEventListener("abort", cancel, { once: true });
+      if (req.signal.aborted) cancel();
+      activeRuns.set(runId, cancellation);
       const encoder = new TextEncoder();
       const stream = new ReadableStream<Uint8Array>({
         async start(controller) {
-          // If the UI disconnects, keep going: calls are already paid for and get recorded.
+          // Stop scheduling on disconnect; already submitted calls still settle safely.
           let open = true;
           const emit = (e: ResearchEvent) => {
             if (!open) return;
@@ -164,16 +171,20 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
             } catch {
               open = false;
+              cancel();
             }
           };
           try {
-            await runResearch(deps, { ...body, model }, emit);
+            await runResearch(deps, { ...body, model, runId, signal: cancellation.signal }, emit);
           } catch (err) {
             emit({ type: "error", message: (err as Error).message });
           } finally {
+            activeRuns.delete(runId);
+            req.signal.removeEventListener("abort", cancel);
             if (open) controller.close();
           }
         },
+        cancel,
       });
       return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
     },
@@ -223,7 +234,13 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
 
   return async (req) => {
     const url = new URL(req.url);
-    const route = routes[`${req.method} ${url.pathname}`];
+    const cancelMatch = req.method === "POST" && /^\/api\/research\/([0-9a-f]{32})\/cancel$/.exec(url.pathname);
+    const route = cancelMatch ? async () => {
+      const controller = activeRuns.get(cancelMatch[1]!);
+      if (!controller) return json(404, { error: "unknown or completed run" });
+      controller.abort();
+      return json(200, { cancelled: true });
+    } : routes[`${req.method} ${url.pathname}`];
     if (!route) return json(404, { error: "not found" });
     const denied = guard(req, url);
     if (denied) return denied;

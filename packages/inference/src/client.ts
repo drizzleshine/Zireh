@@ -183,6 +183,12 @@ export class RelayClient {
   }
 
   /** Send (or re-send) a prepared call on the given circuit. Idempotent per requestId. */
+  discardPrepared(call: PendingCall): void {
+    if (!this.pending.list().some((c) => c.requestId === call.requestId)) return;
+    this.options.wallet.add(call.proofs);
+    this.pending.remove(call.requestId);
+  }
+
   async send(call: PendingCall, circuitTag: string = newCircuitTag()): Promise<CallResult> {
     const fetchFn = this.options.transport.fetchFor(circuitTag);
     try {

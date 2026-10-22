@@ -1,7 +1,7 @@
 import { randomId, shuffle } from "@zireh/crypto";
 import { makeDecoys } from "@zireh/decoy";
 import { checkLeak, generalize, passes, type LeakReport } from "@zireh/leakcheck";
-import type { ChatModel } from "@zireh/llm";
+import { abortableModel, type ChatModel } from "@zireh/llm";
 import { applyTable, findLeaks, redactText, restore, withHints } from "@zireh/redact";
 import { LEVELS, type ChatMessage, type OutboundPiece, type PrivacyLevel, type Pseudonym, type TraceStep } from "@zireh/schema";
 import { reassemble, splitTask, type Reassembled } from "@zireh/split";
@@ -62,12 +62,15 @@ function buildMessages(content: string, salt: string | undefined): ChatMessage[]
  * Any stage error propagates: the caller sends nothing (fail closed).
  */
 export interface CompileHooks {
+  readonly signal?: AbortSignal;
   readonly onStep?: (step: TraceStep) => void;
   /** Called as soon as values are hidden, before anything else runs (drives the redaction view). */
   readonly onRedacted?: (table: readonly Pseudonym[]) => void;
 }
 
 export async function compile(local: ChatModel, input: ShieldInput, hooks: CompileHooks = {}): Promise<Plan> {
+  hooks.signal?.throwIfAborted();
+  local = abortableModel(local, hooks.signal);
   const onStep = hooks.onStep;
   const policy = LEVELS[input.level];
   const trace: TraceStep[] = [];
@@ -181,7 +184,10 @@ export async function finish(
   plan: Plan,
   answers: ReadonlyMap<string, string>,
   onStep?: (step: TraceStep) => void,
+  signal?: AbortSignal,
 ): Promise<Outcome> {
+  signal?.throwIfAborted();
+  local = abortableModel(local, signal);
   const trace = [...plan.trace];
   if (plan.localAnswer !== undefined) {
     return {

@@ -14,6 +14,20 @@ export interface ChatModel {
   chat(messages: readonly ChatMessage[], options: ChatOptions): Promise<ChatResult>;
 }
 
+/** Cancellation applies to every local stage, including providers that finish after abort. */
+export function abortableModel(model: ChatModel, signal?: AbortSignal): ChatModel {
+  if (!signal) return model;
+  return {
+    id: model.id,
+    async chat(messages, options) {
+      signal.throwIfAborted();
+      const result = await model.chat(messages, { ...options, signal });
+      signal.throwIfAborted();
+      return result;
+    },
+  };
+}
+
 export class ModelError extends Error {
   constructor(
     message: string,

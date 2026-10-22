@@ -1,7 +1,7 @@
 import { newObservation } from "@zireh/cases";
 import type { DaemonStatus, PlannedPiece, PrivacyLevel, Pseudonym, ResearchEvent, TraceStep } from "@zireh/schema";
 import { Fragment, useMemo, useSyncExternalStore } from "react";
-import { formatUsd, research } from "../api.ts";
+import { api, formatUsd, research } from "../api.ts";
 import { myMemberId, save, savePseudonyms, useStore } from "../store.ts";
 import { LEVEL_COPY } from "./levels.ts";
 import { SearchBox } from "./SearchBox.tsx";
@@ -24,6 +24,8 @@ interface Run {
   done?: Extract<ResearchEvent, { type: "done" }>;
   error?: string;
   saved?: boolean;
+  cancelled?: Extract<ResearchEvent, { type: "cancelled" }>;
+  cancelling?: boolean;
 }
 
 interface Props {
@@ -39,6 +41,7 @@ interface Props {
  */
 interface RunSlot {
   run?: Run;
+  runId?: string;
   running: boolean;
   abort?: AbortController;
   draft?: { task: string; level: PrivacyLevel; contextIds: string[] };
@@ -65,7 +68,7 @@ function useSlot(caseId: string): RunSlot {
 
 export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Props) {
   const rec = useStore((s) => s.cases[caseId])!;
-  const { run, running, abort, draft } = useSlot(caseId);
+  const { run, runId, running, abort, draft } = useSlot(caseId);
   const task = draft?.task ?? "";
   const level = draft?.level ?? rec.case.privacy;
   const contextIds = draft?.contextIds ?? [];
@@ -87,7 +90,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
     const current: Run = { task, level, steps: [], table: [], pieces: [], blocked: [] };
     const controller = new AbortController();
     setRun(current);
-    setSlot(caseId, (s) => ({ ...s, running: true, abort: controller }));
+    setSlot(caseId, ({ runId: _previous, ...s }) => ({ ...s, running: true, abort: controller }));
     const update = (fn: (r: Run) => void) =>
       setRun((r) => {
         if (!r) return r;
@@ -106,7 +109,9 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
           context: rec.evidence.filter((e) => contextIds.includes(e.id) && e.kind !== "image").map((e) => `${e.title}\n${e.body}`),
         },
         (e) => {
-          if (e.type === "step") update((r) => r.steps.push({ step: e.step, atMs: e.atMs }));
+          if (e.type === "started") setSlot(caseId, (s) => ({ ...s, runId: e.runId }));
+          else if (e.type === "cancelled") { update((r) => { r.cancelled = e; r.cancelling = false; }); onBalanceChange(); }
+          else if (e.type === "step") update((r) => r.steps.push({ step: e.step, atMs: e.atMs }));
           else if (e.type === "redacted") update((r) => (r.table = e.table));
           else if (e.type === "plan")
             update((r) => {
@@ -182,8 +187,13 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
           <span className="level-note">{LEVEL_COPY[level].note}</span>
           <span className="spacer" />
           {running ? (
-            <button className="btn" onClick={() => abort?.abort()}>
-              Stop
+            <button className="btn" disabled={run?.cancelling} onClick={async () => {
+              setRun((r) => r ? { ...r, cancelling: true } : r);
+              if (!runId) { abort?.abort(); return; }
+              try { await api.cancelResearch(runId); }
+              catch (err) { setRun((r) => r ? { ...r, cancelling: false, error: (err as Error).message } : r); }
+            }}>
+              {run?.cancelling ? "Stopping new requests…" : "Stop"}
             </button>
           ) : (
             <button className="btn primary" disabled={!task.trim() || !ready} onClick={start}>
@@ -270,6 +280,10 @@ function RunView({ run, running, onSave, onTopUp }: { run: Run; running: boolean
         </ol>
       )}
 
+      {run.cancelled && <div className="notice" role="status">
+        Stopped. {run.cancelled.sent} request(s) were already sent; {run.cancelled.settled} settled. Cost {formatUsd(run.cancelled.spent)}.
+        {run.cancelled.answers.map((a) => <p className="doc" key={a.id}>{a.answer}</p>)}
+      </div>}
       {run.error && (
         <div className="error">
           {run.error}

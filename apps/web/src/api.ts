@@ -31,6 +31,7 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export const api = {
+  cancelResearch: (runId: string) => call<{ cancelled: true }>(`/api/research/${runId}/cancel`, {}),
   status: () => call<DaemonStatus>("/api/status"),
   quote: (credits: number) => call<TopupQuote>("/api/wallet/quote", { credits }),
   simulatePayment: (quoteId: string) => call<{ ok: true }>("/api/wallet/simulate-payment", { quoteId }),

@@ -27,6 +27,8 @@ export interface Citations {
 }
 
 export type ResearchEvent =
+  | { readonly type: "started"; readonly runId: string }
+  | { readonly type: "cancelled"; readonly runId: string; readonly sent: number; readonly settled: number; readonly answers: readonly { id: string; answer: string }[]; readonly table: readonly Pseudonym[]; readonly spent: number; readonly ms: number }
   | { readonly type: "step"; readonly step: TraceStep; readonly atMs: number }
   | { readonly type: "redacted"; readonly table: readonly Pseudonym[] }
   | {

@@ -1,7 +1,7 @@
 import { randomSalt } from "@zireh/crypto";
 import { RelayClient } from "@zireh/inference";
 import { Ledger } from "@zireh/ledger";
-import { scriptedModel } from "@zireh/llm";
+import { scriptedModel, type ChatModel } from "@zireh/llm";
 import { createRelay, memoryResponseStore } from "@zireh/relay-core";
 import type { ChatMessage, FetchLike } from "@zireh/schema";
 import { directTransport } from "@zireh/tor";
@@ -9,7 +9,7 @@ import { generateMintKeys, memoryProofStore, memorySpentStore, Mint, Wallet } fr
 import { fixedRate, simulatedWatcher } from "@zireh/zcash";
 import { describe, expect, it } from "vitest";
 import { createDaemon } from "../src/api.ts";
-import type { ResearchEvent } from "../src/research.ts";
+import { runResearch, type ResearchEvent } from "../src/research.ts";
 
 const MODEL = "nemotron-cloud-test";
 const ORIGIN = "http://127.0.0.1:7878";
@@ -28,7 +28,7 @@ const local = scriptedModel((messages: readonly ChatMessage[]) => {
   return `local: ${user}`;
 }, "nemotron-3-nano:4b");
 
-function setup(localModel = local) {
+function setup(localModel: ChatModel = local) {
   const seen: string[] = []; // every user message that reached the cloud model
   const searches: string[] = [];
   const upstream = scriptedModel((messages) => {
@@ -47,9 +47,10 @@ function setup(localModel = local) {
   const transport = directTransport(relayFetch);
   const wallet = new Wallet(memoryProofStore());
   const ledger = new Ledger();
+  const relay = new RelayClient({ baseUrl: "http://relay.test", transport, wallet });
   const daemon = createDaemon({
     local: localModel,
-    relay: new RelayClient({ baseUrl: "http://relay.test", transport, wallet }),
+    relay,
     ledger,
     wallet,
     transport,
@@ -67,7 +68,7 @@ function setup(localModel = local) {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       }),
     );
-  return { call, seen, searches, wallet, ledger, daemon };
+  return { call, seen, searches, wallet, ledger, daemon, relay };
 }
 
 async function topUp(call: ReturnType<typeof setup>["call"], credits: number) {
@@ -208,5 +209,67 @@ describe("F02 private search", () => {
     const response = await call("/api/search", { query: "ada obi report", table: [] });
     expect(response.status).toBe(200);
     expect(searches).toEqual(["[PERSON_1] report"]);
+  });
+});
+
+describe("F04 research cancellation", () => {
+  const input = () => ({ task: "Is Ada Obi safe after the Lagos report?", context: [], level: "private" as const, table: [], salt: randomSalt(), model: MODEL });
+  it("cancels during redaction without preparing or sending a paid call", async () => {
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const started = new Promise<void>((r) => { entered = r; });
+    const slow = { id: local.id, async chat(messages: readonly ChatMessage[], options: Parameters<typeof local.chat>[1]) { entered(); await gate; return local.chat(messages, options); } };
+    const s = setup(slow);
+    await topUp(s.call, 2_000_000);
+    const controller = new AbortController();
+    const events: ResearchEvent[] = [];
+    const request = { ...input(), signal: controller.signal };
+    const running = runResearch({ ...s, local: slow }, request, (e) => events.push(e));
+    await started;
+    controller.abort(); release();
+    await running;
+    expect(s.seen).toHaveLength(0);
+    expect(s.relay.pending.list()).toHaveLength(0);
+    expect(events.at(-1)).toMatchObject({ type: "cancelled", sent: 0, settled: 0 });
+  });
+  it("settles an already submitted piece and prevents later pieces from sending", async () => {
+    const s = setup();
+    await topUp(s.call, 2_000_000);
+    const controller = new AbortController();
+    const events: ResearchEvent[] = [];
+    await runResearch({ ...s, local }, { ...input(), signal: controller.signal }, (e) => {
+      events.push(e);
+      if (e.type === "piece" && e.status === "sent") controller.abort();
+    });
+    expect(s.seen).toHaveLength(1);
+    expect(s.relay.pending.list()).toHaveLength(0);
+    expect(events.at(-1)).toMatchObject({ type: "cancelled", sent: 1, settled: 1 });
+  });
+});
+
+describe("F04 daemon run controls", () => {
+  it("announces a run id and cancels that run while keeping the event stream open", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const slow: ChatModel = { id: local.id, async chat(messages, options) { await gate; return local.chat(messages, options); } };
+    const s = setup(slow);
+    const response = await s.call("/api/research", { task: "Keep this on the device", level: "local", salt: randomSalt() });
+    const reader = response.body!.getReader();
+    const first = new TextDecoder().decode((await reader.read()).value);
+    const started = JSON.parse(first.trim().slice(6)) as { type: string; runId: string };
+    expect(started.type).toBe("started");
+    expect((await s.call(`/api/research/${started.runId}/cancel`, {})).status).toBe(200);
+    release();
+    let rest = "";
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      rest += new TextDecoder().decode(chunk.value);
+    }
+    const events = await readEvents(new Response(rest));
+    expect(events.at(-1)).toMatchObject({ type: "cancelled", sent: 0 });
+    expect(s.seen).toHaveLength(0);
+    expect((await s.call(`/api/research/${started.runId}/cancel`, {})).status).toBe(404);
   });
 });
