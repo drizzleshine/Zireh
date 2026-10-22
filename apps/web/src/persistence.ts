@@ -1,15 +1,17 @@
 import type { CollectionName } from "@zireh/schema";
-import type { Envelope } from "@zireh/sync";
+import { compareRevisions, envelopeRevision, LEGACY_REVISION, type Envelope, type Revision } from "@zireh/sync";
+import { randomId } from "@zireh/crypto";
 
 export interface WorkspaceData {
   readonly caseId: string;
   readonly caseKey: string;
   readonly memberId: string;
   readonly cursor: number;
+  readonly replayWarnings?: number;
   readonly syncedAt?: string;
   readonly syncError?: string | undefined;
 }
-export interface StoredRecord { readonly caseId: string; readonly collection: CollectionName; readonly record: { id: string } }
+export interface StoredRecord { readonly caseId: string; readonly collection: CollectionName; readonly record: { id: string }; readonly envelope?: Envelope; readonly echoPending?: boolean }
 const workspaceKey = (id: string) => `workspace:${id}`;
 const recordKey = (entry: StoredRecord) => `record:${entry.caseId}:${entry.collection}:${entry.record.id}`;
 const outboxKey = (caseId: string, envelope: Envelope) => `outbox:${caseId}:${envelope.id}:${envelope.sealed.iv}`;
@@ -57,18 +59,78 @@ class BrowserDatabase {
   }
   removeWorkspace(caseId: string) { return this.write((store) => { store.delete(workspaceKey(caseId)); }); }
   save(entry: StoredRecord, envelope: Envelope) {
-    return this.write((store) => { store.put(entry, recordKey(entry)); store.put(envelope, outboxKey(entry.caseId, envelope)); });
+    return this.write((store) => {
+      const current = store.get(recordKey(entry));
+      current.onsuccess = () => {
+        const saved = current.result as StoredRecord | undefined;
+        if (saved && compareRevisions(envelopeRevision(envelope), saved.envelope ? envelopeRevision(saved.envelope) : LEGACY_REVISION) <= 0) { store.transaction.abort(); return; }
+        store.put({ ...entry, envelope, echoPending: true }, recordKey(entry));
+        store.put(envelope, outboxKey(entry.caseId, envelope));
+      };
+    });
   }
   queue(caseId: string, envelopes: readonly Envelope[]) {
-    return this.write((store) => { for (const envelope of envelopes) store.put(envelope, outboxKey(caseId, envelope)); });
+    return this.write((store) => {
+      for (const envelope of envelopes) {
+        store.put(envelope, outboxKey(caseId, envelope));
+        const key = `record:${caseId}:${envelope.collection}:${envelope.id}`;
+        const current = store.get(key);
+        current.onsuccess = () => {
+          const entry = current.result as StoredRecord | undefined;
+          if (entry?.envelope?.sealed.ct === envelope.sealed.ct) store.put({ ...entry, echoPending: true }, key);
+        };
+      }
+    });
   }
   acknowledge(caseId: string, envelopes: readonly Envelope[]) {
     return this.write((store) => { for (const envelope of envelopes) store.delete(outboxKey(caseId, envelope)); });
   }
-  pull(caseId: string, entries: readonly StoredRecord[], cursor: number) {
+  async reserveRevision(caseId: string, collection: CollectionName, id: string): Promise<Revision> {
+    let revision: Revision | undefined;
+    await this.write((store) => {
+      const key = `record:${caseId}:${collection}:${id}`;
+      const current = store.get(key);
+      current.onsuccess = () => {
+        const saved = current.result as StoredRecord | undefined;
+        const clock = store.get(`clock:${key}`);
+        clock.onsuccess = () => {
+          const device = store.get("device-id");
+          device.onsuccess = () => {
+            const deviceId = String(device.result ?? randomId());
+            const lamport = Math.max(Number(clock.result ?? 0), saved?.envelope ? envelopeRevision(saved.envelope).lamport : 0) + 1;
+            revision = { lamport, deviceId };
+            store.put(lamport, `clock:${key}`);
+            store.put(deviceId, "device-id");
+          };
+        };
+      };
+    });
+    if (!revision) throw new Error("Could not reserve a record revision");
+    return revision;
+  }
+  pull(caseId: string, entries: readonly StoredRecord[], cursor: number, invalid = 0) {
     return this.write((store) => {
-      for (const entry of entries) store.put(entry, recordKey(entry));
-      this.patch(store, caseId, { cursor });
+      let replays = invalid;
+      const next = (index: number) => {
+        const entry = entries[index];
+        if (!entry) {
+          const ws = store.get(workspaceKey(caseId));
+          ws.onsuccess = () => { if (ws.result) store.put({ ...ws.result, cursor, replayWarnings: Number(ws.result.replayWarnings ?? 0) + replays }, workspaceKey(caseId)); };
+          return;
+        }
+        const current = store.get(recordKey(entry));
+        current.onsuccess = () => {
+          const saved = current.result as StoredRecord | undefined;
+          const incoming = entry.envelope ? envelopeRevision(entry.envelope) : LEGACY_REVISION;
+          const prior = saved?.envelope ? envelopeRevision(saved.envelope) : LEGACY_REVISION;
+          if (!saved || compareRevisions(incoming, prior) > 0) store.put(entry, recordKey(entry));
+          else if (saved.echoPending && entry.envelope && saved.envelope?.sealed.ct === entry.envelope.sealed.ct && saved.envelope.sealed.iv === entry.envelope.sealed.iv) {
+            store.put({ ...saved, echoPending: false }, recordKey(entry));
+          } else replays++;
+          next(index + 1);
+        };
+      };
+      next(0);
     });
   }
   migrate(workspaces: readonly (WorkspaceData & { outbox: Envelope[] })[], records: readonly StoredRecord[]) {
@@ -80,7 +142,11 @@ class BrowserDatabase {
           store.put(workspace, workspaceKey(workspace.caseId));
           for (const envelope of outbox) store.put(envelope, outboxKey(workspace.caseId, envelope));
         }
-        for (const entry of records) store.put(entry, recordKey(entry));
+        for (const entry of records) {
+          const envelopes = workspaces.find((workspace) => workspace.caseId === entry.caseId)?.outbox ?? [];
+          const envelope = envelopes.filter((envelope) => envelope.collection === entry.collection && envelope.id === entry.record.id).at(-1);
+          store.put({ ...entry, ...(envelope ? { envelope, echoPending: true } : {}) }, recordKey(entry));
+        }
         store.put(true, "migrated-v1");
       };
     });

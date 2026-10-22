@@ -1,7 +1,7 @@
 import { caseToken, inviteFragment, newCase, newMember, type CaseRecords, type Invite } from "@zireh/cases";
 import { generateCaseKey } from "@zireh/crypto";
 import type { Case, CollectionName, Member, PrivacyLevel, Pseudonym, RecordOf } from "@zireh/schema";
-import { assertSyncable, takeSyncBatch, openRecord, sealRecord, type Envelope } from "@zireh/sync";
+import { compareRevisions, envelopeRevision, LEGACY_REVISION, assertSyncable, takeSyncBatch, openRecord, sealRecord, type Envelope } from "@zireh/sync";
 import { get } from "idb-keyval";
 import { database, type StoredRecord, type WorkspaceData } from "./persistence.ts";
 import { useRef, useSyncExternalStore } from "react";
@@ -149,7 +149,7 @@ function apply(rec: Records, collection: CollectionName, record: unknown, local 
 export async function save<C extends CollectionName>(caseId: string, collection: C, record: RecordOf<C>) {
   if (!state.cases[caseId]) throw new Error("unknown case");
   const w = workspace(caseId);
-  const envelope = await sealRecord(w.caseKey, collection, record);
+  const envelope = await sealRecord(w.caseKey, collection, record, await database.reserveRevision(caseId, collection, (record as { id: string }).id));
   assertSyncable(envelope);
   await change(() => database.save({ caseId, collection, record: record as { id: string } }, envelope));
   void syncCase(caseId);
@@ -173,7 +173,7 @@ export async function createCase(input: { title: string; question: string; priva
   const member = newMember(input.memberName);
   const c = newCase({ title: input.title, question: input.question, privacy: input.privacy, createdBy: member.id });
   const w = { caseId: c.id, caseKey: generateCaseKey(), memberId: member.id, cursor: 0 };
-  const envelope = await sealRecord(w.caseKey, "cases", c);
+  const envelope = await sealRecord(w.caseKey, "cases", c, await database.reserveRevision(c.id, "cases", c.id));
   await change(async () => { await database.putWorkspace(w); await database.save({ caseId: c.id, collection: "cases", record: c }, envelope); });
   await save(c.id, "members", member);
   return c.id;
@@ -251,9 +251,15 @@ async function syncOnce(caseId: string) {
       if (pulled.head < w.cursor) queueMicrotask(() => void repairHost(caseId)); // host fell behind us
       // Open the whole batch first: the case record may come after records that belong to it
       // (e.g. after a host repair), and nothing may be skipped once the cursor moves past it.
-      const opened = (await Promise.all(pulled.records.map((env) => openRecord(w.caseKey, env)))).filter((o) => o !== undefined);
+      const opened = (await Promise.all(pulled.records.map(async (envelope) => {
+        const opened = await openRecord(w.caseKey, envelope);
+        if (!opened) return undefined;
+        const record = opened.record as { id: string; caseId?: string };
+        if (opened.collection === "cases" ? record.id !== caseId : record.caseId !== undefined && record.caseId !== caseId) return undefined;
+        return { ...opened, envelope };
+      }))).filter((entry) => entry !== undefined);
       if (!state.cases[caseId] && !opened.some((entry) => entry.collection === "cases")) return;
-      await change(() => database.pull(caseId, opened.map((entry) => ({ caseId, collection: entry.collection, record: entry.record as { id: string } })), pulled.cursor));
+      await change(() => database.pull(caseId, opened.map((entry) => ({ caseId, collection: entry.collection, record: entry.record as { id: string }, envelope: entry.envelope })), pulled.cursor, pulled.records.length - opened.length));
       if (pulled.records.length === 0 || pulled.cursor >= pulled.head) break;
     }
     await change(() => database.patchWorkspace(caseId, { syncedAt: new Date().toISOString(), syncError: undefined }));
@@ -289,27 +295,37 @@ function recordPairs(rec: Records): [CollectionName, { id: string }][] {
 async function repairHost(caseId: string) {
   const w = workspace(caseId);
   const token = caseToken(w.caseKey);
-  const onHost = new Set<string>();
+  const onHost = new Map<string, ReturnType<typeof envelopeRevision>>();
   let after = 0;
   try {
     for (;;) {
       const page = await api.pull(caseId, token, after);
-      for (const r of page.records) onHost.add(`${r.collection}:${r.id}`);
+      for (const envelope of page.records) {
+        if (!await openRecord(w.caseKey, envelope)) continue;
+        const key = `${envelope.collection}:${envelope.id}`;
+        const rev = envelopeRevision(envelope);
+        if (!onHost.has(key) || compareRevisions(rev, onHost.get(key)!) > 0) onHost.set(key, rev);
+      }
       if (page.records.length === 0 || page.cursor >= page.head) break;
       after = page.cursor;
     }
   } catch (err) {
     if ((err as { status?: number }).status !== 404) {
-      setTimeout(() => void repairHost(caseId), 30_000); // network trouble (Tor): try again shortly
+      setTimeout(() => void repairHost(caseId), 30_000);
       return;
     }
   }
-  const queued = new Set(w.outbox.map((e) => `${e.collection}:${e.id}`));
-  for (const [collection, record] of (state.cases[caseId] ? recordPairs(state.cases[caseId]!) : [])) {
-    const key = `${collection}:${record.id}`;
-    if (!onHost.has(key) && !queued.has(key)) {
-      const envelope = await sealRecord(w.caseKey, collection, record as never);
-      await change(() => database.queue(caseId, [envelope]));
+  const entries = (await database.entries()).filter(([key]) => key.startsWith(`record:${caseId}:`)).map(([, value]) => value as StoredRecord);
+  for (const entry of entries) {
+    const key = `${entry.collection}:${entry.record.id}`;
+    const local = entry.envelope ? envelopeRevision(entry.envelope) : LEGACY_REVISION;
+    if (onHost.has(key) && compareRevisions(onHost.get(key)!, local) >= 0) continue;
+    if (entry.envelope) {
+      if (!workspace(caseId).outbox.some((queued) => queued.sealed.ct === entry.envelope!.sealed.ct)) await change(() => database.queue(caseId, [entry.envelope!]));
+    } else {
+      const envelope = await sealRecord(w.caseKey, entry.collection, entry.record as never, await database.reserveRevision(caseId, entry.collection, entry.record.id));
+      assertSyncable(envelope);
+      await change(() => database.save(entry, envelope));
     }
   }
   if (workspace(caseId).outbox.length) await syncCase(caseId);

@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { clear, set } from "idb-keyval";
 import { generateCaseKey } from "@zireh/crypto";
-import { newCase, newEvidence, newMember } from "@zireh/cases";
+import { newCase, newEvidence, newMember, newObservation } from "@zireh/cases";
 import { sealRecord } from "@zireh/sync";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -111,5 +111,32 @@ describe("F15 adaptive rejection recovery", () => {
     await store.syncCase(c.id);
     expect(remote.push).toHaveBeenCalledTimes(3);
     expect(store.getSnapshot().workspaces[0]!.outbox).toHaveLength(0);
+  });
+});
+
+describe("F11 authenticated record revisions", () => {
+  it("keeps an accepted observation when the host replays its older draft", async () => {
+    const member = newMember("Ada");
+    const c = newCase({ title: "case", question: "question", privacy: "private", createdBy: member.id });
+    const key = generateCaseKey();
+    const draft = newObservation(c.id, { kind: "ai", runId: "a".repeat(32), requestedBy: member.id }, { text: "claim", evidenceIds: [] });
+    const accepted = { ...draft, status: "accepted" as const };
+    const old = await sealRecord(key, "observations", draft, { lamport: 1, deviceId: member.id });
+    const latest = await sealRecord(key, "observations", accepted, { lamport: 2, deviceId: member.id });
+    await set("workspaces", [{ caseId: c.id, caseKey: key, memberId: member.id, cursor: 0, outbox: [] }]);
+    await set(`case:${c.id}`, { case: c, members: [member], observations: [] });
+    const store = await import("../src/store.ts");
+    await store.load();
+    remote.pull.mockResolvedValueOnce({ records: [{ ...old, seq: 1 }, { ...latest, seq: 2 }], cursor: 2, head: 2 });
+    await store.syncCase(c.id);
+    expect(store.getSnapshot().cases[c.id]!.observations[0]!.status).toBe("accepted");
+    await store.load();
+    remote.pull.mockResolvedValueOnce({ records: [{ ...old, seq: 3 }], cursor: 3, head: 3 });
+    await store.syncCase(c.id);
+    expect(store.getSnapshot().cases[c.id]!.observations[0]!.status).toBe("accepted");
+    expect(store.getSnapshot().workspaces[0]!.replayWarnings).toBe(1);
+    remote.pull.mockResolvedValueOnce({ records: [{ ...latest, seq: 4 }], cursor: 4, head: 4 });
+    await store.syncCase(c.id);
+    expect(store.getSnapshot().workspaces[0]!.replayWarnings).toBe(2);
   });
 });

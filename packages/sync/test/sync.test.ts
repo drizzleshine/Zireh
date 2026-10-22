@@ -19,7 +19,7 @@ describe("sealed records", () => {
     const c = sampleCase();
     const env = await sealRecord(key, "cases", c);
     expect(JSON.stringify(env)).not.toContain("Port report");
-    expect(await openRecord(key, env)).toEqual({ collection: "cases", record: c });
+    expect(await openRecord(key, env)).toEqual({ collection: "cases", record: c, rev: env.sealed.rev });
   });
 
   it("drops records the host tampered with or relabeled", async () => {
@@ -38,5 +38,14 @@ describe("F15 sync wire limits", () => {
     const oversized = { ...envelope, sealed: { ...envelope.sealed, ct: "x".repeat(4 * 1024 * 1024) } };
     expect(() => assertSyncable(oversized)).toThrow("too large to sync");
     expect(() => takeSyncBatch([oversized])).toThrow("too large to sync");
+  });
+});
+
+describe("F11 revision authentication", () => {
+  it("rejects a changed counter or device identity", async () => {
+    const key = generateCaseKey();
+    const env = await sealRecord(key, "cases", sampleCase(), { lamport: 7, deviceId: "a".repeat(32) });
+    expect(await openRecord(key, { ...env, sealed: { ...env.sealed, rev: { lamport: 8, deviceId: "a".repeat(32) } } })).toBeUndefined();
+    expect(await openRecord(key, { ...env, sealed: { ...env.sealed, rev: { lamport: 7, deviceId: "b".repeat(32) } } })).toBeUndefined();
   });
 });

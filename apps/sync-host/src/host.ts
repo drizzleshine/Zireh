@@ -19,6 +19,7 @@ export function openHostDb(path: string): DatabaseSync {
       case_id TEXT NOT NULL, id TEXT NOT NULL, collection TEXT NOT NULL, sealed TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS records_by_case ON records (case_id, seq);
+    CREATE INDEX IF NOT EXISTS records_by_identity ON records (case_id, collection, id);
   `);
   return db;
 }
@@ -33,7 +34,7 @@ const json = (status: number, body: unknown) =>
 export function createSyncHost(db: DatabaseSync): (req: Request) => Promise<Response> {
   const getCase = db.prepare("SELECT token_hash FROM cases WHERE case_id = ?");
   const addCase = db.prepare("INSERT INTO cases (case_id, token_hash) VALUES (?, ?)");
-  const addRecord = db.prepare("INSERT INTO records (case_id, id, collection, sealed) VALUES (?, ?, ?, ?)");
+  const addRecord = db.prepare("INSERT INTO records (case_id, id, collection, sealed) SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM records WHERE case_id = ? AND id = ? AND collection = ? AND sealed = ?)");
   const listRecords = db.prepare("SELECT seq, id, collection, sealed FROM records WHERE case_id = ? AND seq > ? ORDER BY seq LIMIT ?");
   const lastSeq = db.prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM records WHERE case_id = ?");
 
@@ -79,7 +80,7 @@ export function createSyncHost(db: DatabaseSync): (req: Request) => Promise<Resp
           db.exec("ROLLBACK");
           return denied;
         }
-        for (const r of parsed.data.records) addRecord.run(caseId, r.id, r.collection, JSON.stringify(r.sealed));
+        for (const r of parsed.data.records) { const sealed = JSON.stringify(r.sealed); addRecord.run(caseId, r.id, r.collection, sealed, caseId, r.id, r.collection, sealed); }
         db.exec("COMMIT");
       } catch (err) {
         db.exec("ROLLBACK");

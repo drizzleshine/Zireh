@@ -39,3 +39,16 @@ describe("sync host", () => {
     await expect(sync.pull("b".repeat(32), caseToken(key), 0)).rejects.toMatchObject({ status: 404 });
   });
 });
+
+describe("F11 exact envelope retries", () => {
+  it("does not append a duplicate when a push is retried after its reply was lost", async () => {
+    const sync = client();
+    const key = generateCaseKey();
+    const ada = newMember("Ada");
+    const c = newCase({ title: "T", question: "Q?", privacy: "private", createdBy: ada.id });
+    const envelope = await sealRecord(key, "cases", c);
+    expect(await sync.push(c.id, caseToken(key), [envelope])).toEqual({ cursor: 1 });
+    expect(await sync.push(c.id, caseToken(key), [envelope])).toEqual({ cursor: 1 });
+    expect((await sync.pull(c.id, caseToken(key), 0)).records).toHaveLength(1);
+  });
+});

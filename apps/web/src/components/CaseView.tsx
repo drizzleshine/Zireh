@@ -55,6 +55,7 @@ export function CaseView({ caseId, status, onBalanceChange, onTopUp }: Props) {
             {copied ? "Invite link copied" : "Copy invite link"}
           </button>
         </div>
+        {!!ws?.replayWarnings && <p className="error" role="alert">Ignored {ws.replayWarnings} stale, repeated, or invalid sync records. The host may be replaying old data.</p>}
         <div className="tabs" role="tablist">
           {tabs.map((t) => (
             <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
