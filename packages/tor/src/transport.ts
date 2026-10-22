@@ -1,7 +1,7 @@
 import { randomId } from "@zireh/crypto";
 import type { FetchLike } from "@zireh/schema";
 import { socksDispatcher } from "fetch-socks";
-import { fetch as undiciFetch, type Dispatcher } from "undici";
+import { fetch as undiciFetch } from "undici";
 
 /**
  * How outbound requests leave the device. `fetchFor(tag)` returns a fetch bound to one
@@ -22,21 +22,18 @@ export interface SocksEndpoint {
  * so a fresh credential per tag means a fresh circuit and a different exit.
  */
 export function torTransport(socks: SocksEndpoint): Transport {
-  const dispatchers = new Map<string, Dispatcher>();
-  const dispatcherFor = (tag: string): Dispatcher => {
-    let d = dispatchers.get(tag);
-    if (!d) {
-      d = socksDispatcher({ type: 5, host: socks.host, port: socks.port, userId: tag, password: randomId() });
-      dispatchers.set(tag, d);
-    }
-    return d;
-  };
   return {
     kind: "tor",
     fetchFor(tag) {
-      const dispatcher = dispatcherFor(tag);
-      return (input, init) =>
-        undiciFetch(input, { ...(init as Parameters<typeof undiciFetch>[1]), dispatcher }) as unknown as Promise<Response>;
+      return async (input, init) => {
+        const dispatcher = socksDispatcher({ type: 5, host: socks.host, port: socks.port, userId: tag, password: randomId() });
+        try {
+          return await undiciFetch(input, { ...(init as Parameters<typeof undiciFetch>[1]), dispatcher }) as unknown as Response;
+        } finally {
+          // close() drains active response bodies; awaiting it here would deadlock their reader.
+          void dispatcher.close().catch(() => dispatcher.destroy().catch(() => {}));
+        }
+      };
     },
   };
 }
