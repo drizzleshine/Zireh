@@ -267,3 +267,17 @@ describe("F06 top-up recovery", () => {
     expect(s.wallet.balance).toBe(100_000);
   });
 });
+
+describe("foreground retry after background settlement", () => {
+  it("uses the durable local answer after another client has settled and acknowledged it", async () => {
+    const s = setup();
+    await fund(s.client, s.relayFetch, 65_536);
+    const call = await s.client.prepareChat(MODEL, ask, 100);
+    const first = await s.client.send(call);
+    let networkCalls = 0;
+    const restarted = new RelayClient({ baseUrl: "http://relay.test", wallet: s.wallet, transport: directTransport(async () => { networkCalls++; throw new Error("network unavailable after acknowledgement"); }) });
+    expect(await restarted.send(call)).toEqual(first);
+    expect(networkCalls).toBe(0);
+    expect(s.wallet.balance).toBe(65_536 - first.charged);
+  });
+});

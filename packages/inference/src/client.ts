@@ -233,6 +233,13 @@ export class RelayClient {
   }
 
   async send(call: PendingCall, circuitTag: string = newCircuitTag(), recovered = false): Promise<CallResult> {
+    const completed = this.options.wallet.money.get<Completion>(`completion:${call.requestId}`);
+    if (completed) {
+      this.notifyCompletion(call.requestId, recovered);
+      await this.acknowledge(call.requestId);
+      if ("kind" in completed.outcome) return completed.outcome;
+      throw new RelayCallError("upstream_error", completed.outcome.error, false);
+    }
     const fetchFn = this.options.transport.fetchFor(circuitTag);
     try {
       this.observer?.attempt(call, circuitTag);

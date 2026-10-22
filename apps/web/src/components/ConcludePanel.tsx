@@ -160,7 +160,7 @@ export function ConcludePanel({ caseId }: { caseId: string }) {
             )}
             <PublicationPreview publication={preview.publication} />
             {hideNames && <div className="field">
-              <p className="level-note">{!scanned ? "Scan this version before exporting. Review every field below; scanning can miss identifying details." : !clean ? "A hidden value remains in this page. Edit its description and scan again." : approved ? "This exact version is reviewed." : "Read the complete page, then confirm it is safe to share."}</p>
+              <p className="level-note">{!scanned ? "Scan this version before exporting. Review every field above; scanning can miss identifying details." : !clean ? "A hidden value remains in this page. Edit its description and scan again." : approved ? "This exact version is reviewed." : "Read the complete page, then confirm it is safe to share."}</p>
               <button className="btn small" disabled={!scanned || !clean || approved} onClick={() => setReviewedHash(preview.hash)}>Looks right</button>
             </div>}
             <div className="meta">
