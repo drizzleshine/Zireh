@@ -16,12 +16,15 @@ import {
   type Usage,
 } from "@zireh/schema";
 import { newCircuitTag, type Transport } from "@zireh/tor";
-import { checkBill, memoryMoneyStore, maxCost, prepareChange, prepareTopup, sum, unblindAll, type BillCheck, type PendingOutputs, type Wallet, type MoneyStore } from "@zireh/wallet";
+import { checkBill, checkSettlement, memoryMoneyStore, maxCost, prepareChange, prepareTopup, sum, unblindAll, type BillCheck, type PendingOutputs, type Wallet, type MoneyStore } from "@zireh/wallet";
 import { z } from "zod";
 
 /** Everything needed to send (or re-send) one paid call. Persisted before the first send. */
 export interface PendingCall {
   readonly requestId: string;
+  readonly status?: "disputed";
+  readonly dispute?: string;
+  readonly maxCharge?: number;
   readonly kind: "chat" | "search";
   readonly path: string;
   readonly body: Record<string, unknown>;
@@ -57,7 +60,7 @@ export type CallResult =
 
 export class RelayCallError extends Error {
   constructor(
-    readonly code: RelayError["error"] | "network",
+    readonly code: RelayError["error"] | "network" | "settlement_disputed",
     message: string,
     readonly retryable: boolean,
   ) {
@@ -183,7 +186,7 @@ export class RelayClient {
       const proofs = this.options.wallet.take(hold);
       const blanks = prepareChange(keyset, sum(proofs));
       const requestId = randomId();
-      const call: PendingCall = { requestId, kind, path, proofs, blanks, keyset, body: body(requestId, proofs, blanks), ...extra };
+      const call: PendingCall = { requestId, maxCharge: hold, kind, path, proofs, blanks, keyset, body: body(requestId, proofs, blanks), ...extra };
       this.pending.save(call);
       return call;
     });
@@ -211,6 +214,11 @@ export class RelayClient {
       this.settle(call, res.settlement);
       return { kind: "search", requestId: call.requestId, hits: res.hits, charged: res.settlement.charged };
     } catch (err) {
+      if (err instanceof z.ZodError) {
+        const reason = "Settlement disputed: the relay returned a malformed response";
+        this.pending.save({ ...call, status: "disputed", dispute: reason });
+        throw new RelayCallError("settlement_disputed", reason, true);
+      }
       if (err instanceof RelayCallError && !err.retryable) {
         const settlement = (err as RelayCallError & { settlement?: Settlement }).settlement;
         if (settlement) this.settle(call, settlement); // burned, then refunded as change
@@ -228,8 +236,18 @@ export class RelayClient {
   /** Credit change once: only a call that is still pending can be settled. */
   private settle(call: PendingCall, settlement: Settlement) {
     if (!this.pending.list().some((c) => c.requestId === call.requestId)) return;
+    const audit = checkSettlement(call.requestId, sum(call.proofs), call.maxCharge ?? sum(call.proofs), call.blanks.outputs.length, call.keyset.id, settlement);
+    let change: Proof[];
+    try {
+      if (audit.overcharged) throw new Error(audit.reason);
+      change = unblindAll(call.keyset, call.blanks, settlement.change);
+    } catch (error) {
+      const reason = `Settlement disputed: ${(error as Error).message}`;
+      this.pending.save({ ...call, status: "disputed", dispute: reason });
+      throw new RelayCallError("settlement_disputed", reason, true);
+    }
     this.options.wallet.money.atomically(() => {
-      this.options.wallet.add(unblindAll(call.keyset, call.blanks, settlement.change));
+      this.options.wallet.add(change);
       this.pending.remove(call.requestId);
     });
   }

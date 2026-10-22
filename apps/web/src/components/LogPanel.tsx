@@ -49,6 +49,9 @@ export function LogPanel({ caseId }: { caseId: string }) {
           <span>overcharges detected</span>
         </div>
       </div>
+      {data.disputes?.map((dispute) => <p className="error" key={dispute.requestId} role="alert">
+        {dispute.reason} Request {dispute.requestId}. Its recovery record is retained; change has not been accepted.
+      </p>)}
       {receipts.length === 0 ? (
         <div className="empty">
           <strong>Nothing has been sent yet</strong>

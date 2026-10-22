@@ -192,3 +192,29 @@ describe("F09 atomic client money movement", () => {
     expect(client.pending.list()).toHaveLength(0);
   });
 });
+
+describe("F08 settlement conservation", () => {
+  it.each(["missing change", "wrong request", "wrong keyset", "invalid point"])("keeps a disputed reservation after %s", async (fault) => {
+    const s = setup();
+    await fund(s.client, s.relayFetch, 65_536);
+    const call = await s.client.prepareChat(MODEL, ask, 100);
+    const reservedBalance = s.wallet.balance;
+    const client = new RelayClient({ baseUrl: "http://relay.test", wallet: s.wallet,
+      transport: directTransport(async (url, init) => {
+        const res = await s.handler(new Request(url, init));
+        if (!url.endsWith("/v1/chat")) return res;
+        const body = await res.json();
+        if (fault === "missing change") body.settlement.change = [];
+        if (fault === "wrong request") body.settlement.requestId = "0".repeat(32);
+        if (fault === "wrong keyset") body.settlement.change[0].keysetId = "another-keyset";
+        if (fault === "invalid point") body.settlement.change[0].C_ = `02${"0".repeat(64)}`;
+        return Response.json(body);
+      }) });
+    await expect(client.send(call)).rejects.toMatchObject({ code: "settlement_disputed" });
+    expect(s.wallet.balance).toBe(reservedBalance);
+    expect(client.pending.list()).toMatchObject([{ requestId: call.requestId, status: "disputed" }]);
+    const { recovered } = await s.client.recover();
+    expect(recovered).toHaveLength(1);
+    expect(s.wallet.balance).toBe(65_536 - recovered[0]!.charged);
+  });
+});

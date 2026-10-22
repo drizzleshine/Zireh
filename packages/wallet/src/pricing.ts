@@ -52,3 +52,23 @@ export function checkBill(
     ? { expected, charged, overcharged: true, reason: reasons.join("; ") }
     : { expected, charged, overcharged: false };
 }
+
+/** Audit the money itself, independently of the provider's token report. */
+export function checkSettlement(
+  requestId: string,
+  paid: number,
+  maximumCharge: number,
+  outputCount: number,
+  keysetId: string,
+  settlement: import("@zireh/schema").Settlement,
+): BillCheck {
+  const returned = settlement.change.reduce((total, signature) => total + signature.amount, 0);
+  const reasons: string[] = [];
+  if (settlement.requestId !== requestId) reasons.push("settlement belongs to another request");
+  if (settlement.charged > maximumCharge) reasons.push("charge exceeds the agreed maximum");
+  if (returned + settlement.charged !== paid) reasons.push(`paid ${paid}, but charge plus change is ${returned + settlement.charged}`);
+  if (settlement.change.length > outputCount) reasons.push("more signatures than change outputs");
+  if (settlement.change.some((signature) => signature.keysetId !== keysetId)) reasons.push("change has a different keyset");
+  return { expected: paid - returned, charged: settlement.charged, overcharged: reasons.length > 0,
+    ...(reasons.length ? { reason: reasons.join("; ") } : {}) };
+}

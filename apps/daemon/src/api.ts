@@ -147,7 +147,7 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
     "GET /api/receipts": async (_req, url) => {
       const caseId = url.searchParams.get("caseId") ?? undefined;
       const receipts = deps.ledger.receipts().filter((r) => !caseId || r.caseId === caseId);
-      return json(200, { receipts, summary: deps.ledger.summary(caseId) });
+      return json(200, { receipts, summary: deps.ledger.summary(caseId), disputes: deps.relay.pending.list().filter((call) => call.status === "disputed").map((call) => ({ requestId: call.requestId, reason: call.dispute })) });
     },
 
     /** Server-sent events: each pipeline stage as it happens, then the final answer. */
