@@ -125,3 +125,16 @@ describe("redactText", () => {
     await expect(redactText(model, "anything", [])).rejects.toThrow();
   });
 });
+
+describe("F02 names across casing and writing systems", () => {
+  it.each(["ada obi", "张伟", "éloïse durand", "محمد علي"])("hides a correctly detected name: %s", async (name) => {
+    const model = scriptedModel((m) => m[0]!.content.includes("general kind") ? '{"hints":{}}' : JSON.stringify({ entities: [{ text: name, kind: "person" }] }));
+    const result = await redactText(model, `is ${name} at risk?`, []);
+    expect(result.text).not.toContain(name);
+    expect(result.table).toContainEqual(expect.objectContaining({ original: name }));
+  });
+  it("does not hide stop words or a misclassified common phrase", async () => {
+    const model = scriptedModel((m) => m[0]!.content.includes("general kind") ? '{"hints":{}}' : JSON.stringify({ entities: [{ text: "we", kind: "person" }, { text: "records were altered", kind: "org" }, { text: "records were altered", kind: "id" }] }));
+    expect((await redactText(model, "we found records were altered", [])).table).toEqual([]);
+  });
+});

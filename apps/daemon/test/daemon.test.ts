@@ -28,8 +28,9 @@ const local = scriptedModel((messages: readonly ChatMessage[]) => {
   return `local: ${user}`;
 }, "nemotron-3-nano:4b");
 
-function setup() {
+function setup(localModel = local) {
   const seen: string[] = []; // every user message that reached the cloud model
+  const searches: string[] = [];
   const upstream = scriptedModel((messages) => {
     seen.push(messages.at(-1)!.content);
     return "an answer";
@@ -39,6 +40,7 @@ function setup() {
     watcher: simulatedWatcher(fixedRate(50)),
     models: new Map([[MODEL, { upstream, price: { model: MODEL, inputPerMTok: 360_000, outputPerMTok: 1_080_000 } }]]),
     searchPrice: 1000,
+    search: async (query) => { searches.push(query); return []; },
     responses: memoryResponseStore(),
   });
   const relayFetch: FetchLike = (url, init) => relayHandler(new Request(url, init));
@@ -46,7 +48,7 @@ function setup() {
   const wallet = new Wallet(memoryProofStore());
   const ledger = new Ledger();
   const daemon = createDaemon({
-    local,
+    local: localModel,
     relay: new RelayClient({ baseUrl: "http://relay.test", transport, wallet }),
     ledger,
     wallet,
@@ -65,7 +67,7 @@ function setup() {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       }),
     );
-  return { call, seen, wallet, ledger, daemon };
+  return { call, seen, searches, wallet, ledger, daemon };
 }
 
 async function topUp(call: ReturnType<typeof setup>["call"], credits: number) {
@@ -195,5 +197,16 @@ describe("F01 compatibility privacy selection", () => {
       expect((await request(daemon, model, level)).status).toBe(400);
     }
     expect(seen).toHaveLength(0);
+  });
+});
+
+describe("F02 private search", () => {
+  it("never forwards a correctly detected lowercase name", async () => {
+    const model = scriptedModel((m) => m[0]!.content.includes("general kind") ? '{"hints":{}}' : '{"entities":[{"text":"ada obi","kind":"person"}]}');
+    const { call, searches } = setup(model);
+    await topUp(call, 10000);
+    const response = await call("/api/search", { query: "ada obi report", table: [] });
+    expect(response.status).toBe(200);
+    expect(searches).toEqual(["[PERSON_1] report"]);
   });
 });

@@ -1,7 +1,7 @@
 import { chatJson, type ChatModel } from "@zireh/llm";
 import { EntityKind, type Pseudonym } from "@zireh/schema";
 import { z } from "zod";
-import { detectPatterns, properNounCandidates, type Detection } from "./detect.ts";
+import { COMMON, detectPatterns, properNounCandidates, type Detection } from "./detect.ts";
 import { applyTable, extendTable } from "./table.ts";
 
 const Entities = z.object({
@@ -30,13 +30,16 @@ text states it, and never guess. The description must fit thousands of others an
 not contain the item's name. Reply with JSON only: {"hints":{"<item>":"<description>"}}`;
 
 /**
- * Sanity check on what the model calls an identifier: names carry a capital letter, numbers
- * (ids, dates, amounts) carry a digit or a month name. Stops over-redaction like hiding
- * "records were altered", which would make the question useless without protecting anyone.
+ * Reject common words and sentence fragments without assuming a name's script or casing.
+ * Numeric identifiers still need a digit or month name.
  */
 const MONTHS = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
 function plausible(text: string, kind: string): boolean {
-  if (kind === "person" || kind === "org" || kind === "place") return /\p{Lu}/u.test(text);
+  if (kind === "person" || kind === "org" || kind === "place") {
+    const words = text.trim().toLowerCase().split(/\s+/);
+    return [...text.trim()].length >= 2 && !COMMON.has(text.trim().toLowerCase()) &&
+      !(words.length >= 3 && words.some((w) => /^(?:is|are|was|were|has|have|had|does|did|would|could|should)$/.test(w)));
+  }
   if (kind === "date") return /\d/.test(text) || MONTHS.test(text);
   if (kind === "id" || kind === "money") return /\d/.test(text);
   return true; // contact: patterns already cover the common forms
