@@ -56,6 +56,9 @@ describe("compile", () => {
       "How do journalists in a large coastal city assess threats after a big story?",
       "What protections exist for whistleblowers at shipping firms generally?",
       "How should a reporter document intimidation for a press union?",
+      "Which trees survive coastal salt spray best?",
+      "How do ocean currents affect sailing routes?",
+      "What equipment is needed for hiking in heavy rain?",
     ];
     const plan = await compile(
       fakeLocal({
@@ -97,7 +100,7 @@ describe("finish", () => {
     const local = fakeLocal({
       entities,
       pieces: ["Risks for port reporters?", "Press law in [PLACE_1]?"],
-      decoys: ["Best soil for tomatoes?"],
+      decoys: ["Best soil for tomatoes?", "How should bicycle tires be repaired?"],
       combined: "[PERSON_1] faces moderate risk [A1]; [PLACE_1] law offers little protection [A2] [A9].",
     });
     const plan = await compile(local, { task, level: "private", table: [], salt });
@@ -119,4 +122,11 @@ describe("F03 final outbound gate", () => {
   it("sends nothing if the promised number of safe decoys cannot be generated", async () => {
     await expect(compile(fakeLocal({ pieces: [input.task], decoys: ["Where can tourists buy train tickets in Lagos?"] }), input)).rejects.toThrow(/decoy/);
   });
+});
+
+it("uses distinct cover questions across the whole split plan", async () => {
+  const covers = ["How do bakers keep sourdough starters alive?", "Which trees survive coastal salt spray best?", "How should bicycle brakes be maintained?", "Which stars are visible during winter?", "How do ocean currents affect sailing routes?", "What equipment is needed for hiking?"];
+  const plan = await compile(fakeLocal({ entities, pieces: ["What risks do port reporters face?", "What press laws apply in [PLACE_1]?"], decoys: covers }), { task, level: "paranoid", table: [], salt });
+  const decoys = plan.pieces.filter((piece) => piece.role === "decoy").map((piece) => piece.question.toLowerCase());
+  expect(new Set(decoys).size).toBe(6);
 });

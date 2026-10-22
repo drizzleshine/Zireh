@@ -400,3 +400,15 @@ describe("invite-supplied sync destinations", () => {
     expect((await s.call("/api/sync/pull", { ...body, host: "http://localhost:8788" })).status).toBe(404);
   });
 });
+
+describe("settled receipt replay", () => {
+  it("keeps a settled logical receipt when the same paid call is retried", async () => {
+    const s = setup();
+    await topUp(s.call, 65_536);
+    const call = await s.relay.prepareChat(MODEL, [{ role: "user", content: "general question" }], 10);
+    const first = await s.relay.send(call);
+    await s.relay.send(call);
+    expect(s.ledger.receipts()).toMatchObject([{ id: call.requestId, state: "settled", charged: first.charged }]);
+    expect(s.ledger.receipts()).toHaveLength(1);
+  });
+});

@@ -16,3 +16,14 @@ describe("complete evidence and bounded research excerpts", () => {
     expect(evidenceContext(sources, sources.map((source) => source.id)).entries).toHaveLength(20);
   });
 });
+
+it("blocks external and active image formats while accepting embedded raster data", async () => {
+  const { Evidence } = await import("@zireh/schema");
+  const { isEmbeddedImage } = await import("../src/evidence.ts");
+  for (const body of ["https://tracker.example/pixel.png", "data:image/svg+xml;base64,PHN2Zz4="]) {
+    const image = newEvidence("a".repeat(32), "b".repeat(32), { kind: "image", title: "image", body });
+    expect(Evidence.safeParse(image).success).toBe(false);
+    expect(isEmbeddedImage(body)).toBe(false);
+  }
+  expect(isEmbeddedImage("data:image/png;base64,aGVsbG8=")).toBe(true);
+});

@@ -39,7 +39,7 @@ export const Evidence = z.object({
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   addedBy: Id,
   addedAt: Iso,
-});
+}).refine((evidence) => evidence.kind !== "image" || /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(evidence.body), "Images must be embedded PNG, JPEG or WebP data; external image URLs are not loaded");
 export type Evidence = z.infer<typeof Evidence>;
 
 export const Author = z.discriminatedUnion("kind", [

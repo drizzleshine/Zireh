@@ -315,7 +315,7 @@ async function syncOnce(caseId: string) {
       opened = opened.filter((entry) => authorizedRecord(entry, ownerId, !!requiresSignatures, members));
       if (requiresSignatures && !w.requiresSignatures) await change(() => database.patchWorkspace(caseId, { requiresSignatures: true }));
       if (!state.cases[caseId] && !opened.some((entry) => entry.collection === "cases")) return;
-      await change(() => database.pull(caseId, opened.map((entry) => ({ caseId, collection: entry.collection, record: entry.record as { id: string }, envelope: entry.envelope, verified: !!entry.auth })), pulled.cursor, pulled.records.length - opened.length));
+      await change(() => database.pull(caseId, opened.map((entry) => ({ caseId, collection: entry.collection, record: entry.record as { id: string }, envelope: entry.envelope, verified: !!entry.auth })), pulled.cursor, pulled.records.length - opened.length, w.caseKey));
       if ((state.cases[caseId]?.case.keyEpoch ?? 0) > (w.keyEpoch ?? 0) && state.cases[caseId]?.case.nextSyncId) {
         await change(() => database.patchWorkspace(caseId, { needsInvite: true }));
         break;
@@ -382,11 +382,11 @@ async function repairHost(caseId: string) {
     const local = entry.envelope ? envelopeRevision(entry.envelope) : LEGACY_REVISION;
     if (onHost.has(key) && compareRevisions(onHost.get(key)!, local) >= 0) continue;
     if (entry.envelope) {
-      if (!workspace(caseId).outbox.some((queued) => queued.sealed.ct === entry.envelope!.sealed.ct)) await change(() => database.queue(caseId, [entry.envelope!]));
+      if (!workspace(caseId).outbox.some((queued) => queued.sealed.ct === entry.envelope!.sealed.ct)) await change(() => database.queue(caseId, [entry.envelope!], w.caseKey));
     } else {
       const envelope = await sealRecord(w.caseKey, entry.collection, entry.record as never, await database.reserveRevision(caseId, entry.collection, entry.record.id));
       assertSyncable(envelope);
-      await change(() => database.save(entry, envelope));
+      await change(() => database.save(entry, envelope, w.caseKey));
     }
   }
   if (workspace(caseId).outbox.length) await syncCase(caseId);
@@ -483,7 +483,7 @@ export async function removeMember(caseId: string, memberId: string): Promise<vo
   }
   const { outbox: _, ...metadata } = w;
   const next: WorkspaceData = { ...metadata, caseKey: key, syncId, keyEpoch: epoch, cursor: 0, needsInvite: false, notices: [...(w.notices ?? []), { syncId: w.syncId ?? caseId, token: caseToken(w.caseKey), envelope: notice, ...(w.syncUrl ? { host: w.syncUrl } : {}) }] };
-  await change(() => database.rotate(w.caseKey, w.outbox, next, records, records.map((entry) => entry.envelope!)));
+  await change(() => database.rotate(w, w.outbox, next, records, records.map((entry) => entry.envelope!)));
   await syncCase(caseId);
 }
 
@@ -525,6 +525,6 @@ async function acceptRotatedInvite(invite: Invite): Promise<void> {
     outbox.push(envelope);
   }
   const { outbox: _, ...metadata } = w;
-  await change(() => database.rotate(w.caseKey, w.outbox, { ...metadata, caseKey: invite.caseKey, ...(invite.host ? { syncUrl: invite.host } : {}), syncId: invite.syncId!, keyEpoch: invite.keyEpoch!, cursor, needsInvite: false }, [...incoming.values()], outbox));
+  await change(() => database.rotate(w, w.outbox, { ...metadata, caseKey: invite.caseKey, ...(invite.host ? { syncUrl: invite.host } : {}), syncId: invite.syncId!, keyEpoch: invite.keyEpoch!, cursor, needsInvite: false }, [...incoming.values()], outbox));
   void syncCase(invite.caseId);
 }

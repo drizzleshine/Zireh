@@ -79,6 +79,7 @@ export const envelopeRevision = (envelope: Envelope): Revision => envelope.seale
 /** New records default to revision 1. Updating callers must supply a higher persisted revision. */
 export async function sealRecord<C extends CollectionName>(caseKey: string, collection: C, record: RecordOf<C>, rev: Revision = { lamport: 1, deviceId: randomId() }, signer?: RecordSigner): Promise<Envelope> {
   Revision.parse(rev);
+  record = Collections[collection].parse(record) as RecordOf<C>;
   const id = (record as { id: string }).id;
   const auth = signer ? await signRecord(collection, record, rev, signer) : undefined;
   return { id, collection, sealed: { ...await sealJson(caseKey, { rev, record, ...(auth ? { auth } : {}) }, context(collection, id, rev)), rev } };

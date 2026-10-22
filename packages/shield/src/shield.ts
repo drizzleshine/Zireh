@@ -1,5 +1,5 @@
 import { randomId, shuffle } from "@zireh/crypto";
-import { makeDecoys } from "@zireh/decoy";
+import { makeDecoys, tooSimilar } from "@zireh/decoy";
 import { checkLeak, generalize, passes, type LeakReport } from "@zireh/leakcheck";
 import { abortableModel, type ChatModel } from "@zireh/llm";
 import { applyTable, findLeaks, redactText, restore, withHints } from "@zireh/redact";
@@ -147,9 +147,11 @@ export async function compile(local: ChatModel, input: ShieldInput, hooks: Compi
   // 5. decoy + 6. order
   const salt = policy.split ? undefined : input.salt;
   const pieces: OutboundPiece[] = [];
+  const covers: string[] = [];
   for (const a of approved) {
     pieces.push({ id: randomId(), role: "real", question: a.question, messages: buildMessages(a.question, salt), maxTokens, leakScore: a.score });
-    for (const d of await makeDecoys(local, a.question, policy.decoys, (text) => findLeaks(text, red.table).length === 0)) {
+    for (const d of await makeDecoys(local, a.question, policy.decoys, (text) => findLeaks(text, red.table).length === 0 && approved.every((real) => !tooSimilar(text, real.question)) && covers.every((cover) => cover.toLowerCase() !== text.toLowerCase() && !tooSimilar(cover, text)))) {
+      covers.push(d);
       pieces.push({ id: randomId(), role: "decoy", question: d, messages: buildMessages(d, salt), maxTokens });
     }
   }

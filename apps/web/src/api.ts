@@ -88,3 +88,11 @@ export async function research(input: ResearchInput, onEvent: (e: ResearchEvent)
 /** Credits are µUSD. */
 export const formatUsd = (credits: number): string =>
   credits >= 10_000 ? `$${(credits / 1_000_000).toFixed(2)}` : credits >= 100 ? `$${(credits / 1_000_000).toFixed(4)}` : credits > 0 ? "<$0.0001" : "$0";
+
+
+/** Scan complete publications in daemon-sized batches, carrying forward every detection. */
+export async function scanPublicationTexts(texts: readonly string[], initial: readonly Pseudonym[]): Promise<Pseudonym[]> {
+  let table = [...initial];
+  for (let offset = 0; offset < texts.length; offset += 100) ({ table } = await api.redact(texts.slice(offset, offset + 100), table));
+  return table;
+}

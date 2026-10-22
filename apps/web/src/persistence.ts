@@ -9,6 +9,7 @@ export interface WorkspaceData {
   readonly requiresSignatures?: boolean;
   readonly memberId: string;
   readonly cursor: number;
+  readonly storageRevision?: number;
   readonly syncId?: string;
   readonly syncUrl?: string;
   readonly keyEpoch?: number;
@@ -65,23 +66,26 @@ class BrowserDatabase {
     request.onsuccess = () => { if (request.result) store.put({ ...request.result, ...patch }, workspaceKey(caseId)); };
   }
   removeWorkspace(caseId: string) { return this.write((store) => { store.delete(workspaceKey(caseId)); }); }
+  private withKey(store: IDBObjectStore, caseId: string, expectedKey: string | undefined, work: () => void) {
+    if (!expectedKey) { work(); return; }
+    const request = store.get(workspaceKey(caseId));
+    request.onsuccess = () => { if (request.result?.caseKey !== expectedKey) store.transaction.abort(); else work(); };
+  }
   save(entry: StoredRecord, envelope: Envelope, expectedKey?: string) {
-    return this.write((store) => {
-      const workspace = store.get(workspaceKey(entry.caseId));
-      workspace.onsuccess = () => {
-      if (expectedKey && workspace.result?.caseKey !== expectedKey) { store.transaction.abort(); return; }
+    return this.write((store) => this.withKey(store, entry.caseId, expectedKey, () => {
       const current = store.get(recordKey(entry));
       current.onsuccess = () => {
         const saved = current.result as StoredRecord | undefined;
         if (saved && compareRevisions(envelopeRevision(envelope), saved.envelope ? envelopeRevision(saved.envelope) : LEGACY_REVISION) <= 0) { store.transaction.abort(); return; }
         store.put({ ...entry, envelope, echoPending: true }, recordKey(entry));
         store.put(envelope, outboxKey(entry.caseId, envelope));
+        const ws = store.get(workspaceKey(entry.caseId));
+        ws.onsuccess = () => { if (ws.result) store.put({ ...ws.result, storageRevision: Number(ws.result.storageRevision ?? 0) + 1 }, workspaceKey(entry.caseId)); };
       };
-      };
-    });
+    }));
   }
-  queue(caseId: string, envelopes: readonly Envelope[]) {
-    return this.write((store) => {
+  queue(caseId: string, envelopes: readonly Envelope[], expectedKey?: string) {
+    return this.write((store) => this.withKey(store, caseId, expectedKey, () => {
       for (const envelope of envelopes) {
         store.put(envelope, outboxKey(caseId, envelope));
         const key = `record:${caseId}:${envelope.collection}:${envelope.id}`;
@@ -91,7 +95,7 @@ class BrowserDatabase {
           if (entry?.envelope?.sealed.ct === envelope.sealed.ct) store.put({ ...entry, echoPending: true }, key);
         };
       }
-    });
+    }));
   }
   acknowledge(caseId: string, envelopes: readonly Envelope[]) {
     return this.write((store) => { for (const envelope of envelopes) store.delete(outboxKey(caseId, envelope)); });
@@ -119,14 +123,14 @@ class BrowserDatabase {
     if (!revision) throw new Error("Could not reserve a record revision");
     return revision;
   }
-  pull(caseId: string, entries: readonly StoredRecord[], cursor: number, invalid = 0) {
-    return this.write((store) => {
+  pull(caseId: string, entries: readonly StoredRecord[], cursor: number, invalid = 0, expectedKey?: string) {
+    return this.write((store) => this.withKey(store, caseId, expectedKey, () => {
       let replays = invalid;
       const next = (index: number) => {
         const entry = entries[index];
         if (!entry) {
           const ws = store.get(workspaceKey(caseId));
-          ws.onsuccess = () => { if (ws.result) store.put({ ...ws.result, cursor, replayWarnings: Number(ws.result.replayWarnings ?? 0) + replays }, workspaceKey(caseId)); };
+          ws.onsuccess = () => { if (ws.result) store.put({ ...ws.result, cursor, storageRevision: Number(ws.result.storageRevision ?? 0) + 1, replayWarnings: Number(ws.result.replayWarnings ?? 0) + replays }, workspaceKey(caseId)); };
           return;
         }
         const current = store.get(recordKey(entry));
@@ -142,13 +146,13 @@ class BrowserDatabase {
         };
       };
       next(0);
-    });
+    }));
   }
-  rotate(expectedKey: string, expectedOutbox: readonly Envelope[], workspace: WorkspaceData, records: readonly StoredRecord[], outbox: readonly Envelope[]) {
+  rotate(expected: WorkspaceData, expectedOutbox: readonly Envelope[], workspace: WorkspaceData, records: readonly StoredRecord[], outbox: readonly Envelope[]) {
     return this.write((store) => {
       const ws = store.get(workspaceKey(workspace.caseId));
       ws.onsuccess = () => {
-        if (!ws.result || ws.result.caseKey !== expectedKey) { store.transaction.abort(); return; }
+        if (!ws.result || ws.result.caseKey !== expected.caseKey || ws.result.syncId !== expected.syncId || ws.result.syncUrl !== expected.syncUrl || Number(ws.result.storageRevision ?? 0) !== (expected.storageRevision ?? 0)) { store.transaction.abort(); return; }
         const prefix = `outbox:${workspace.caseId}:`;
         const pending = store.openCursor(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
         const found: string[] = [];
@@ -156,7 +160,7 @@ class BrowserDatabase {
           const cursor = pending.result;
           if (cursor) { found.push((cursor.value as Envelope).sealed.ct); cursor.delete(); cursor.continue(); return; }
           if (found.length !== expectedOutbox.length || expectedOutbox.some((envelope) => !found.includes(envelope.sealed.ct))) { store.transaction.abort(); return; }
-          store.put(workspace, workspaceKey(workspace.caseId));
+          store.put({ ...workspace, storageRevision: (expected.storageRevision ?? 0) + 1 }, workspaceKey(workspace.caseId));
           for (const entry of records) store.put(entry, recordKey(entry));
           for (const envelope of outbox) store.put(envelope, outboxKey(workspace.caseId, envelope));
         };

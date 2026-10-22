@@ -262,3 +262,32 @@ describe("case-specific sync location", () => {
     expect(remote.push.mock.calls.every((call) => call[3] === host)).toBe(true);
   });
 });
+
+describe("rotation transaction boundaries", () => {
+  it("rejects stale-key writes, pulls and repair queues without changing committed data", async () => {
+    const { database } = await import("../src/persistence.ts");
+    const id = "a".repeat(32), oldKey = generateCaseKey(), nextKey = generateCaseKey();
+    await database.putWorkspace({ caseId: id, caseKey: oldKey, memberId: "b".repeat(32), cursor: 0 });
+    await database.patchWorkspace(id, { caseKey: nextKey });
+    const evidence = newEvidence(id, "b".repeat(32), { kind: "note", title: "stale", body: "stale source" });
+    const envelope = await sealRecord(oldKey, "evidence", evidence);
+    const entry = { caseId: id, collection: "evidence" as const, record: evidence, envelope };
+    const before = await database.entries();
+    await expect(database.save(entry, envelope, oldKey)).rejects.toThrow();
+    await expect(database.queue(id, [envelope], oldKey)).rejects.toThrow();
+    await expect(database.pull(id, [entry], 1, 0, oldKey)).rejects.toThrow();
+    expect(await database.entries()).toEqual(before);
+  });
+  it("aborts rotation if a newer pull committed after its snapshot was read", async () => {
+    const { database } = await import("../src/persistence.ts");
+    const id = "a".repeat(32), key = generateCaseKey();
+    const snapshot = { caseId: id, caseKey: key, memberId: "b".repeat(32), cursor: 0 };
+    await database.putWorkspace(snapshot);
+    const evidence = newEvidence(id, snapshot.memberId, { kind: "note", title: "newly pulled", body: "must survive" });
+    const envelope = await sealRecord(key, "evidence", evidence);
+    await database.pull(id, [{ caseId: id, collection: "evidence", record: evidence, envelope }], 1, 0, key);
+    const before = await database.entries();
+    await expect(database.rotate(snapshot, [], { ...snapshot, caseKey: generateCaseKey() }, [], [])).rejects.toThrow();
+    expect(await database.entries()).toEqual(before);
+  });
+});

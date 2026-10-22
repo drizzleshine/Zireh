@@ -2,7 +2,7 @@ import { buildPublication, findingViews, latestConclusion, memberName, newConclu
 import { findLeaks } from "@zireh/redact";
 import type { Outcome } from "@zireh/schema";
 import { useState } from "react";
-import { api } from "../api.ts";
+import { scanPublicationTexts } from "../api.ts";
 import { editPseudonym, myMemberId, save, savePseudonyms, useStore } from "../store.ts";
 
 const OUTCOMES: { id: Outcome; label: string; ask: string }[] = [
@@ -144,7 +144,7 @@ export function ConcludePanel({ caseId }: { caseId: string }) {
                     setReviewedHash(undefined);
                     try {
                       const texts = publicationTexts(snapshot!.publication);
-                      const { table } = await api.redact(texts, rec.pseudonyms);
+                      const table = await scanPublicationTexts(texts, rec.pseudonyms);
                       await savePseudonyms(caseId, table);
                       setScannedHash(snapshot!.hash);
                       setScan("done");

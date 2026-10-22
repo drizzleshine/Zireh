@@ -11,7 +11,11 @@ export function observePayments(relay: RelayClient, ledger: Ledger): void {
       ...(circuit ? { circuit } : {}) });
   };
   relay.observe({
-    attempt(call, circuit) { ensure(call, circuit); ledger.updateReceipt(call.requestId, { state: "attempted", circuit }); },
+    attempt(call, circuit) {
+      ensure(call, circuit);
+      const current = ledger.receipts().find((receipt) => receipt.id === call.requestId);
+      if (current?.state !== "settled" && current?.state !== "recovered") ledger.updateReceipt(call.requestId, { state: "attempted", circuit });
+    },
     result(call, result, recovered) {
       ensure(call);
       ledger.updateReceipt(call.requestId, { state: recovered ? "recovered" : "settled", charged: result.charged,

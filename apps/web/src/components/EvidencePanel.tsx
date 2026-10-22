@@ -1,4 +1,4 @@
-import { evidenceDownload } from "../evidence.ts";
+import { isEmbeddedImage, evidenceDownload } from "../evidence.ts";
 import { memberName, newEvidence, newObservation } from "@zireh/cases";
 import type { Evidence } from "@zireh/schema";
 import { useState } from "react";
@@ -123,7 +123,7 @@ export function EvidencePanel({ caseId }: { caseId: string }) {
           <article className="item" key={e.id}>
             <h3>{e.title}</h3>
             {e.kind === "image" ? (
-              <img className="evidence-image" src={e.body} alt={e.title} />
+              isEmbeddedImage(e.body) ? <img className="evidence-image" src={e.body} alt={e.title} /> : <p className="error">External or unsupported image content was blocked.</p>
             ) : (
               <div>
                 <p className="doc" style={{ whiteSpace: "pre-wrap" }}>{expanded.has(e.id) ? e.body : e.body.length > 900 ? `${e.body.slice(0, 900)}…` : e.body}</p>
