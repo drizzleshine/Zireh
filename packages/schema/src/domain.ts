@@ -11,6 +11,7 @@ export const Member = z.object({
   name: z.string().min(1).max(60),
   joinedAt: Iso,
   removedAt: Iso.optional(),
+  signingKey: z.string().regex(/^[A-Za-z0-9_-]{87}$/).optional(),
 });
 export type Member = z.infer<typeof Member>;
 
@@ -22,6 +23,7 @@ export const Case = z.object({
   privacy: PrivacyLevel,
   createdAt: Iso,
   createdBy: Id,
+  requiresSignatures: z.boolean().optional(),
   keyEpoch: z.number().int().nonnegative().optional(),
   nextSyncId: Id.optional(),
 });

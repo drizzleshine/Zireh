@@ -1,10 +1,12 @@
 import type { CollectionName } from "@zireh/schema";
 import { compareRevisions, envelopeRevision, LEGACY_REVISION, type Envelope, type Revision } from "@zireh/sync";
-import { randomId } from "@zireh/crypto";
+import { randomId, type MemberKeys } from "@zireh/crypto";
 
 export interface WorkspaceData {
   readonly caseId: string;
   readonly caseKey: string;
+  readonly memberKeys?: MemberKeys;
+  readonly requiresSignatures?: boolean;
   readonly memberId: string;
   readonly cursor: number;
   readonly syncId?: string;
@@ -15,7 +17,7 @@ export interface WorkspaceData {
   readonly syncedAt?: string;
   readonly syncError?: string | undefined;
 }
-export interface StoredRecord { readonly caseId: string; readonly collection: CollectionName; readonly record: { id: string }; readonly envelope?: Envelope; readonly echoPending?: boolean }
+export interface StoredRecord { readonly caseId: string; readonly collection: CollectionName; readonly record: { id: string }; readonly envelope?: Envelope; readonly echoPending?: boolean; readonly verified?: boolean }
 const workspaceKey = (id: string) => `workspace:${id}`;
 const recordKey = (entry: StoredRecord) => `record:${entry.caseId}:${entry.collection}:${entry.record.id}`;
 const outboxKey = (caseId: string, envelope: Envelope) => `outbox:${caseId}:${envelope.id}:${envelope.sealed.iv}`;

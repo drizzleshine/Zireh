@@ -9,17 +9,18 @@ export interface Invite {
   readonly caseId: string;
   readonly caseKey: string;
   readonly syncId?: string;
+  readonly requiresSignatures?: boolean;
   readonly keyEpoch?: number;
 }
 
-export const inviteFragment = (invite: Invite): string => invite.syncId ? `zp2.${toBase64Url(utf8ToBytes(JSON.stringify(invite)))}` : `zp1.${invite.caseId}.${invite.caseKey}`;
+export const inviteFragment = (invite: Invite): string => (invite.syncId || invite.requiresSignatures) ? `zp2.${toBase64Url(utf8ToBytes(JSON.stringify({ ...invite, syncId: invite.syncId ?? invite.caseId, keyEpoch: invite.keyEpoch ?? 0 })))}` : `zp1.${invite.caseId}.${invite.caseKey}`;
 
 export function parseInvite(text: string): Invite | undefined {
   const v2 = /(?:^|#)zp2\.([A-Za-z0-9_-]+)$/.exec(text);
   if (v2) {
     try {
       const invite = JSON.parse(bytesToUtf8(fromBase64Url(v2[1]!))) as Invite;
-      if (!/^[0-9a-f]{32}$/.test(invite.caseId) || !/^[0-9a-f]{32}$/.test(invite.syncId ?? "") || fromBase64Url(invite.caseKey).length !== 32 || !Number.isSafeInteger(invite.keyEpoch) || invite.keyEpoch! < 1) return undefined;
+      if (!/^[0-9a-f]{32}$/.test(invite.caseId) || !/^[0-9a-f]{32}$/.test(invite.syncId ?? "") || fromBase64Url(invite.caseKey).length !== 32 || !Number.isSafeInteger(invite.keyEpoch) || invite.keyEpoch! < 0) return undefined;
       return invite;
     } catch { return undefined; }
   }

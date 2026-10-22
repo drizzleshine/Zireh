@@ -9,7 +9,7 @@ export function TeamDialog({ caseId, onClose }: { caseId: string; onClose: () =>
   const [error, setError] = useState<string>();
   return <Dialog title="Case members" onClose={onClose}>
     <p>Removing a member creates a fresh case key and sync namespace. Previous copies remain accessible. Share the updated invite only with the remaining members.</p>
-    {rec.members.map((member) => <div className="row" key={member.id}><span>{member.name}{member.removedAt ? " (removed)" : member.id === rec.case.createdBy ? " (creator)" : ""}</span>
+    {rec.members.map((member) => <div className="row" key={member.id}><span>{member.name} · {member.id.slice(0, 12)} · {member.signingKey ? "signing key" : "legacy unsigned"}{member.removedAt ? " (removed)" : member.id === rec.case.createdBy ? " (creator)" : ""}</span>
       {owner && !member.removedAt && member.id !== rec.case.createdBy && <button className="btn small" disabled={busy} onClick={async () => {
         setBusy(true); setError(undefined);
         try { await removeMember(caseId, member.id); setDone(true); } catch (error) { setError((error as Error).message); } finally { setBusy(false); }

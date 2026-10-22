@@ -1,4 +1,4 @@
-import { openJson, randomId, sealJson, type Sealed } from "@zireh/crypto";
+import { openJson, randomId, sealJson, memberIdForKey, signValue, verifyValue, type MemberKeys, type Sealed } from "@zireh/crypto";
 import { Collections, type CollectionName, type FetchLike, type RecordOf } from "@zireh/schema";
 import { z } from "zod";
 
@@ -11,6 +11,49 @@ export const Revision = z.object({ lamport: z.number().int().positive(), deviceI
 export type Revision = z.infer<typeof Revision>;
 export const LEGACY_REVISION: Revision = { lamport: 0, deviceId: "0".repeat(32) };
 export const compareRevisions = (a: Revision, b: Revision): number => a.lamport - b.lamport || (a.deviceId < b.deviceId ? -1 : a.deviceId > b.deviceId ? 1 : 0);
+
+export interface SignatureProof { readonly memberId: string; readonly publicKey: string; readonly signature: string }
+export interface Authorship { readonly origin: SignatureProof; readonly editor: SignatureProof }
+export interface RecordSigner { readonly keys: MemberKeys; readonly prior?: Authorship; readonly ownerId?: string }
+
+export const recordAuthor = (collection: CollectionName, record: unknown): string | undefined => {
+  const r = record as Record<string, unknown>;
+  if (collection === "members") return String(r.id);
+  if (collection === "cases" || collection === "findings" || collection === "links" || collection === "conclusions") return String(r.createdBy);
+  if (collection === "evidence") return String(r.addedBy);
+  if (collection === "reviews" || collection === "comments") return String(r.memberId);
+  if (collection === "observations") { const author = r.author as { kind: string; memberId?: string; requestedBy?: string }; return author.kind === "ai" ? author.requestedBy : author.memberId; }
+  return undefined;
+};
+const originValue = (collection: CollectionName, record: unknown) => {
+  const projected = { ...(record as Record<string, unknown>) };
+  if (collection === "observations") delete projected.status;
+  if (collection === "members") delete projected.removedAt;
+  return { domain: "zireh/authorship/v1", collection, record: projected };
+};
+const editValue = (collection: CollectionName, record: unknown, rev: Revision, origin: SignatureProof) => ({ domain: "zireh/edit/v1", collection, record, rev, origin });
+const proofFor = async (keys: MemberKeys, value: unknown): Promise<SignatureProof> => ({ memberId: keys.memberId, publicKey: keys.publicKey, signature: await signValue(keys, value) });
+const validProof = (proof: SignatureProof, value: unknown) => proof && memberIdForKey(proof.publicKey) === proof.memberId && verifyValue(proof.publicKey, proof.signature, value);
+async function signRecord(collection: CollectionName, record: unknown, rev: Revision, signer: RecordSigner): Promise<Authorship> {
+  if (memberIdForKey(signer.keys.publicKey) !== signer.keys.memberId) throw new Error("Signing key does not match member identity");
+  const claimed = recordAuthor(collection, record);
+  let origin = signer.prior?.origin;
+  if (!origin || claimed && origin.memberId !== claimed || !await validProof(origin, originValue(collection, record))) {
+    if (claimed && claimed !== signer.keys.memberId) throw new Error("Cannot claim another member's authorship");
+    origin = await proofFor(signer.keys, originValue(collection, record));
+  }
+  if (claimed && signer.keys.memberId !== claimed && collection !== "observations" && !(collection === "members" && signer.ownerId === signer.keys.memberId)) throw new Error("Only the author can edit this record");
+  const editor = await proofFor(signer.keys, editValue(collection, record, rev, origin));
+  if (!await validProof(editor, editValue(collection, record, rev, origin))) throw new Error("Private signing key does not match its public identity");
+  return { origin, editor };
+}
+async function validAuthorship(collection: CollectionName, record: unknown, rev: Revision, auth: Authorship): Promise<boolean> {
+  const claimed = recordAuthor(collection, record);
+  if (!auth?.origin || !auth.editor || claimed && auth.origin.memberId !== claimed) return false;
+  if (!await validProof(auth.origin, originValue(collection, record)) || !await validProof(auth.editor, editValue(collection, record, rev, auth.origin))) return false;
+  if (collection === "members" && (record as { signingKey?: string }).signingKey !== auth.origin.publicKey) return false;
+  return !claimed || auth.editor.memberId === claimed || collection === "observations" || collection === "members";
+}
 
 export const Envelope = z.object({
   id: z.string().regex(/^[0-9a-f]{32}$/),
@@ -34,26 +77,30 @@ const context = (collection: CollectionName, id: string, rev?: Revision) => `${c
 export const envelopeRevision = (envelope: Envelope): Revision => envelope.sealed.rev ?? LEGACY_REVISION;
 
 /** New records default to revision 1. Updating callers must supply a higher persisted revision. */
-export async function sealRecord<C extends CollectionName>(caseKey: string, collection: C, record: RecordOf<C>, rev: Revision = { lamport: 1, deviceId: randomId() }): Promise<Envelope> {
+export async function sealRecord<C extends CollectionName>(caseKey: string, collection: C, record: RecordOf<C>, rev: Revision = { lamport: 1, deviceId: randomId() }, signer?: RecordSigner): Promise<Envelope> {
   Revision.parse(rev);
   const id = (record as { id: string }).id;
-  return { id, collection, sealed: { ...await sealJson(caseKey, { rev, record }, context(collection, id, rev)), rev } };
+  const auth = signer ? await signRecord(collection, record, rev, signer) : undefined;
+  return { id, collection, sealed: { ...await sealJson(caseKey, { rev, record, ...(auth ? { auth } : {}) }, context(collection, id, rev)), rev } };
 }
 
 /** Decrypt and validate both the record and its authenticated revision. */
-export async function openRecord(caseKey: string, envelope: Envelope): Promise<{ collection: CollectionName; record: unknown; rev: Revision } | undefined> {
+export async function openRecord(caseKey: string, envelope: Envelope): Promise<{ collection: CollectionName; record: unknown; rev: Revision; auth?: Authorship } | undefined> {
   try {
     const rev = envelope.sealed.rev;
     const value = await openJson<unknown>(caseKey, envelope.sealed as Sealed, context(envelope.collection, envelope.id, rev));
     let record = value;
+    let auth: Authorship | undefined;
     if (rev) {
-      const wrapped = z.object({ rev: Revision, record: z.unknown() }).safeParse(value);
+      const wrapped = z.object({ rev: Revision, record: z.unknown(), auth: z.unknown().optional() }).safeParse(value);
       if (!wrapped.success || compareRevisions(wrapped.data.rev, rev) !== 0) return undefined;
       record = wrapped.data.record;
+      auth = wrapped.data.auth as Authorship | undefined;
     }
     const parsed = Collections[envelope.collection].safeParse(record);
     if (!parsed.success || (parsed.data as { id: string }).id !== envelope.id) return undefined;
-    return { collection: envelope.collection, record: parsed.data, rev: rev ?? LEGACY_REVISION };
+    if (auth && !await validAuthorship(envelope.collection, parsed.data, rev ?? LEGACY_REVISION, auth)) return undefined;
+    return { collection: envelope.collection, record: parsed.data, rev: rev ?? LEGACY_REVISION, ...(auth ? { auth } : {}) };
   } catch { return undefined; }
 }
 

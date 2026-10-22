@@ -61,3 +61,31 @@ describe("case key rotation", () => {
     expect(await openRecord(oldKey, rotated)).toBeUndefined();
   });
 });
+
+describe("per-member signed authorship", () => {
+  it("rejects another member claiming or editing a review", async () => {
+    const { generateMemberKeys } = await import("@zireh/crypto");
+    const alice = await generateMemberKeys(), bob = await generateMemberKeys();
+    const key = generateCaseKey(), id = randomId();
+    const review = { id, caseId: randomId(), findingId: randomId(), memberId: alice.memberId, decision: "support" as const, reason: "checked source", createdAt: new Date().toISOString() };
+    const rev = { lamport: 1, deviceId: randomId() };
+    await expect(sealRecord(key, "reviews", review, rev, { keys: bob })).rejects.toThrow("another member");
+    const signed = await sealRecord(key, "reviews", review, rev, { keys: alice });
+    const opened = await openRecord(key, signed);
+    expect(opened?.auth?.origin.memberId).toBe(alice.memberId);
+    await expect(sealRecord(key, "reviews", { ...review, decision: "disagree" }, { ...rev, lamport: 2 }, { keys: bob, prior: opened!.auth! })).rejects.toThrow();
+    const tampered = { ...signed, sealed: { ...signed.sealed, rev: { ...rev, lamport: 2 } } };
+    expect(await openRecord(key, tampered)).toBeUndefined();
+  });
+  it("lets a teammate accept an AI observation while preserving its original author", async () => {
+    const { generateMemberKeys } = await import("@zireh/crypto");
+    const alice = await generateMemberKeys(), bob = await generateMemberKeys();
+    const key = generateCaseKey(), rev = { lamport: 1, deviceId: randomId() };
+    const observation = { id: randomId(), caseId: randomId(), evidenceIds: [], text: "original analysis", author: { kind: "ai" as const, runId: randomId(), requestedBy: alice.memberId }, status: "draft" as const, createdAt: new Date().toISOString() };
+    const original = await openRecord(key, await sealRecord(key, "observations", observation, rev, { keys: alice }));
+    const accepted = await openRecord(key, await sealRecord(key, "observations", { ...observation, status: "accepted" }, { ...rev, lamport: 2 }, { keys: bob, prior: original!.auth! }));
+    expect(accepted?.auth?.origin.memberId).toBe(alice.memberId);
+    expect(accepted?.auth?.editor.memberId).toBe(bob.memberId);
+    await expect(sealRecord(key, "observations", { ...observation, text: "forged analysis" }, { ...rev, lamport: 3 }, { keys: bob, prior: original!.auth! })).rejects.toThrow();
+  });
+});

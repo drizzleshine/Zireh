@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { clear, set } from "idb-keyval";
-import { generateCaseKey } from "@zireh/crypto";
+import { generateCaseKey, generateMemberKeys } from "@zireh/crypto";
 import { newCase, newEvidence, newMember, newObservation } from "@zireh/cases";
 import { sealRecord } from "@zireh/sync";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -189,9 +189,11 @@ describe("member removal and case-key rotation", () => {
     const store = await import("../src/store.ts");
     await store.load();
     const id = await store.createCase({ title: "rotation", question: "question", privacy: "private", memberName: "Owner" });
-    const removed = newMember("Bo"), retained = newMember("Cy");
-    await store.save(id, "members", removed);
-    await store.save(id, "members", retained);
+    const removedKeys = await generateMemberKeys(), retainedKeys = await generateMemberKeys();
+    const removed = { ...newMember("Bo"), id: removedKeys.memberId, signingKey: removedKeys.publicKey };
+    const retained = { ...newMember("Cy"), id: retainedKeys.memberId, signingKey: retainedKeys.publicKey };
+    await store.saveAs(id, "members", removed, removedKeys);
+    await store.saveAs(id, "members", retained, retainedKeys);
     const evidence = newEvidence(id, store.myMemberId(id), { kind: "note", title: "source", body: "private source" });
     await store.save(id, "evidence", evidence);
     await store.syncCase(id);
@@ -209,7 +211,7 @@ describe("member removal and case-key rotation", () => {
     const invite = { caseId: id, caseKey: current.caseKey, syncId: current.syncId!, keyEpoch: current.keyEpoch! };
     const { database } = await import("../src/persistence.ts");
     await database.clear();
-    await set("workspaces", [{ ...old, memberId: retained.id }]);
+    await set("workspaces", [{ ...old, memberId: retained.id, memberKeys: retainedKeys }]);
     await set(`case:${id}`, before);
     await store.load();
     await store.joinCase(invite, "Cy");
@@ -217,9 +219,28 @@ describe("member removal and case-key rotation", () => {
     expect(store.getSnapshot().workspaces[0]!.caseKey).toBe(invite.caseKey);
     expect(store.getSnapshot().cases[id]!.evidence).toEqual([evidence]);
     await database.clear();
-    await set("workspaces", [{ ...old, memberId: removed.id }]);
+    await set("workspaces", [{ ...old, memberId: removed.id, memberKeys: removedKeys }]);
     await store.load();
     await expect(store.joinCase(invite, "Bo")).rejects.toThrow("does not retain your membership");
     expect(store.getSnapshot().workspaces[0]!.caseKey).toBe(old.caseKey);
+  });
+});
+
+describe("signed identity enforcement in legacy cases", () => {
+  it("rejects an unsigned review claiming a member whose signing key is already known", async () => {
+    const keys = await generateMemberKeys();
+    const member = { ...newMember("Ada"), id: keys.memberId, signingKey: keys.publicKey };
+    const c = newCase({ title: "legacy", question: "question", privacy: "private", createdBy: member.id });
+    const key = generateCaseKey();
+    await set("workspaces", [{ caseId: c.id, caseKey: key, memberId: member.id, cursor: 0, outbox: [] }]);
+    await set(`case:${c.id}`, { case: c, members: [member], reviews: [] });
+    const forged = { id: "f".repeat(32), caseId: c.id, findingId: "e".repeat(32), memberId: member.id, decision: "support" as const, reason: "forged", createdAt: new Date().toISOString() };
+    const envelope = await sealRecord(key, "reviews", forged);
+    remote.pull.mockResolvedValue({ records: [{ ...envelope, seq: 1 }], cursor: 1, head: 1 });
+    const store = await import("../src/store.ts");
+    await store.load();
+    await store.syncCase(c.id);
+    expect(store.getSnapshot().cases[c.id]!.reviews).toHaveLength(0);
+    expect(store.getSnapshot().workspaces[0]!.replayWarnings).toBe(1);
   });
 });

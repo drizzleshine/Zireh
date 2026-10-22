@@ -1,8 +1,8 @@
 import type { StoredResearch } from "./research-history.ts";
 import { caseToken, inviteFragment, newCase, newMember, type CaseRecords, type Invite } from "@zireh/cases";
-import { canonicalJson, decryptBackup, encryptBackup, fromBase64Url, generateCaseKey, randomId } from "@zireh/crypto";
+import { canonicalJson, decryptBackup, encryptBackup, fromBase64Url, generateCaseKey, generateMemberKeys, memberIdForKey, signValue, verifyValue, type MemberKeys, randomId } from "@zireh/crypto";
 import { Collections, type Case, type CollectionName, type Member, type PrivacyLevel, type Pseudonym, type RecordOf } from "@zireh/schema";
-import { compareRevisions, envelopeRevision, LEGACY_REVISION, rekeyRecord, assertSyncable, takeSyncBatch, openRecord, sealRecord, type Envelope } from "@zireh/sync";
+import { compareRevisions, envelopeRevision, LEGACY_REVISION, recordAuthor, rekeyRecord, assertSyncable, takeSyncBatch, openRecord, sealRecord, type RecordSigner, type Envelope } from "@zireh/sync";
 import { get } from "idb-keyval";
 import { database, type StoredRecord, type WorkspaceData } from "./persistence.ts";
 import { useRef, useSyncExternalStore } from "react";
@@ -16,7 +16,7 @@ import { api } from "./api.ts";
 
 interface Workspace extends WorkspaceData { readonly outbox: Envelope[] }
 
-type Records = { -readonly [K in keyof CaseRecords]: CaseRecords[K] extends readonly (infer T)[] ? T[] : CaseRecords[K] };
+type Records = { -readonly [K in keyof CaseRecords]: CaseRecords[K] extends readonly (infer T)[] ? T[] : CaseRecords[K] } & { verifiedReviews?: string[] };
 
 interface State {
   loaded: boolean;
@@ -62,7 +62,10 @@ async function refresh() {
   const records = entries.filter(([key]) => key.startsWith("record:")).map(([, value]) => value as StoredRecord);
   const cases: Record<string, Records> = {};
   for (const entry of records) if (entry.collection === "cases") cases[entry.caseId] = emptyRecords(entry.record as Case);
-  for (const entry of records) if (cases[entry.caseId]) cases[entry.caseId] = apply(cases[entry.caseId]!, entry.collection, entry.record, true);
+  for (const entry of records) if (cases[entry.caseId]) {
+    cases[entry.caseId] = apply(cases[entry.caseId]!, entry.collection, entry.record, true);
+    if (entry.collection === "reviews" && entry.verified) cases[entry.caseId] = { ...cases[entry.caseId]!, verifiedReviews: [...(cases[entry.caseId]!.verifiedReviews ?? []), entry.record.id] };
+  }
   state = { loaded: true, workspaces, cases };
   emit();
 }
@@ -146,14 +149,39 @@ function apply(rec: Records, collection: CollectionName, record: unknown, local 
   return { ...rec, [field]: list.some((value) => value.id === item.id) ? list.map((value) => value.id === item.id ? item : value) : [...list, item] };
 }
 
+function authorizedRecord(entry: NonNullable<Awaited<ReturnType<typeof openRecord>>>, ownerId: string | undefined, required: boolean, members: readonly Member[]): boolean {
+  if (required && !entry.auth) return false;
+  const record = entry.record as { id: string; signingKey?: string; createdBy?: string };
+  const claimed = recordAuthor(entry.collection, entry.record);
+  if ((members.some((member) => member.id === claimed && member.signingKey) || entry.collection === "members" && record.signingKey) && !entry.auth) return false;
+  if (required && entry.collection === "cases" && ownerId && record.createdBy !== ownerId) return false;
+  if (entry.collection === "members" && entry.auth && entry.auth.editor.memberId !== record.id && entry.auth.editor.memberId !== ownerId) return false;
+  return true;
+}
+
+async function signerFor(caseId: string, collection: CollectionName, id: string, keys = workspace(caseId).memberKeys): Promise<RecordSigner | undefined> {
+  if (!keys) return undefined;
+  const entry = (await database.entries()).find(([key]) => key === `record:${caseId}:${collection}:${id}`)?.[1] as StoredRecord | undefined;
+  const prior = entry?.envelope ? (await openRecord(workspace(caseId).caseKey, entry.envelope))?.auth : undefined;
+  return { keys, ownerId: state.cases[caseId]?.case.createdBy ?? keys.memberId, ...(prior ? { prior } : {}) };
+}
+
 /** Save a record locally and queue it, sealed, for the team. */
 export async function save<C extends CollectionName>(caseId: string, collection: C, record: RecordOf<C>) {
+  return saveAs(caseId, collection, record);
+}
+
+/** Import an already-held member identity, e.g. the explicitly fictional demo teammate. */
+export async function saveAs<C extends CollectionName>(caseId: string, collection: C, record: RecordOf<C>, keys?: MemberKeys) {
   if (!state.cases[caseId]) throw new Error("unknown case");
   const w = workspace(caseId);
   if (w.needsInvite) throw new Error("This case key was rotated. Open an updated invite before editing.");
-  const envelope = await sealRecord(w.caseKey, collection, record, await database.reserveRevision(caseId, collection, (record as { id: string }).id));
+  const signer = await signerFor(caseId, collection, (record as { id: string }).id, keys ?? w.memberKeys);
+  const claimed = recordAuthor(collection, record);
+  if ((w.requiresSignatures || state.cases[caseId]?.case.requiresSignatures || state.cases[caseId]?.members.some((member) => member.id === claimed && member.signingKey)) && !signer) throw new Error("Restore your signing identity from an encrypted backup before editing this case");
+  const envelope = await sealRecord(w.caseKey, collection, record, await database.reserveRevision(caseId, collection, (record as { id: string }).id), signer);
   assertSyncable(envelope);
-  await change(() => database.save({ caseId, collection, record: record as { id: string } }, envelope, w.caseKey));
+  await change(() => database.save({ caseId, collection, record: record as { id: string }, verified: !!signer }, envelope, w.caseKey));
   void syncCase(caseId);
 }
 
@@ -172,11 +200,12 @@ export async function editPseudonym(caseId: string, original: string, hint: stri
 }
 
 export async function createCase(input: { title: string; question: string; privacy: PrivacyLevel; memberName: string }): Promise<string> {
-  const member = newMember(input.memberName);
-  const c = newCase({ title: input.title, question: input.question, privacy: input.privacy, createdBy: member.id });
-  const w = { caseId: c.id, caseKey: generateCaseKey(), memberId: member.id, cursor: 0 };
-  const envelope = await sealRecord(w.caseKey, "cases", c, await database.reserveRevision(c.id, "cases", c.id));
-  await change(async () => { await database.putWorkspace(w); await database.save({ caseId: c.id, collection: "cases", record: c }, envelope); });
+  const keys = await generateMemberKeys();
+  const member = { ...newMember(input.memberName), id: keys.memberId, signingKey: keys.publicKey };
+  const c = { ...newCase({ title: input.title, question: input.question, privacy: input.privacy, createdBy: member.id }), requiresSignatures: true };
+  const w = { caseId: c.id, caseKey: generateCaseKey(), memberId: member.id, memberKeys: keys, requiresSignatures: true, cursor: 0 };
+  const envelope = await sealRecord(w.caseKey, "cases", c, await database.reserveRevision(c.id, "cases", c.id), { keys });
+  await change(async () => { await database.putWorkspace(w); await database.save({ caseId: c.id, collection: "cases", record: c, verified: true }, envelope); });
   await save(c.id, "members", member);
   return c.id;
 }
@@ -189,8 +218,9 @@ export async function joinCase(invite: Invite, memberName: string): Promise<stri
     await acceptRotatedInvite(invite);
     return invite.caseId;
   }
-  const member: Member = newMember(memberName);
-  await change(() => database.putWorkspace({ caseId: invite.caseId, caseKey: invite.caseKey, memberId: member.id, cursor: 0, ...(invite.syncId ? { syncId: invite.syncId, keyEpoch: invite.keyEpoch } : {}) }));
+  const keys = await generateMemberKeys();
+  const member: Member = { ...newMember(memberName), id: keys.memberId, signingKey: keys.publicKey };
+  await change(() => database.putWorkspace({ caseId: invite.caseId, caseKey: invite.caseKey, memberId: member.id, memberKeys: keys, requiresSignatures: invite.requiresSignatures ?? false, cursor: 0, ...(invite.syncId ? { syncId: invite.syncId, keyEpoch: invite.keyEpoch } : {}) }));
   for (let attempt = 0; attempt < 3 && !state.cases[invite.caseId]; attempt++) await syncCase(invite.caseId);
   if (!state.cases[invite.caseId]) {
     await change(() => database.removeWorkspace(invite.caseId));
@@ -207,7 +237,7 @@ export async function moveOnBoard(caseId: string, itemId: string, x: number, y: 
 
 export const inviteLink = (caseId: string): string => {
   const w = workspace(caseId);
-  return `${location.origin}/#${inviteFragment({ caseId, caseKey: w.caseKey, ...(w.syncId ? { syncId: w.syncId, keyEpoch: w.keyEpoch ?? 1 } : {}) })}`;
+  return `${location.origin}/#${inviteFragment({ caseId, caseKey: w.caseKey, ...(w.requiresSignatures ? { requiresSignatures: true } : {}), ...(w.syncId ? { syncId: w.syncId, keyEpoch: w.keyEpoch ?? 1 } : {}) })}`;
 };
 
 export const myMemberId = (caseId: string): string => workspace(caseId).memberId;
@@ -263,15 +293,20 @@ async function syncOnce(caseId: string) {
       if (pulled.head < w.cursor) queueMicrotask(() => void repairHost(caseId)); // host fell behind us
       // Open the whole batch first: the case record may come after records that belong to it
       // (e.g. after a host repair), and nothing may be skipped once the cursor moves past it.
-      const opened = (await Promise.all(pulled.records.map(async (envelope) => {
+      let opened = (await Promise.all(pulled.records.map(async (envelope) => {
         const opened = await openRecord(w.caseKey, envelope);
         if (!opened) return undefined;
         const record = opened.record as { id: string; caseId?: string };
         if (opened.collection === "cases" ? record.id !== caseId : record.caseId !== undefined && record.caseId !== caseId) return undefined;
         return { ...opened, envelope };
       }))).filter((entry) => entry !== undefined);
+      const ownerId = state.cases[caseId]?.case.createdBy ?? (opened.find((entry) => entry.collection === "cases")?.record as Case | undefined)?.createdBy;
+      const requiresSignatures = w.requiresSignatures || state.cases[caseId]?.case.requiresSignatures || opened.some((entry) => entry.collection === "cases" && (entry.record as Case).requiresSignatures);
+      const members = [...(state.cases[caseId]?.members ?? []), ...opened.filter((entry) => entry.collection === "members" && entry.auth).map((entry) => entry.record as Member)];
+      opened = opened.filter((entry) => authorizedRecord(entry, ownerId, !!requiresSignatures, members));
+      if (requiresSignatures && !w.requiresSignatures) await change(() => database.patchWorkspace(caseId, { requiresSignatures: true }));
       if (!state.cases[caseId] && !opened.some((entry) => entry.collection === "cases")) return;
-      await change(() => database.pull(caseId, opened.map((entry) => ({ caseId, collection: entry.collection, record: entry.record as { id: string }, envelope: entry.envelope })), pulled.cursor, pulled.records.length - opened.length));
+      await change(() => database.pull(caseId, opened.map((entry) => ({ caseId, collection: entry.collection, record: entry.record as { id: string }, envelope: entry.envelope, verified: !!entry.auth })), pulled.cursor, pulled.records.length - opened.length));
       if ((state.cases[caseId]?.case.keyEpoch ?? 0) > (w.keyEpoch ?? 0) && state.cases[caseId]?.case.nextSyncId) {
         await change(() => database.patchWorkspace(caseId, { needsInvite: true }));
         break;
@@ -380,6 +415,7 @@ export async function restoreCase(text: string, passphrase: string): Promise<str
   const value = await decryptBackup(JSON.parse(text) as unknown, passphrase) as { v?: unknown; workspace?: Workspace; records?: StoredRecord[]; history?: StoredResearch[] };
   const w = value?.workspace;
   if (value?.v !== 1 || !w || !/^[0-9a-f]{32}$/.test(w.caseId) || !/^[0-9a-f]{32}$/.test(w.memberId) || typeof w.caseKey !== "string" || fromBase64Url(w.caseKey).length !== 32 || !Number.isSafeInteger(w.cursor) || w.cursor < 0 || !Array.isArray(w.outbox) || !Array.isArray(value.records)) throw new Error("Invalid case backup");
+  if (w.memberKeys && (w.memberKeys.memberId !== w.memberId || memberIdForKey(w.memberKeys.publicKey) !== w.memberId || !await verifyValue(w.memberKeys.publicKey, await signValue(w.memberKeys, { caseId: w.caseId }), { caseId: w.caseId }))) throw new Error("Backup signing identity is invalid");
   const existing = state.workspaces.find((saved) => saved.caseId === w.caseId);
   if (existing && existing.caseKey !== w.caseKey) throw new Error("This case already exists with a different key; import into a separate browser profile");
   const seen = new Set<string>();
@@ -391,11 +427,13 @@ export async function restoreCase(text: string, passphrase: string): Promise<str
     const key = `${entry.collection}:${record.id}`;
     if (seen.has(key)) throw new Error("Backup contains duplicate record ids");
     seen.add(key);
+    let verified = false;
     if (entry.envelope) {
       const opened = await openRecord(w.caseKey, entry.envelope);
-      if (!opened || canonicalJson(opened.record) !== canonicalJson(record)) throw new Error("Backup revision does not match its record");
-    }
-    records.push({ ...entry, record });
+      if (!opened || w.requiresSignatures && !opened.auth || canonicalJson(opened.record) !== canonicalJson(record)) throw new Error("Backup revision does not match its signed record");
+      verified = !!opened.auth;
+    } else if (w.requiresSignatures) throw new Error("Signed backup is missing a record envelope");
+    records.push({ ...entry, record, verified });
   }
   if (!records.some((entry) => entry.collection === "cases") || !records.some((entry) => entry.collection === "members" && entry.record.id === w.memberId)) throw new Error("Backup is missing the case or your membership");
   for (const envelope of w.outbox) if (!await openRecord(w.caseKey, envelope)) throw new Error("Invalid pending envelope in backup");
@@ -420,17 +458,17 @@ export async function removeMember(caseId: string, memberId: string): Promise<vo
   const key = generateCaseKey(), syncId = randomId(), epoch = (w.keyEpoch ?? 0) + 1;
   const entries = (await database.entries()).filter(([key]) => key.startsWith(`record:${caseId}:`)).map(([, value]) => value as StoredRecord);
   const noticeRecord = { ...rec.case, keyEpoch: epoch, nextSyncId: syncId };
-  const notice = await sealRecord(w.caseKey, "cases", noticeRecord, await database.reserveRevision(caseId, "cases", caseId));
+  const notice = await sealRecord(w.caseKey, "cases", noticeRecord, await database.reserveRevision(caseId, "cases", caseId), await signerFor(caseId, "cases", caseId));
   const records: StoredRecord[] = [];
   for (const entry of entries) {
     let record = entry.record;
     let envelope: Envelope;
     if (entry.collection === "members" && record.id === memberId) record = { ...record, removedAt: new Date().toISOString() } as Member;
     if (entry.collection === "cases") { const { nextSyncId: _, ...head } = record as Case; record = { ...head, keyEpoch: epoch } as Case; }
-    if (record !== entry.record || !entry.envelope) envelope = await sealRecord(key, entry.collection, record as never, await database.reserveRevision(caseId, entry.collection, record.id));
+    if (record !== entry.record || !entry.envelope) envelope = await sealRecord(key, entry.collection, record as never, await database.reserveRevision(caseId, entry.collection, record.id), await signerFor(caseId, entry.collection, record.id));
     else envelope = await rekeyRecord(w.caseKey, key, entry.envelope);
     assertSyncable(envelope);
-    records.push({ caseId, collection: entry.collection, record, envelope, echoPending: true });
+    records.push({ caseId, collection: entry.collection, record, envelope, echoPending: true, verified: !!(await openRecord(key, envelope))?.auth });
   }
   const { outbox: _, ...metadata } = w;
   const next: WorkspaceData = { ...metadata, caseKey: key, syncId, keyEpoch: epoch, cursor: 0, needsInvite: false, notices: [...(w.notices ?? []), { syncId: w.syncId ?? caseId, token: caseToken(w.caseKey), envelope: notice }] };
@@ -447,12 +485,12 @@ async function acceptRotatedInvite(invite: Invite): Promise<void> {
     const page = await api.pull(invite.syncId, caseToken(invite.caseKey), cursor);
     for (const envelope of page.records) {
       const opened = await openRecord(invite.caseKey, envelope);
-      if (!opened) throw new Error("Invalid record in rotated case");
+      if (!opened || (w.requiresSignatures || invite.requiresSignatures) && !opened.auth) throw new Error("Invalid record in rotated case");
       const record = opened.record as { id: string; caseId?: string };
       if (opened.collection === "cases" ? record.id !== invite.caseId : record.caseId !== undefined && record.caseId !== invite.caseId) throw new Error("Rotated invite contains another case");
       const key = `${opened.collection}:${record.id}`;
       const prior = incoming.get(key)?.envelope;
-      if (!prior || compareRevisions(envelopeRevision(envelope), envelopeRevision(prior)) > 0) incoming.set(key, { caseId: invite.caseId, collection: opened.collection, record, envelope, echoPending: false });
+      if (!prior || compareRevisions(envelopeRevision(envelope), envelopeRevision(prior)) > 0) incoming.set(key, { caseId: invite.caseId, collection: opened.collection, record, envelope, echoPending: false, verified: !!opened.auth });
     }
     cursor = page.cursor;
     if (!page.records.length || cursor >= page.head) break;
@@ -460,6 +498,10 @@ async function acceptRotatedInvite(invite: Invite): Promise<void> {
   const head = incoming.get(`cases:${invite.caseId}`)?.record as Case | undefined;
   const me = incoming.get(`members:${w.memberId}`)?.record as Member | undefined;
   if (!head || head.createdBy !== state.cases[invite.caseId]!.case.createdBy || head.keyEpoch !== invite.keyEpoch || !me || me.removedAt) throw new Error("This invite does not retain your membership in the current case");
+  for (const entry of incoming.values()) {
+    const opened = await openRecord(invite.caseKey, entry.envelope!);
+    if (!opened || !authorizedRecord(opened, head.createdBy, !!(w.requiresSignatures || invite.requiresSignatures), [...incoming.values()].filter((entry) => entry.collection === "members").map((entry) => entry.record as Member))) throw new Error("Invalid authorship in rotated case");
+  }
   const outbox: Envelope[] = [];
   const local = (await database.entries()).filter(([key]) => key.startsWith(`record:${invite.caseId}:`)).map(([, value]) => value as StoredRecord);
   for (const entry of local) {

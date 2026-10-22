@@ -25,6 +25,7 @@ export function FindingsPanel({ caseId }: { caseId: string }) {
 
   return (
     <section className="panel" aria-label="Findings">
+      {!rec.case.requiresSignatures && <p className="notice">This is a legacy unsigned case. Earlier authorship cannot be verified cryptographically. New cases use per-member signatures.</p>}
       <div>
         <h2 className="section-title">Observations</h2>
         {usable.length === 0 ? (
@@ -132,6 +133,7 @@ export function FindingsPanel({ caseId }: { caseId: string }) {
                       ))}
                     </div>
                   </div>
+                  {f.reviews.length > 0 && <details><summary>Review authorship</summary>{f.reviews.map((review) => <p className="level-note" key={review.id}>{memberName(rec, review.memberId)} · {review.memberId.slice(0, 12)} · {rec.verifiedReviews?.includes(review.id) ? "signature verified" : "legacy unsigned"} · {review.decision}</p>)}</details>}
                 </article>
               );
             })}
