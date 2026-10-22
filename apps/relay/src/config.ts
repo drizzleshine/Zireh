@@ -10,6 +10,7 @@ import type { ModelPrice } from "@zireh/schema";
  */
 export interface RelayConfig {
   readonly port: number;
+  readonly demo?: { readonly quoteLimit: number; readonly dailyLimit: number };
   readonly dataDir: string;
   readonly upstream:
     | { readonly mode: "token-factory"; readonly baseUrl: string; readonly apiKey: string }
@@ -40,8 +41,16 @@ function parseModels(spec: string | undefined): readonly ModelPrice[] {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): RelayConfig {
   const apiKey = env.NEBIUS_API_KEY?.trim();
+  const demo = env.RELAY_DEMO === "1";
+  if ((apiKey || env.TAVILY_API_KEY?.trim()) && !demo) throw new Error("Simulated payments cannot fund paid providers. Set RELAY_DEMO=1 to explicitly enable a capped demo.");
+  const limit = (name: string, fallback: number) => {
+    const value = Number(env[name] ?? fallback);
+    if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${name} must be a positive safe integer`);
+    return value;
+  };
   return {
     port: Number(env.RELAY_PORT ?? 8787),
+    ...(demo ? { demo: { quoteLimit: limit("RELAY_DEMO_QUOTE_LIMIT", 5_000_000), dailyLimit: limit("RELAY_DEMO_DAILY_LIMIT", 20_000_000) } } : {}),
     dataDir: env.RELAY_DATA_DIR ?? ".zireh/relay",
     upstream: apiKey
       ? { mode: "token-factory", baseUrl: env.NEBIUS_BASE_URL ?? "https://api.tokenfactory.nebius.com/v1", apiKey }

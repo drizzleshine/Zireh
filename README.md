@@ -206,3 +206,11 @@ Track: **Personal AI**. All code in this repository was written during the submi
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+Paid-provider demo safety: the current payment watcher is simulated. Setting `NEBIUS_API_KEY`
+or `TAVILY_API_KEY` requires `RELAY_DEMO=1`. Demo top-ups default to at most 5,000,000 credits
+per quote and 20,000,000 credits per UTC day. A separate daily budget reserves each provider
+call's maximum charge before spending coins. Both daily counters persist across restarts.
+`RELAY_DEMO_QUOTE_LIMIT` and `RELAY_DEMO_DAILY_LIMIT` configure those ceilings. The relay binds
+to `127.0.0.1`; optional Tor onion exposure retains that local binding. This is a capped demo,
+not a real Zcash payment service.

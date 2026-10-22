@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadOrCreateMintKeys, openRelayDb, sqliteQuoteStore, sqliteResponseStore, sqliteSpentStore } from "../src/storage.ts";
+import { loadOrCreateMintKeys, openRelayDb, sqliteDemoAdmission, sqliteQuoteStore, sqliteResponseStore, sqliteSpentStore } from "../src/storage.ts";
 
 const dirs: string[] = [];
 const tempDir = () => {
@@ -89,5 +89,23 @@ describe("F06 durable minted quote", () => {
     const reopened = openRelayDb(dir);
     expect(simulatedWatcher(fixedRate(50), Date.now, sqliteQuoteStore(reopened)).state(quote.quoteId)).toBe("minted");
     expect(sqliteResponseStore(reopened, -1).get(`topup:${quote.quoteId}`)).toEqual(reply);
+  });
+});
+
+describe("capped simulated provider access", () => {
+  it("enforces per-quote and daily budgets across restarts and resets at UTC midnight", () => {
+    const dir = tempDir();
+    let now = Date.UTC(2026, 9, 22);
+    const limits = { quoteLimit: 100, dailyLimit: 200 };
+    const first = sqliteDemoAdmission(openRelayDb(dir), limits, () => now);
+    expect(first.quote(101)).toBe(false);
+    expect(first.quote(100)).toBe(true);
+    expect(first.call(150)).toBe(true);
+    const restarted = sqliteDemoAdmission(openRelayDb(dir), limits, () => now);
+    expect(restarted.quote(100)).toBe(true);
+    expect(restarted.quote(1)).toBe(false);
+    expect(restarted.call(51)).toBe(false);
+    now += 86_400_000;
+    expect(restarted.call(200)).toBe(true);
   });
 });

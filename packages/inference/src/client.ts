@@ -82,7 +82,7 @@ export class RelayCallError extends Error {
 }
 
 /** Errors where the relay rejected the call before burning any coin. */
-const NOT_BURNED = new Set<string>(["bad_request", "insufficient_funds", "unknown_model", "not_found", "quote_unpaid"]);
+const NOT_BURNED = new Set<string>(["bad_request", "insufficient_funds", "unknown_model", "not_found", "quote_unpaid", "limit_exceeded"]);
 
 export interface RelayClientOptions {
   readonly baseUrl: string;

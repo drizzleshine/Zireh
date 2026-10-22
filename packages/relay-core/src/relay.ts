@@ -64,7 +64,13 @@ export function memoryResponseStore(ttlMs = 15 * 60 * 1000, now: () => number = 
   };
 }
 
+export interface RelayAdmission {
+  readonly quoteLimit: number;
+  quote(credits: number): boolean;
+  call(maximumCredits: number): boolean;
+}
 export interface RelayDeps {
+  readonly admission?: RelayAdmission;
   readonly mint: Mint;
   readonly watcher: PaymentWatcher;
   readonly models: ReadonlyMap<string, { readonly upstream: ChatModel; readonly price: ModelPrice }>;
@@ -138,6 +144,7 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
     if (blanks.length < blankOutputCount(paidAmount)) return fail(400, "bad_request", "not enough blank outputs for change");
 
     const task = (async (): Promise<StoredResponse> => {
+      if (deps.admission && !deps.admission.call(hold)) return { status: 429, body: { error: "limit_exceeded", message: "Daily demo provider budget exhausted; no coins were spent" } };
       try {
         deps.mint.redeem(proofs, () => deps.responses.put(requestId, { status: REDEEMED, body: { redeemed: paidAmount } }));
       } catch (err) {
@@ -194,7 +201,9 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
 
     "POST /v1/topup/quote": async (req) => {
       const body = await parse(req, TopupQuoteRequest);
-      return body instanceof Response ? body : json(200, deps.watcher.quote(body.credits));
+      if (body instanceof Response) return body;
+      if (deps.admission && (body.credits > deps.admission.quoteLimit || !deps.admission.quote(body.credits))) return fail(429, "limit_exceeded", `Demo top-ups are limited to ${deps.admission.quoteLimit} credits per quote and a shared daily budget`);
+      return json(200, deps.watcher.quote(body.credits));
     },
 
     "GET /v1/topup/state": async (_req, url) => {

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { QuoteRecord, QuoteStore } from "@zireh/zcash";
 import { DatabaseSync } from "node:sqlite";
 import { generateMintKeys, type MintKeys, type SpentStore } from "@zireh/wallet";
-import { settlementOnly, type ResponseStore, type StoredResponse } from "@zireh/relay-core";
+import { settlementOnly, type RelayAdmission, type ResponseStore, type StoredResponse } from "@zireh/relay-core";
 
 /** Mint keys live in one owner-only file. Losing it invalidates all outstanding coins. */
 export function loadOrCreateMintKeys(dataDir: string): MintKeys {
@@ -24,6 +24,7 @@ export function openRelayDb(dataDir: string): DatabaseSync {
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA synchronous = FULL;
+    CREATE TABLE IF NOT EXISTS demo_budget (kind TEXT, day TEXT, credits INTEGER NOT NULL, PRIMARY KEY(kind, day));
     CREATE TABLE IF NOT EXISTS quotes (id TEXT PRIMARY KEY, body TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS spent (secret TEXT PRIMARY KEY) WITHOUT ROWID;
     CREATE TABLE IF NOT EXISTS responses (request_id TEXT PRIMARY KEY, at INTEGER NOT NULL, status INTEGER NOT NULL, body TEXT NOT NULL);
@@ -99,4 +100,22 @@ export function sqliteQuoteStore(db: DatabaseSync): QuoteStore {
       catch (error) { db.exec("ROLLBACK"); throw error; }
     },
   };
+}
+
+/** Reserve worst-case provider spend and quote issuance against durable UTC-day ceilings. */
+export function sqliteDemoAdmission(db: DatabaseSync, limits: { quoteLimit: number; dailyLimit: number }, now: () => number = Date.now): RelayAdmission {
+  const read = db.prepare("SELECT credits FROM demo_budget WHERE kind = ? AND day = ?");
+  const put = db.prepare("INSERT OR REPLACE INTO demo_budget (kind, day, credits) VALUES (?, ?, ?)");
+  const reserve = (kind: string, credits: number) => {
+    const day = new Date(now()).toISOString().slice(0, 10);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const used = (read.get(kind, day) as { credits: number } | undefined)?.credits ?? 0;
+      if (credits > limits.dailyLimit - used) { db.exec("ROLLBACK"); return false; }
+      put.run(kind, day, used + credits);
+      db.exec("COMMIT");
+      return true;
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
+  };
+  return { quoteLimit: limits.quoteLimit, quote: (credits) => credits <= limits.quoteLimit && reserve("quote", credits), call: (credits) => reserve("provider", credits) };
 }

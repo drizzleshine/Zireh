@@ -88,6 +88,7 @@ export const RelayError = z.object({
     "upstream_error",
     "not_found",
     "quote_unpaid",
+    "limit_exceeded",
   ]),
   message: z.string(),
   settlement: Settlement.optional(), // present when coins were burned: full refund as change
