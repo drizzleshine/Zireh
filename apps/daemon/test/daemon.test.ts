@@ -273,3 +273,18 @@ describe("F04 daemon run controls", () => {
     expect((await s.call(`/api/research/${started.runId}/cancel`, {})).status).toBe(404);
   });
 });
+
+describe("F12 whole-coin research funding", () => {
+  it("settles every private piece using change from a single large coin", async () => {
+    const s = setup();
+    await topUp(s.call, 1_048_576);
+    const events: ResearchEvent[] = [];
+    await runResearch({ ...s, local }, { task: "Is Ada Obi safe in Lagos?", context: [], level: "private", table: [], salt: randomSalt(), model: MODEL }, (event) => events.push(event));
+    expect(s.seen).toHaveLength(4);
+    expect(events.filter((event) => event.type === "piece" && event.status === "answered")).toHaveLength(4);
+    const done = events.at(-1);
+    expect(done?.type).toBe("done");
+    if (done?.type === "done") expect(s.wallet.balance).toBe(1_048_576 - done.spent);
+    expect(s.relay.pending.list()).toHaveLength(0);
+  });
+});

@@ -1,5 +1,5 @@
 import { randomId } from "@zireh/crypto";
-import { RelayCallError, type RelayClient } from "@zireh/inference";
+import { RelayCallError, type PendingCall, type RelayClient } from "@zireh/inference";
 import type { Ledger } from "@zireh/ledger";
 import type { ChatModel } from "@zireh/llm";
 import type { PrivacyLevel, Pseudonym, ResearchEvent, TraceStep } from "@zireh/schema";
@@ -23,8 +23,8 @@ export interface ResearchRequest {
 }
 
 const RETRIES = 4;
-/** Concurrent sends. Many brand-new circuits to one onion service at once tend to fail. */
-const CONCURRENCY = 4;
+/** Settle each piece before reserving the next, so even one large coin can fund the plan. */
+const CONCURRENCY = 1;
 
 /** Run tasks with at most `limit` in flight. */
 async function pool<T>(items: readonly T[], limit: number, run: (item: T) => Promise<void>): Promise<void> {
@@ -92,7 +92,13 @@ export async function runResearch(
       CONCURRENCY,
       async (piece) => {
         if (req.signal?.aborted) return;
-        const call = await deps.relay.prepareChat(req.model, piece.messages, piece.maxTokens);
+        let call: PendingCall;
+        try {
+          call = await deps.relay.prepareChat(req.model, piece.messages, piece.maxTokens);
+        } catch (error) {
+          emit({ type: "piece", id: piece.id, status: "failed", error: (error as Error).message });
+          return;
+        }
         if (req.signal?.aborted) { deps.relay.discardPrepared(call); return; }
         deps.ledger.startRun(call.requestId, piece.id, maxCost(price, piece.messages, piece.maxTokens));
         for (let attempt = 0; attempt <= RETRIES; attempt++) {
