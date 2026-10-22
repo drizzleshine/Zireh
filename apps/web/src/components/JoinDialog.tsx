@@ -9,6 +9,7 @@ export function JoinDialog({ invite, onClose, onJoined }: { invite: Invite; onCl
   const [error, setError] = useState<string | undefined>();
   return (
     <Dialog title="Join a case" onClose={onClose}>
+      {invite.host && <p className="level-note">Sync host: <code>{invite.host}</code></p>}
       <form
         onSubmit={async (e) => {
           e.preventDefault();

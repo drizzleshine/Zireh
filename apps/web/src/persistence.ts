@@ -10,9 +10,10 @@ export interface WorkspaceData {
   readonly memberId: string;
   readonly cursor: number;
   readonly syncId?: string;
+  readonly syncUrl?: string;
   readonly keyEpoch?: number;
   readonly needsInvite?: boolean;
-  readonly notices?: readonly { syncId: string; token: string; envelope: Envelope }[];
+  readonly notices?: readonly { syncId: string; token: string; envelope: Envelope; host?: string }[];
   readonly replayWarnings?: number;
   readonly syncedAt?: string;
   readonly syncError?: string | undefined;

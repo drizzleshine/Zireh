@@ -43,8 +43,9 @@ export const api = {
   search: (query: string, table: readonly Pseudonym[], caseId?: string) =>
     call<{ redactedQuery: string; hits: { title: string; url: string; content: string }[]; table: Pseudonym[]; charged: number }>("/api/search", { query, table, caseId }),
   redact: (texts: string[], table: readonly Pseudonym[]) => call<{ table: Pseudonym[] }>("/api/redact", { texts, table }),
-  push: (caseId: string, token: string, records: Envelope[]) => call<{ cursor: number }>("/api/sync/push", { caseId, token, records }),
-  pull: (caseId: string, token: string, after: number) => call<PullResponse>("/api/sync/pull", { caseId, token, after }),
+  syncConfig: () => call<{ host: string }>("/api/sync/config"),
+  push: (caseId: string, token: string, records: Envelope[], host?: string) => call<{ cursor: number }>("/api/sync/push", { caseId, token, records, ...(host ? { host } : {}) }),
+  pull: (caseId: string, token: string, after: number, host?: string) => call<PullResponse>("/api/sync/pull", { caseId, token, after, ...(host ? { host } : {}) }),
 };
 
 export interface ResearchInput {

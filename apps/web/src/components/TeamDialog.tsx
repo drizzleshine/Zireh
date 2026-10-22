@@ -15,7 +15,7 @@ export function TeamDialog({ caseId, onClose }: { caseId: string; onClose: () =>
         try { await removeMember(caseId, member.id); setDone(true); } catch (error) { setError((error as Error).message); } finally { setBusy(false); }
       }}>Remove and rotate key</button>}
     </div>)}
-    {done && <p className="notice" role="status">The key has been rotated on this device. Remaining members need an updated invite.<button className="btn small" onClick={() => navigator.clipboard.writeText(inviteLink(caseId))}>Copy updated invite</button></p>}
+    {done && <p className="notice" role="status">The key has been rotated on this device. Remaining members need an updated invite.<button className="btn small" onClick={async () => { try { await navigator.clipboard.writeText(await inviteLink(caseId)); } catch (error) { setError((error as Error).message); } }}>Copy updated invite</button></p>}
     {error && <p className="error" role="alert">{error}</p>}
   </Dialog>;
 }

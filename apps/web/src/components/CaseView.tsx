@@ -25,6 +25,7 @@ export function CaseView({ caseId, status, onBalanceChange, onTopUp }: Props) {
   const [tab, setTab] = useState<Tab>("research");
   const [team, setTeam] = useState(false);
   const [backup, setBackup] = useState(false);
+  const [copyError, setCopyError] = useState<string>();
   const [copied, setCopied] = useState(false);
 
   if (!rec) return <section className="panel">Opening case…</section>;
@@ -55,14 +56,15 @@ export function CaseView({ caseId, status, onBalanceChange, onTopUp }: Props) {
           <button
             className="btn small"
             onClick={async () => {
-              await navigator.clipboard.writeText(inviteLink(caseId));
-              setCopied(true);
-              setTimeout(() => setCopied(false), 2000);
+              setCopyError(undefined);
+              try { await navigator.clipboard.writeText(await inviteLink(caseId)); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+              catch (error) { setCopyError((error as Error).message); }
             }}
           >
             {copied ? "Invite link copied" : "Copy invite link"}
           </button>
         </div>
+        {copyError && <p className="error">{copyError}</p>}
         {!!ws?.replayWarnings && <p className="error" role="alert">Ignored {ws.replayWarnings} stale, repeated, or invalid sync records. The host may be replaying old data.</p>}
         <div className="tabs" role="tablist">
           {tabs.map((t) => (

@@ -390,3 +390,13 @@ describe("durable research result lookup", () => {
     expect(await (await s.call(`/api/research/results?caseId=${"e".repeat(32)}`)).json()).toEqual({ results: [] });
   });
 });
+
+describe("invite-supplied sync destinations", () => {
+  it("validates the destination before proxying any request", async () => {
+    const s = setup();
+    const body = { caseId: "a".repeat(32), token: "b".repeat(64), after: 0 };
+    expect((await s.call("/api/sync/pull", { ...body, host: "http://169.254.169.254" })).status).toBe(400);
+    expect((await s.call("/api/sync/pull", { ...body, host: "http://localhost:8788/secret" })).status).toBe(400);
+    expect((await s.call("/api/sync/pull", { ...body, host: "http://localhost:8788" })).status).toBe(404);
+  });
+});

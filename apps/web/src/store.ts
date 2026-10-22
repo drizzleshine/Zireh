@@ -1,7 +1,7 @@
 import type { StoredResearch } from "./research-history.ts";
 import { caseToken, inviteFragment, newCase, newMember, type CaseRecords, type Invite } from "@zireh/cases";
 import { canonicalJson, decryptBackup, encryptBackup, fromBase64Url, generateCaseKey, generateMemberKeys, memberIdForKey, signValue, verifyValue, type MemberKeys, randomId } from "@zireh/crypto";
-import { Collections, type Case, type CollectionName, type Member, type PrivacyLevel, type Pseudonym, type RecordOf } from "@zireh/schema";
+import { SyncHost, Collections, type Case, type CollectionName, type Member, type PrivacyLevel, type Pseudonym, type RecordOf } from "@zireh/schema";
 import { compareRevisions, envelopeRevision, LEGACY_REVISION, recordAuthor, rekeyRecord, assertSyncable, takeSyncBatch, openRecord, sealRecord, type RecordSigner, type Envelope } from "@zireh/sync";
 import { get } from "idb-keyval";
 import { database, type StoredRecord, type WorkspaceData } from "./persistence.ts";
@@ -203,7 +203,9 @@ export async function createCase(input: { title: string; question: string; priva
   const keys = await generateMemberKeys();
   const member = { ...newMember(input.memberName), id: keys.memberId, signingKey: keys.publicKey };
   const c = { ...newCase({ title: input.title, question: input.question, privacy: input.privacy, createdBy: member.id }), requiresSignatures: true };
-  const w = { caseId: c.id, caseKey: generateCaseKey(), memberId: member.id, memberKeys: keys, requiresSignatures: true, cursor: 0 };
+  let syncUrl: string | undefined;
+  try { syncUrl = SyncHost.parse((await api.syncConfig()).host); } catch { /* Local-first creation also works while the daemon is offline. */ }
+  const w = { caseId: c.id, ...(syncUrl ? { syncUrl } : {}), caseKey: generateCaseKey(), memberId: member.id, memberKeys: keys, requiresSignatures: true, cursor: 0 };
   const envelope = await sealRecord(w.caseKey, "cases", c, await database.reserveRevision(c.id, "cases", c.id), { keys });
   await change(async () => { await database.putWorkspace(w); await database.save({ caseId: c.id, collection: "cases", record: c, verified: true }, envelope); });
   await save(c.id, "members", member);
@@ -212,15 +214,19 @@ export async function createCase(input: { title: string; question: string; priva
 
 /** Join from an invite: pull the case, then add yourself as a member. */
 export async function joinCase(invite: Invite, memberName: string): Promise<string> {
+  if (invite.host !== undefined) SyncHost.parse(invite.host);
   const existing = state.workspaces.find((workspace) => workspace.caseId === invite.caseId);
   if (existing) {
-    if (existing.caseKey === invite.caseKey) return invite.caseId;
+    if (existing.caseKey === invite.caseKey) {
+      if (invite.host && existing.syncUrl !== invite.host) { await change(() => database.patchWorkspace(invite.caseId, { syncUrl: invite.host!, cursor: 0 })); void syncCase(invite.caseId); }
+      return invite.caseId;
+    }
     await acceptRotatedInvite(invite);
     return invite.caseId;
   }
   const keys = await generateMemberKeys();
   const member: Member = { ...newMember(memberName), id: keys.memberId, signingKey: keys.publicKey };
-  await change(() => database.putWorkspace({ caseId: invite.caseId, caseKey: invite.caseKey, memberId: member.id, memberKeys: keys, requiresSignatures: invite.requiresSignatures ?? false, cursor: 0, ...(invite.syncId ? { syncId: invite.syncId, keyEpoch: invite.keyEpoch } : {}) }));
+  await change(() => database.putWorkspace({ caseId: invite.caseId, caseKey: invite.caseKey, memberId: member.id, memberKeys: keys, requiresSignatures: invite.requiresSignatures ?? false, cursor: 0, ...(invite.host ? { syncUrl: invite.host } : {}), ...(invite.syncId ? { syncId: invite.syncId, keyEpoch: invite.keyEpoch } : {}) }));
   for (let attempt = 0; attempt < 3 && !state.cases[invite.caseId]; attempt++) await syncCase(invite.caseId);
   if (!state.cases[invite.caseId]) {
     await change(() => database.removeWorkspace(invite.caseId));
@@ -235,9 +241,12 @@ export async function moveOnBoard(caseId: string, itemId: string, x: number, y: 
   await save(caseId, "board", { id: itemId, caseId, positions: { [itemId]: { x: Math.round(x), y: Math.round(y) } } });
 }
 
-export const inviteLink = (caseId: string): string => {
+export const inviteLink = async (caseId: string): Promise<string> => {
   const w = workspace(caseId);
-  return `${location.origin}/#${inviteFragment({ caseId, caseKey: w.caseKey, ...(w.requiresSignatures ? { requiresSignatures: true } : {}), ...(w.syncId ? { syncId: w.syncId, keyEpoch: w.keyEpoch ?? 1 } : {}) })}`;
+  if (w.needsInvite) throw new Error("Ask the creator for an updated invite");
+  const host = SyncHost.parse(w.syncUrl ?? (await api.syncConfig()).host);
+  if (!w.syncUrl) await change(() => database.patchWorkspace(caseId, { syncUrl: host }));
+  return `${location.origin}/#${inviteFragment({ caseId, caseKey: w.caseKey, host, ...(w.requiresSignatures ? { requiresSignatures: true } : {}), ...(w.syncId ? { syncId: w.syncId, keyEpoch: w.keyEpoch ?? 1 } : {}) })}`;
 };
 
 export const myMemberId = (caseId: string): string => workspace(caseId).memberId;
@@ -260,7 +269,7 @@ async function syncOnce(caseId: string) {
   const token = caseToken(w.caseKey);
   try {
     for (const notice of w.notices ?? []) {
-      await api.push(notice.syncId, notice.token, [notice.envelope]);
+      await api.push(notice.syncId, notice.token, [notice.envelope], notice.host ?? w.syncUrl);
       await change(() => database.acknowledgeNotice(caseId, notice.envelope.sealed.ct));
     }
     if (w.needsInvite) return;
@@ -268,7 +277,7 @@ async function syncOnce(caseId: string) {
       let batch = takeSyncBatch(workspace(caseId).outbox);
       let cursor: number;
       for (;;) {
-        try { ({ cursor } = await api.push(w.syncId ?? caseId, token, batch)); break; }
+        try { ({ cursor } = await api.push(w.syncId ?? caseId, token, batch, w.syncUrl)); break; }
         catch (error) {
           if ((error as { status?: number }).status !== 413 || batch.length < 2) throw error;
           batch = batch.slice(0, Math.ceil(batch.length / 2));
@@ -282,7 +291,7 @@ async function syncOnce(caseId: string) {
     for (let page = 0; page < 20; page++) {
       let pulled;
       try {
-        pulled = await api.pull(w.syncId ?? caseId, token, workspace(caseId).cursor);
+        pulled = await api.pull(w.syncId ?? caseId, token, workspace(caseId).cursor, w.syncUrl);
       } catch (err) {
         if ((err as { status?: number }).status === 404 && state.cases[caseId]) {
           queueMicrotask(() => void repairHost(caseId)); // host doesn't know this case at all
@@ -351,7 +360,7 @@ async function repairHost(caseId: string) {
   let after = 0;
   try {
     for (;;) {
-      const page = await api.pull(w.syncId ?? caseId, token, after);
+      const page = await api.pull(w.syncId ?? caseId, token, after, w.syncUrl);
       for (const envelope of page.records) {
         if (!await openRecord(w.caseKey, envelope)) continue;
         const key = `${envelope.collection}:${envelope.id}`;
@@ -415,6 +424,8 @@ export async function restoreCase(text: string, passphrase: string): Promise<str
   const value = await decryptBackup(JSON.parse(text) as unknown, passphrase) as { v?: unknown; workspace?: Workspace; records?: StoredRecord[]; history?: StoredResearch[] };
   const w = value?.workspace;
   if (value?.v !== 1 || !w || !/^[0-9a-f]{32}$/.test(w.caseId) || !/^[0-9a-f]{32}$/.test(w.memberId) || typeof w.caseKey !== "string" || fromBase64Url(w.caseKey).length !== 32 || !Number.isSafeInteger(w.cursor) || w.cursor < 0 || !Array.isArray(w.outbox) || !Array.isArray(value.records)) throw new Error("Invalid case backup");
+  if (w.syncUrl) SyncHost.parse(w.syncUrl);
+  for (const notice of w.notices ?? []) if (notice.host) SyncHost.parse(notice.host);
   if (w.memberKeys && (w.memberKeys.memberId !== w.memberId || memberIdForKey(w.memberKeys.publicKey) !== w.memberId || !await verifyValue(w.memberKeys.publicKey, await signValue(w.memberKeys, { caseId: w.caseId }), { caseId: w.caseId }))) throw new Error("Backup signing identity is invalid");
   const existing = state.workspaces.find((saved) => saved.caseId === w.caseId);
   if (existing && existing.caseKey !== w.caseKey) throw new Error("This case already exists with a different key; import into a separate browser profile");
@@ -471,7 +482,7 @@ export async function removeMember(caseId: string, memberId: string): Promise<vo
     records.push({ caseId, collection: entry.collection, record, envelope, echoPending: true, verified: !!(await openRecord(key, envelope))?.auth });
   }
   const { outbox: _, ...metadata } = w;
-  const next: WorkspaceData = { ...metadata, caseKey: key, syncId, keyEpoch: epoch, cursor: 0, needsInvite: false, notices: [...(w.notices ?? []), { syncId: w.syncId ?? caseId, token: caseToken(w.caseKey), envelope: notice }] };
+  const next: WorkspaceData = { ...metadata, caseKey: key, syncId, keyEpoch: epoch, cursor: 0, needsInvite: false, notices: [...(w.notices ?? []), { syncId: w.syncId ?? caseId, token: caseToken(w.caseKey), envelope: notice, ...(w.syncUrl ? { host: w.syncUrl } : {}) }] };
   await change(() => database.rotate(w.caseKey, w.outbox, next, records, records.map((entry) => entry.envelope!)));
   await syncCase(caseId);
 }
@@ -482,7 +493,7 @@ async function acceptRotatedInvite(invite: Invite): Promise<void> {
   const incoming = new Map<string, StoredRecord>();
   let cursor = 0;
   for (;;) {
-    const page = await api.pull(invite.syncId, caseToken(invite.caseKey), cursor);
+    const page = await api.pull(invite.syncId, caseToken(invite.caseKey), cursor, invite.host ?? w.syncUrl);
     for (const envelope of page.records) {
       const opened = await openRecord(invite.caseKey, envelope);
       if (!opened || (w.requiresSignatures || invite.requiresSignatures) && !opened.auth) throw new Error("Invalid record in rotated case");
@@ -514,6 +525,6 @@ async function acceptRotatedInvite(invite: Invite): Promise<void> {
     outbox.push(envelope);
   }
   const { outbox: _, ...metadata } = w;
-  await change(() => database.rotate(w.caseKey, w.outbox, { ...metadata, caseKey: invite.caseKey, syncId: invite.syncId!, keyEpoch: invite.keyEpoch!, cursor, needsInvite: false }, [...incoming.values()], outbox));
+  await change(() => database.rotate(w.caseKey, w.outbox, { ...metadata, caseKey: invite.caseKey, ...(invite.host ? { syncUrl: invite.host } : {}), syncId: invite.syncId!, keyEpoch: invite.keyEpoch!, cursor, needsInvite: false }, [...incoming.values()], outbox));
   void syncCase(invite.caseId);
 }

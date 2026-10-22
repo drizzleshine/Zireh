@@ -5,7 +5,7 @@ import { RelayCallError, type RelayClient } from "@zireh/inference";
 import type { Ledger } from "@zireh/ledger";
 import type { ChatModel } from "@zireh/llm";
 import { redactText } from "@zireh/redact";
-import { PrivacyLevel, Pseudonym, TopupQuote, type DaemonStatus } from "@zireh/schema";
+import { PrivacyLevel, Pseudonym, TopupQuote, SyncHost, type DaemonStatus } from "@zireh/schema";
 import { Envelope, SyncClient, SyncError } from "@zireh/sync";
 import { InsufficientFunds, type Wallet } from "@zireh/wallet";
 import { z } from "zod";
@@ -49,7 +49,7 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
   observePayments(deps.relay, deps.ledger);
   const activeRuns = new Map<string, AbortController>();
   const approvals = new Map<string, () => void>();
-  const sync = () => new SyncClient(deps.syncUrl, deps.transport.fetchFor(newCircuitTag()));
+  const sync = (host?: string) => new SyncClient(host ?? deps.syncUrl, deps.transport.fetchFor(newCircuitTag()));
 
   async function cloudModel(requested?: string): Promise<string> {
     const { prices } = await deps.relay.info();
@@ -228,14 +228,16 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
       return json(200, { redactedQuery: red.text, hits: result.hits, table: red.table, charged: result.charged });
     },
 
+    "GET /api/sync/config": async () => json(200, { host: SyncHost.parse(deps.syncUrl) }),
+
     "POST /api/sync/push": async (req) => {
-      const body = z.object({ caseId: z.string().regex(/^[0-9a-f]{32}$/), token: z.string(), records: z.array(Envelope).min(1).max(200) }).parse(await req.json());
-      return json(200, await sync().push(body.caseId, body.token, body.records));
+      const body = z.object({ caseId: z.string().regex(/^[0-9a-f]{32}$/), token: z.string(), records: z.array(Envelope).min(1).max(200), host: SyncHost.optional() }).parse(await req.json());
+      return json(200, await sync(body.host).push(body.caseId, body.token, body.records));
     },
 
     "POST /api/sync/pull": async (req) => {
-      const body = z.object({ caseId: z.string().regex(/^[0-9a-f]{32}$/), token: z.string(), after: z.number().int().nonnegative() }).parse(await req.json());
-      return json(200, await sync().pull(body.caseId, body.token, body.after));
+      const body = z.object({ caseId: z.string().regex(/^[0-9a-f]{32}$/), token: z.string(), after: z.number().int().nonnegative(), host: SyncHost.optional() }).parse(await req.json());
+      return json(200, await sync(body.host).pull(body.caseId, body.token, body.after));
     },
   };
 
