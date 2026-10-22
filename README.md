@@ -139,7 +139,7 @@ numbers: [`context/decisions.md`](context/decisions.md).
 
 ## Run it
 
-Requirements: Node 22+, pnpm, [Ollama](https://ollama.com), Tor (`brew install tor ollama`).
+Requirements: Node 22.19+, Node 24, or Node 26+ (matching the locked Undici and Vitest engines), pnpm, [Ollama](https://ollama.com), Tor (`brew install tor ollama`).
 
 ```bash
 pnpm install
