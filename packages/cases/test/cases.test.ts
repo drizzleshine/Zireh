@@ -108,3 +108,16 @@ describe("publication", () => {
     expect(buildPublication(withTable, { hideNames: false, publishedAt: "2026-10-19T00:00:00.000Z" }).hash).toBe(open.hash);
   });
 });
+
+describe("F05 publication scan coverage", () => {
+  it("covers evidence titles and every string in the exact publication snapshot", async () => {
+    const { buildPublication, publicationTexts } = await import("../src/index.ts");
+    const rec = sampleCase();
+    const p = buildPublication({ ...rec, evidence: rec.evidence.map((e) => ({ ...e, title: "Interview with ada obi" })) }, { hideNames: false }).publication;
+    const strings = (value: unknown): string[] => typeof value === "string" ? [value] : value && typeof value === "object" ? Object.values(value).flatMap(strings) : [];
+    expect(publicationTexts(p)).toContain("Interview with ada obi");
+    expect(publicationTexts(p)).toEqual(strings(p));
+    const hidden = buildPublication({ ...rec, evidence: rec.evidence.map((e) => ({ ...e, title: "Interview with ada obi" })), pseudonyms: [{ original: "ada obi", placeholder: "[PERSON_1]", kind: "person", hint: "a source" }] }, { hideNames: true }).publication;
+    expect(publicationTexts(hidden).join("\n")).not.toContain("ada obi");
+  });
+});

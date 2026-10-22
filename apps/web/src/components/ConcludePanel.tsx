@@ -1,4 +1,5 @@
-import { buildPublication, findingViews, latestConclusion, memberName, newConclusion, type Publication } from "@zireh/cases";
+import { buildPublication, findingViews, latestConclusion, memberName, newConclusion, publicationTexts, type Publication } from "@zireh/cases";
+import { findLeaks } from "@zireh/redact";
 import type { Outcome } from "@zireh/schema";
 import { useState } from "react";
 import { api } from "../api.ts";
@@ -23,8 +24,14 @@ export function ConcludePanel({ caseId }: { caseId: string }) {
   const [savedNote, setSavedNote] = useState<string | undefined>();
   const [scan, setScan] = useState<"idle" | "running" | "done" | string>("idle");
 
-  // Not memoized: case records change in place, and building the page is cheap.
-  const preview = current ? buildPublication(rec, { hideNames }) : undefined;
+  const [scannedHash, setScannedHash] = useState<string>();
+  const [reviewedHash, setReviewedHash] = useState<string>();
+  const snapshot = current ? buildPublication(rec, { hideNames: false, publishedAt: current.createdAt }) : undefined;
+  const preview = current ? buildPublication(rec, { hideNames, publishedAt: current.createdAt }) : undefined;
+  const clean = !!preview && findLeaks(publicationTexts(preview.publication).join("\n"), rec.pseudonyms).length === 0;
+  const scanned = !!snapshot && scannedHash === snapshot.hash;
+  const approved = !!preview && reviewedHash === preview.hash;
+  const canDownload = !hideNames || (scanned && approved && clean);
   const disputedPicked = findings.filter((f) => picked.includes(f.id) && f.tally.status === "disputed").length;
 
   return (
@@ -133,11 +140,13 @@ export function ConcludePanel({ caseId }: { caseId: string }) {
                   disabled={scan === "running"}
                   onClick={async () => {
                     setScan("running");
+                    setScannedHash(undefined);
+                    setReviewedHash(undefined);
                     try {
-                      const p = buildPublication(rec, { hideNames: false }).publication;
-                      const texts = [p.title, p.question, p.conclusion?.summary ?? "", p.conclusion?.openQuestion ?? "", ...p.findings.flatMap((f) => [f.statement, f.uncertainty, ...f.observations.map((o) => o.text)])];
+                      const texts = publicationTexts(snapshot!.publication);
                       const { table } = await api.redact(texts, rec.pseudonyms);
                       await savePseudonyms(caseId, table);
+                      setScannedHash(snapshot!.hash);
                       setScan("done");
                     } catch (err) {
                       setScan((err as Error).message);
@@ -150,10 +159,23 @@ export function ConcludePanel({ caseId }: { caseId: string }) {
               </div>
             )}
             <PublicationPreview publication={preview.publication} />
+            {hideNames && <div className="field">
+              <p className="level-note">{!scanned ? "Scan this version before exporting. Review every field below; scanning can miss identifying details." : !clean ? "A hidden value remains in this page. Edit its description and scan again." : approved ? "This exact version is reviewed." : "Read the complete page, then confirm it is safe to share."}</p>
+              <button className="btn small" disabled={!scanned || !clean || approved} onClick={() => setReviewedHash(preview.hash)}>Looks right</button>
+            </div>}
             <div className="meta">
               <span title={preview.hash}>Page hash sha256 {preview.hash.slice(0, 16)}…</span>
               <span style={{ flex: 1 }} />
-              <button className="btn primary small" onClick={() => download(preview.publication, preview.hash)}>
+              <button className="btn primary small" disabled={!canDownload} onClick={() => {
+                if (!current) return;
+                const plain = buildPublication(rec, { hideNames: false, publishedAt: current.createdAt });
+                const final = buildPublication(rec, { hideNames, publishedAt: current.createdAt });
+                if (hideNames && (scannedHash !== plain.hash || reviewedHash !== final.hash || findLeaks(publicationTexts(final.publication).join("\n"), rec.pseudonyms).length)) {
+                  setScan("The publication changed. Scan and review this version before exporting.");
+                  return;
+                }
+                download(final.publication, final.hash);
+              }}>
                 Download findings page
               </button>
             </div>
@@ -172,10 +194,18 @@ function PublicationPreview({ publication: p }: { publication: Publication }) {
     <div className="pub-preview">
       <p className="pub-outcome">{p.conclusion ? OUTCOMES.find((o) => o.id === p.conclusion!.outcome)!.label : ""}</p>
       <h4 className="doc">{p.title}</h4>
+      <p className="doc">{p.question}</p>
       <p className="doc pub-summary">{p.conclusion?.summary}</p>
-      <p className="level-note">
-        {p.findings.length} finding{p.findings.length === 1 ? "" : "s"}, {p.findings.reduce((n, f) => n + f.observations.length, 0)} cited observations
-      </p>
+      {p.conclusion?.openQuestion && <p className="doc">Still open: {p.conclusion.openQuestion}</p>}
+      {p.findings.map((f, i) => <section key={i} className="item">
+        <h3>Finding {i + 1}</h3><p className="doc">{f.statement}</p>
+        {f.uncertainty && <p className="doc">Uncertain: {f.uncertainty}</p>}
+        <p className="level-note">Team review: {f.support} support, {f.disagree} disagree ({f.status})</p>
+        {f.observations.map((o, j) => <blockquote key={j}><p className="doc">{o.text}</p><footer>{o.by}
+          {o.evidence.map((e, k) => <p key={k}>Evidence “{e.title}” sha256 {e.sha256}</p>)}
+        </footer></blockquote>)}
+      </section>)}
+      <p className="level-note">Published {new Date(p.publishedAt).toUTCString()}{p.authors.length ? ` by ${p.authors.join(", ")}` : ""}</p>
     </div>
   );
 }

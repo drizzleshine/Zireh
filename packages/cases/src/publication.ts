@@ -70,3 +70,10 @@ export function buildPublication(records: CaseRecords, options: { hideNames: boo
   };
   return { publication, hash: sha256Hex(canonicalJson(publication)) };
 }
+
+/** Every string in the exact snapshot, including evidence titles and author names. */
+export function publicationTexts(publication: Publication): string[] {
+  const strings = (value: unknown): string[] => typeof value === "string" ? [value]
+    : value && typeof value === "object" ? Object.values(value).flatMap(strings) : [];
+  return strings(publication);
+}
