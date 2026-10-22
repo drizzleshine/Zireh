@@ -14,7 +14,7 @@ export interface PaymentWatcher {
   /** The quote as issued (credits are what the relay may mint for it). Throws if unknown. */
   lookup(quoteId: string): TopupQuote;
   /** Called once coins are issued, so a quote can never mint twice. */
-  markMinted(quoteId: string): void;
+  markMinted(quoteId: string, commit?: () => void): void;
 }
 
 export interface RateSource {
@@ -32,9 +32,27 @@ export function creditsToZec(credits: number, rate: RateSource): string {
   return (zatoshi / 1e8).toFixed(8);
 }
 
-interface QuoteRecord {
+export interface QuoteRecord {
   quote: TopupQuote;
   state: QuoteState;
+}
+
+export interface QuoteStore {
+  get(id: string): QuoteRecord | undefined;
+  put(id: string, record: QuoteRecord): void;
+  atomically<T>(work: () => T): T;
+}
+
+export function memoryQuoteStore(): QuoteStore {
+  let quotes = new Map<string, QuoteRecord>();
+  return {
+    get: (id) => structuredClone(quotes.get(id)),
+    put: (id, record) => { quotes.set(id, structuredClone(record)); },
+    atomically(work) {
+      const before = structuredClone(quotes);
+      try { return work(); } catch (error) { quotes = before; throw error; }
+    },
+  };
 }
 
 export interface SimulatedWatcher extends PaymentWatcher {
@@ -42,12 +60,11 @@ export interface SimulatedWatcher extends PaymentWatcher {
   simulatePayment(quoteId: string): void;
 }
 
-export function simulatedWatcher(rate: RateSource, now: () => number = Date.now): SimulatedWatcher {
-  const quotes = new Map<string, QuoteRecord>();
+export function simulatedWatcher(rate: RateSource, now: () => number = Date.now, quotes: QuoteStore = memoryQuoteStore()): SimulatedWatcher {
   const get = (quoteId: string): QuoteRecord => {
     const rec = quotes.get(quoteId);
     if (!rec) throw new Error("unknown quote");
-    if (rec.state === "quoted" && Date.parse(rec.quote.expiresAt) < now()) rec.state = "expired";
+    if (rec.state === "quoted" && Date.parse(rec.quote.expiresAt) < now()) { rec.state = "expired"; quotes.put(quoteId, rec); }
     return rec;
   };
   return {
@@ -63,7 +80,7 @@ export function simulatedWatcher(rate: RateSource, now: () => number = Date.now)
         expiresAt: new Date(now() + QUOTE_TTL_MS).toISOString(),
         network: "simulated",
       };
-      quotes.set(quoteId, { quote, state: "quoted" });
+      quotes.put(quoteId, { quote, state: "quoted" });
       return quote;
     },
     state: (quoteId) => get(quoteId).state,
@@ -72,11 +89,16 @@ export function simulatedWatcher(rate: RateSource, now: () => number = Date.now)
       const rec = get(quoteId);
       if (rec.state !== "quoted") throw new Error(`quote is ${rec.state}`);
       rec.state = "confirmed";
+      quotes.put(quoteId, rec);
     },
-    markMinted(quoteId) {
-      const rec = get(quoteId);
-      if (rec.state !== "confirmed") throw new Error(`quote is ${rec.state}, not confirmed`);
-      rec.state = "minted";
+    markMinted(quoteId, commit) {
+      quotes.atomically(() => {
+        const rec = get(quoteId);
+        if (rec.state !== "confirmed") throw new Error(`quote is ${rec.state}, not confirmed`);
+        rec.state = "minted";
+        quotes.put(quoteId, rec);
+        commit?.();
+      });
     },
   };
 }

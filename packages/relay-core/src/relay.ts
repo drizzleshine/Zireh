@@ -1,3 +1,4 @@
+import { canonicalJson, sha256Hex } from "@zireh/crypto";
 import type { ChatModel } from "@zireh/llm";
 import {
   ChatPaidRequest,
@@ -30,6 +31,7 @@ export interface StoredResponse {
 /** Remove answer material while keeping the financial recovery response. */
 export function settlementOnly(response: StoredResponse): StoredResponse | undefined {
   if (response.status === 0) return response;
+  if ((response.body as { outputsHash?: string })?.outputsHash) return response;
   const body = response.body as Record<string, unknown>;
   if (!body || typeof body !== "object" || !body.settlement) return undefined;
   return { status: response.status, body: {
@@ -219,6 +221,12 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
     "POST /v1/topup/mint": async (req) => {
       const body = await parse(req, MintRequest);
       if (body instanceof Response) return body;
+      const outputsHash = sha256Hex(canonicalJson(body.outputs));
+      const stored = deps.responses.get(`topup:${body.quoteId}`);
+      if (stored) {
+        const minted = stored.body as { outputsHash: string; signatures: unknown };
+        return minted.outputsHash === outputsHash ? json(200, { signatures: minted.signatures }) : fail(409, "bad_request", "quote already minted with different outputs");
+      }
       let state;
       try {
         state = deps.watcher.state(body.quoteId);
@@ -233,7 +241,7 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
       } catch (err) {
         return fail(400, "bad_request", (err as Error).message);
       }
-      deps.watcher.markMinted(body.quoteId); // synchronous with issue: a quote can mint once
+      deps.watcher.markMinted(body.quoteId, () => deps.responses.put(`topup:${body.quoteId}`, { status: 200, body: { outputsHash, signatures } }));
       deps.onEvent?.("topup", credits);
       return json(200, { signatures });
     },

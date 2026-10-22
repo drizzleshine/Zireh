@@ -61,8 +61,8 @@ const ledger = new Ledger(fileLedgerStore(dataDir));
 
 /** Calls that never got a definite answer (crash, dropped circuit) are re-sent with the same id. */
 async function recoverPending() {
-  const { recovered, failed } = await relay.recover().catch(() => ({ recovered: [], failed: [] }));
-  if (recovered.length || failed.length) console.log(`recovered ${recovered.length} pending call(s), ${failed.length} still failing`);
+  const { recovered, failed, topups } = await relay.recover().catch(() => ({ recovered: [], failed: [], topups: 0 }));
+  if (recovered.length || failed.length || topups) console.log(`recovered ${recovered.length} call(s) and ${topups} top-up(s), ${failed.length} still failing`);
 }
 setInterval(() => void recoverPending(), 60_000);
 setTimeout(() => void recoverPending(), 5_000);

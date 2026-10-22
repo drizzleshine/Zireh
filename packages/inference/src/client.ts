@@ -138,17 +138,33 @@ export class RelayClient {
     await this.request(this.options.transport.fetchFor(newCircuitTag()), "/v1/topup/simulate", z.object({ state: z.string() }), { quoteId });
   }
 
-  /** After paying the quote: exchange it for coins. Returns the new balance. */
+  /** After paying the quote: persist blinding secrets before minting, then commit the coins once. */
   async redeemTopup(quote: TopupQuote): Promise<number> {
+    const money = this.options.wallet.money;
+    const key = `topup:${quote.quoteId}`;
+    if (money.get(`minted:${quote.quoteId}`)) return this.options.wallet.balance;
     const { keyset } = await this.info();
-    const pending = prepareTopup(keyset, quote.credits);
-    const { signatures } = await this.request(
-      this.options.transport.fetchFor(newCircuitTag()),
-      "/v1/topup/mint",
-      MintResponse,
-      { quoteId: quote.quoteId, outputs: pending.outputs },
-    );
-    this.options.wallet.add(unblindAll(keyset, pending, signatures));
+    const pending = money.atomically(() => {
+      if (money.get(`minted:${quote.quoteId}`)) return undefined;
+      const saved = money.get<{ quote: TopupQuote; keyset: Keyset; outputs: PendingOutputs }>(key);
+      if (saved) return saved;
+      const created = { quote, keyset, outputs: prepareTopup(keyset, quote.credits) };
+      money.put(key, created);
+      return created;
+    });
+    if (!pending) return this.options.wallet.balance;
+    const { signatures } = await this.request(this.options.transport.fetchFor(newCircuitTag()), "/v1/topup/mint", MintResponse,
+      { quoteId: quote.quoteId, outputs: pending.outputs.outputs });
+    if (signatures.length !== pending.outputs.outputs.length || signatures.some((signature, i) => signature.keysetId !== pending.keyset.id || signature.amount !== pending.outputs.outputs[i]!.amount)) {
+      throw new RelayCallError("settlement_disputed", "Top-up signatures do not match the saved outputs", true);
+    }
+    const proofs = unblindAll(pending.keyset, pending.outputs, signatures);
+    money.atomically(() => {
+      if (!money.get(key)) return;
+      this.options.wallet.add(proofs);
+      money.put(`minted:${quote.quoteId}`, { credits: pending.quote.credits });
+      money.remove(key);
+    });
     return this.options.wallet.balance;
   }
 
@@ -266,9 +282,14 @@ export class RelayClient {
   }
 
   /** Re-send every call that never got a definite answer (e.g. after a crash or dropped circuit). */
-  async recover(): Promise<{ recovered: CallResult[]; failed: RelayCallError[] }> {
+  async recover(): Promise<{ recovered: CallResult[]; failed: RelayCallError[]; topups: number }> {
     const recovered: CallResult[] = [];
     const failed: RelayCallError[] = [];
+    let topups = 0;
+    for (const pending of this.options.wallet.money.list<{ quote: TopupQuote }>("topup:")) {
+      try { await this.redeemTopup(pending.quote); topups++; }
+      catch (error) { if (error instanceof RelayCallError) failed.push(error); else throw error; }
+    }
     for (const call of this.pending.list()) {
       try {
         recovered.push(await this.send(call));
@@ -278,6 +299,6 @@ export class RelayClient {
       }
     }
     for (const ack of this.options.wallet.money.list<{ requestId: string }>("ack:")) await this.acknowledge(ack.requestId);
-    return { recovered, failed };
+    return { recovered, failed, topups };
   }
 }

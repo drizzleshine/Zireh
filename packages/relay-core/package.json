@@ -8,6 +8,7 @@
     "layer": 5
   },
   "dependencies": {
+    "@zireh/crypto": "workspace:*",
     "@zireh/llm": "workspace:*",
     "@zireh/schema": "workspace:*",
     "@zireh/wallet": "workspace:*",

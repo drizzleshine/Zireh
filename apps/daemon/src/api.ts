@@ -140,8 +140,8 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
     },
 
     "POST /api/wallet/recover": async () => {
-      const { recovered, failed } = await deps.relay.recover();
-      return json(200, { recovered: recovered.length, failed: failed.map((f) => f.message), balance: deps.wallet.balance });
+      const { recovered, failed, topups } = await deps.relay.recover();
+      return json(200, { recovered: recovered.length + topups, failed: failed.map((f) => f.message), balance: deps.wallet.balance });
     },
 
     "GET /api/receipts": async (_req, url) => {

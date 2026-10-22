@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { exposeAsOnion } from "@zireh/tor";
 import { loadConfig } from "./config.ts";
 import { createRelay } from "@zireh/relay-core";
-import { loadOrCreateMintKeys, openRelayDb, sqliteResponseStore, sqliteSpentStore } from "./storage.ts";
+import { loadOrCreateMintKeys, openRelayDb, sqliteQuoteStore, sqliteResponseStore, sqliteSpentStore } from "./storage.ts";
 import { tavilySearch } from "./tavily.ts";
 
 const config = loadConfig();
@@ -36,7 +36,7 @@ const models = new Map(
 const totals = { chat: 0, search: 0, topup: 0, refund: 0 };
 const handler = createRelay({
   mint: new Mint(loadOrCreateMintKeys(config.dataDir), sqliteSpentStore(db)),
-  watcher: simulatedWatcher(fixedRate(config.usdPerZec)),
+  watcher: simulatedWatcher(fixedRate(config.usdPerZec), Date.now, sqliteQuoteStore(db)),
   models,
   ...(config.tavilyApiKey ? { search: tavilySearch(config.tavilyApiKey) } : {}),
   searchPrice: config.searchPrice,

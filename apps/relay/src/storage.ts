@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { QuoteRecord, QuoteStore } from "@zireh/zcash";
 import { DatabaseSync } from "node:sqlite";
 import { generateMintKeys, type MintKeys, type SpentStore } from "@zireh/wallet";
 import { settlementOnly, type ResponseStore, type StoredResponse } from "@zireh/relay-core";
@@ -23,6 +24,7 @@ export function openRelayDb(dataDir: string): DatabaseSync {
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA synchronous = FULL;
+    CREATE TABLE IF NOT EXISTS quotes (id TEXT PRIMARY KEY, body TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS spent (secret TEXT PRIMARY KEY) WITHOUT ROWID;
     CREATE TABLE IF NOT EXISTS responses (request_id TEXT PRIMARY KEY, at INTEGER NOT NULL, status INTEGER NOT NULL, body TEXT NOT NULL);
   `);
@@ -80,6 +82,21 @@ export function sqliteResponseStore(db: DatabaseSync, ttlMs = 15 * 60 * 1000): R
       if (!row) return;
       const financial = settlementOnly({ status: row.status, body: JSON.parse(row.body) });
       if (financial) redact.run(JSON.stringify(financial.body), id);
+    },
+  };
+}
+
+/** Shares the relay connection with minted responses, so mint state and signatures commit together. */
+export function sqliteQuoteStore(db: DatabaseSync): QuoteStore {
+  const get = db.prepare("SELECT body FROM quotes WHERE id = ?");
+  const put = db.prepare("INSERT OR REPLACE INTO quotes (id, body) VALUES (?, ?)");
+  return {
+    get(id) { const row = get.get(id) as { body: string } | undefined; return row ? JSON.parse(row.body) as QuoteRecord : undefined; },
+    put(id, record) { put.run(id, JSON.stringify(record)); },
+    atomically(work) {
+      db.exec("BEGIN IMMEDIATE");
+      try { const result = work(); db.exec("COMMIT"); return result; }
+      catch (error) { db.exec("ROLLBACK"); throw error; }
     },
   };
 }

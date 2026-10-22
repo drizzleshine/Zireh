@@ -255,6 +255,9 @@ importers:
 
   packages/relay-core:
     dependencies:
+      '@zireh/crypto':
+        specifier: workspace:*
+        version: link:../crypto
       '@zireh/llm':
         specifier: workspace:*
         version: link:../llm

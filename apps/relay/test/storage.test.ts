@@ -1,8 +1,9 @@
+import { fixedRate, simulatedWatcher } from "@zireh/zcash";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadOrCreateMintKeys, openRelayDb, sqliteResponseStore, sqliteSpentStore } from "../src/storage.ts";
+import { loadOrCreateMintKeys, openRelayDb, sqliteQuoteStore, sqliteResponseStore, sqliteSpentStore } from "../src/storage.ts";
 
 const dirs: string[] = [];
 const tempDir = () => {
@@ -67,5 +68,26 @@ describe("F07 financial retention", () => {
     expect(reopened.get("marker")).toEqual({ status: 0, body: { redeemed: 100 } });
     reopened.acknowledge("financial");
     expect(reopened.get("financial")).toMatchObject({ body: { settlement } });
+  });
+});
+
+describe("F06 durable minted quote", () => {
+  it("commits minted state with its reply and rolls both back on a failed write", () => {
+    const dir = tempDir();
+    const db = openRelayDb(dir);
+    const watcher = simulatedWatcher(fixedRate(50), Date.now, sqliteQuoteStore(db));
+    const responses = sqliteResponseStore(db);
+    const quote = watcher.quote(100);
+    watcher.simulatePayment(quote.quoteId);
+    db.exec("CREATE TRIGGER fail_topup BEFORE INSERT ON responses BEGIN SELECT RAISE(ABORT, 'injected topup failure'); END");
+    const reply = { status: 200, body: { outputsHash: "hash", signatures: [] } };
+    expect(() => watcher.markMinted(quote.quoteId, () => responses.put(`topup:${quote.quoteId}`, reply))).toThrow("injected topup failure");
+    expect(watcher.state(quote.quoteId)).toBe("confirmed");
+    expect(responses.get(`topup:${quote.quoteId}`)).toBeUndefined();
+    db.exec("DROP TRIGGER fail_topup");
+    watcher.markMinted(quote.quoteId, () => responses.put(`topup:${quote.quoteId}`, reply));
+    const reopened = openRelayDb(dir);
+    expect(simulatedWatcher(fixedRate(50), Date.now, sqliteQuoteStore(reopened)).state(quote.quoteId)).toBe("minted");
+    expect(sqliteResponseStore(reopened, -1).get(`topup:${quote.quoteId}`)).toEqual(reply);
   });
 });

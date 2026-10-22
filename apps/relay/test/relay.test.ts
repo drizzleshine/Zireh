@@ -162,7 +162,7 @@ describe("top-up safety", () => {
     await post("/v1/topup/simulate", { quoteId: quote.quoteId });
     expect((await post("/v1/topup/mint", { quoteId: quote.quoteId, outputs: prepareTopup(keyset, 5000).outputs })).body.error).toBe("bad_request");
     expect((await post("/v1/topup/mint", { quoteId: quote.quoteId, outputs: prepareTopup(keyset, 1000).outputs })).status).toBe(200);
-    expect((await post("/v1/topup/mint", { quoteId: quote.quoteId, outputs: prepareTopup(keyset, 1000).outputs })).body.error).toBe("quote_unpaid");
+    expect((await post("/v1/topup/mint", { quoteId: quote.quoteId, outputs: prepareTopup(keyset, 1000).outputs })).status).toBe(409);
   });
 });
 
@@ -238,5 +238,32 @@ describe("F07 durable settlement recovery", () => {
     expect(recovered).toMatchObject([{ kind: "chat", content: "", answerExpired: true }]);
     expect(s.wallet.balance).toBe(524_288 - recovered[0]!.charged);
     expect(client.pending.list()).toHaveLength(0);
+  });
+});
+
+describe("F06 top-up recovery", () => {
+  it("retries the same blinded outputs after a lost mint reply and credits once", async () => {
+    const s = setup();
+    const quote = await s.client.quote(100_000);
+    await s.client.simulatePayment(quote.quoteId);
+    let drop = true;
+    const sent: string[] = [];
+    const client = new RelayClient({ baseUrl: "http://relay.test", wallet: s.wallet,
+      transport: directTransport(async (url, init) => {
+        const res = await s.handler(new Request(url, init));
+        if (url.endsWith("/v1/topup/mint")) {
+          sent.push(String(init?.body));
+          if (drop) { drop = false; throw new Error("lost mint reply"); }
+        }
+        return res;
+      }) });
+    await expect(client.redeemTopup(quote)).rejects.toMatchObject({ code: "network" });
+    expect(s.wallet.balance).toBe(0);
+    await client.recover();
+    expect(s.wallet.balance).toBe(100_000);
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toBe(sent[1]);
+    await client.redeemTopup(quote);
+    expect(s.wallet.balance).toBe(100_000);
   });
 });
