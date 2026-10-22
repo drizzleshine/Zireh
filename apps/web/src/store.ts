@@ -1,6 +1,6 @@
 import type { StoredResearch } from "./research-history.ts";
 import { caseToken, inviteFragment, newCase, newMember, type CaseRecords, type Invite } from "@zireh/cases";
-import { canonicalJson, decryptBackup, encryptBackup, fromBase64Url, generateCaseKey, generateMemberKeys, memberIdForKey, signValue, verifyValue, type MemberKeys, randomId } from "@zireh/crypto";
+import { MAX_BACKUP_BYTES, canonicalJson, decryptBackup, encryptBackup, fromBase64Url, generateCaseKey, generateMemberKeys, memberIdForKey, signValue, verifyValue, type MemberKeys, randomId } from "@zireh/crypto";
 import { SyncHost, Collections, type Case, type CollectionName, type Member, type PrivacyLevel, type Pseudonym, type RecordOf } from "@zireh/schema";
 import { compareRevisions, envelopeRevision, LEGACY_REVISION, recordAuthor, rekeyRecord, assertSyncable, takeSyncBatch, openRecord, sealRecord, type RecordSigner, type Envelope } from "@zireh/sync";
 import { get } from "idb-keyval";
@@ -420,7 +420,7 @@ export async function backupCase(caseId: string, passphrase: string): Promise<st
 }
 
 export async function restoreCase(text: string, passphrase: string): Promise<string> {
-  if (text.length > 64 * 1024 * 1024) throw new Error("Backup file exceeds 64 MiB");
+  if (text.length > MAX_BACKUP_BYTES) throw new Error("Backup file exceeds 64 MiB");
   const value = await decryptBackup(JSON.parse(text) as unknown, passphrase) as { v?: unknown; workspace?: Workspace; records?: StoredRecord[]; history?: StoredResearch[] };
   const w = value?.workspace;
   if (value?.v !== 1 || !w || !/^[0-9a-f]{32}$/.test(w.caseId) || !/^[0-9a-f]{32}$/.test(w.memberId) || typeof w.caseKey !== "string" || fromBase64Url(w.caseKey).length !== 32 || !Number.isSafeInteger(w.cursor) || w.cursor < 0 || !Array.isArray(w.outbox) || !Array.isArray(value.records)) throw new Error("Invalid case backup");

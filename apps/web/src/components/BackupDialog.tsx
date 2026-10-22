@@ -1,3 +1,4 @@
+import { MAX_BACKUP_BYTES } from "@zireh/crypto";
 import { useState } from "react";
 import { backupCase, restoreCase } from "../store.ts";
 import { Dialog } from "./Dialog.tsx";
@@ -18,7 +19,7 @@ export function BackupDialog({ caseId, onClose, onImported }: { caseId?: string;
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         setDone(true); setPassphrase("");
       } else {
-        if (!file || file.size > 64 * 1024 * 1024) throw new Error("Choose a backup file smaller than 64 MiB");
+        if (!file || file.size > MAX_BACKUP_BYTES) throw new Error("Choose a backup file smaller than 64 MiB");
         const id = await restoreCase(await file.text(), passphrase);
         setPassphrase(""); onImported?.(id); onClose();
       }
@@ -27,7 +28,7 @@ export function BackupDialog({ caseId, onClose, onImported }: { caseId?: string;
   };
   return <Dialog title={caseId ? "Back up case" : "Import case backup"} onClose={onClose}>
     {done ? <p role="status">Encrypted backup downloaded. Keep its passphrase separately.</p> : <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-      <p>The encrypted file includes the case key, evidence and team records. Wallet coins are stored separately by the daemon.</p>
+      <p>The encrypted file includes the case key, evidence and team records. Wallet coins are stored separately by the daemon. Backups are limited to 64 MiB.</p>
       {!caseId && <div className="field"><label htmlFor="backup-file">Backup file</label><input id="backup-file" type="file" required accept=".zireh,application/json" onChange={(event) => setFile(event.target.files?.[0])} /></div>}
       <div className="field"><label htmlFor="backup-passphrase">Passphrase (at least 12 characters)</label><input id="backup-passphrase" className="input" type="password" minLength={12} maxLength={1024} required value={passphrase} onChange={(event) => setPassphrase(event.target.value)} autoComplete={caseId ? "new-password" : "current-password"} /></div>
       {error && <p className="error" role="alert">{error}</p>}

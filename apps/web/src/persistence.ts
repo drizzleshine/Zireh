@@ -178,7 +178,7 @@ class BrowserDatabase {
       const ws = store.get(workspaceKey(workspace.caseId));
       ws.onsuccess = () => {
         if (ws.result && ws.result.caseKey !== workspace.caseKey) { store.transaction.abort(); return; }
-        if (!ws.result) store.put(workspace, workspaceKey(workspace.caseId));
+        store.put({ ...(ws.result ?? workspace), storageRevision: Number(ws.result?.storageRevision ?? 0) + 1 }, workspaceKey(workspace.caseId));
         for (const entry of entries) {
           const current = store.get(recordKey(entry));
           current.onsuccess = () => {

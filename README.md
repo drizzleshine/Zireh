@@ -57,15 +57,21 @@ Everything up to "send" runs on your computer, using **NVIDIA Nemotron 3 Nano 4B
 - **Cases** with evidence (notes, documents, links, images), observations, findings, reviews,
   comments, a draggable **case board** with labeled connections, and a **conclusion**
   (resolved / unresolved / disputed) with revisions.
-- **Invite links** carry the case key in the URL fragment, which browsers never send to a server.
+- **Invite links** carry the case key, validated sync-host location, namespace and signature requirement in the URL fragment, which browsers never send to a server.
 - **Sync host** stores sealed records in an append-only log. It checks a one-way token so only
   members can write, and never sees a key or plaintext. Devices repair a reset or replaced host
-  automatically.
+  automatically. Authenticated revisions reject older or repeated records already seen by a device.
 - **Images** are re-encoded on your computer before they become evidence, dropping GPS, camera
   and time metadata, and you can mark faces, plates or signs to pixelate them first.
 - **Findings page**: export a single self-contained HTML page with a SHA-256 content hash, with
   names hidden (using the same descriptions the AI saw) or shown.
 - **Privacy log**: paid research and search requests are recorded before sending, with the complete serialized body, its hash, attempt status and settled cost. Failed attempts remain visible; recovery updates the same request ID.
+- **Review before send** pauses a prepared plan for explicit approval; Paranoid enables it by default. Saved hide phrases invalidate a prepared review when changed.
+- **Encrypted backups** protect the case key, signing identity, records and research history with a passphrase; imports preserve newer local revisions. Archives are capped at 64 MiB, with oversized exports refused before download.
+- **Research history** survives reloads and recovers individual paid answers from the daemon when final synthesis was interrupted.
+- **Evidence** can be expanded and downloaded in full. Research shows an explicit notice when it uses a shortened excerpt.
+- **Member removal** rotates the case key and sync namespace. Share fresh invites with the remaining members; prior copies remain accessible.
+- **Signed authorship** binds new member identities and record revisions to signing keys. Review signatures are visible; old unsigned data stays labeled legacy.
 - **Fictional demo case** to try everything without real material.
 
 ![Case board](docs/screenshots/board.png)
@@ -97,7 +103,7 @@ and per-token settlements; real chain intake remains unimplemented.
 3. Each call pays the **worst case** (input bound + `max_tokens`); the relay returns **change**
    as fresh blind-signed coins. You pay exactly per token, with no account.
 4. Your client **audits every bill**: it recomputes the cost from the reported usage and flags
-   overcharges, including hidden reasoning tokens beyond the cap you set.
+   overcharges, including hidden reasoning tokens beyond the cap you set. It also verifies charge-plus-change conservation and retains disputed settlements.
 5. Dropped connections never cost twice: calls are idempotent by request id and recovered
    automatically.
 
@@ -152,12 +158,12 @@ numbers: [`context/decisions.md`](context/decisions.md).
 
 ## Run it
 
-Requirements: Node 22.19+, Node 24, or Node 26+ (matching the locked Undici and Vitest engines), pnpm, [Ollama](https://ollama.com), Tor (`brew install tor ollama`).
+Requirements: Node 22.19+ within the 22.x line, Node 24.x, or Node 26+ (matching the locked Undici and Vitest engines), pnpm, [Ollama](https://ollama.com), Tor (`brew install tor ollama`).
 
 ```bash
 pnpm install
 ollama pull nemotron-3-nano:4b
-cp .env.example .env          # optional: NEBIUS_API_KEY, TAVILY_API_KEY
+cp .env.example .env          # optional: paid-provider keys require RELAY_DEMO=1
 pnpm dev                      # Tor mode: relay and sync host as onion services
 # open http://127.0.0.1:7878, top up (simulated Zcash), try the demo case
 ```
@@ -165,7 +171,7 @@ pnpm dev                      # Tor mode: relay and sync host as onion services
 `pnpm dev --direct` skips Tor for fast local iteration; the UI shows Tor as off.
 
 ```bash
-pnpm check        # layer check + typecheck + 153 tests
+pnpm check        # layer check + typecheck + 179 tests
 pnpm smoke:tor    # live: three independently isolated requests through Tor
 ```
 
@@ -188,12 +194,14 @@ pnpm smoke:tor    # live: three independently isolated requests through Tor
 - **Topic still leaks.** Generalization hides who and where, not what the question is about.
 - **Images stay local.** They're stripped and shared with the team, not sent to the AI. Face
   hiding is manual (mark and pixelate); the local model is text-only.
-- **The device is the trust boundary.** Case keys and coins live unencrypted in this browser's
+- **The device is the trust boundary.** Case keys, signing keys and coins live unencrypted in this browser's
   storage and the daemon's data folder; protect the computer (disk encryption, screen lock).
 - **Concurrent edits use authenticated record revisions.** Devices reject older or repeated
   versions they have already seen. A newly joined device can still be shown an older authentic
   history until it receives a newer checkpoint from another member. Concurrent edits to the
   same record use a deterministic revision order; they are not merged field by field.
+- **Legacy authorship remains unverified.** New cases require per-member signatures; earlier unsigned records cannot be retroactively authenticated. Compare member fingerprints through a trusted channel when identity matters.
+- **Invite routing is restricted.** Invite-supplied hosts must be v3 onion URLs or localhost/127.0.0.1 development servers.
 - **Small-model judgment.** Nano 4B can miss a name; that's why there are pattern detectors, a
   second classification pass and a deterministic leak floor. The privacy log shows exactly what
   was sent, so a miss is visible.

@@ -278,14 +278,16 @@ describe("rotation transaction boundaries", () => {
     await expect(database.pull(id, [entry], 1, 0, oldKey)).rejects.toThrow();
     expect(await database.entries()).toEqual(before);
   });
-  it("aborts rotation if a newer pull committed after its snapshot was read", async () => {
+  it.each(["pull", "restore"])("aborts rotation if a newer %s committed after its snapshot was read", async (operation) => {
     const { database } = await import("../src/persistence.ts");
     const id = "a".repeat(32), key = generateCaseKey();
     const snapshot = { caseId: id, caseKey: key, memberId: "b".repeat(32), cursor: 0 };
     await database.putWorkspace(snapshot);
     const evidence = newEvidence(id, snapshot.memberId, { kind: "note", title: "newly pulled", body: "must survive" });
     const envelope = await sealRecord(key, "evidence", evidence);
-    await database.pull(id, [{ caseId: id, collection: "evidence", record: evidence, envelope }], 1, 0, key);
+    const incoming = [{ caseId: id, collection: "evidence" as const, record: evidence, envelope }];
+    if (operation === "pull") await database.pull(id, incoming, 1, 0, key);
+    else await database.restore(snapshot, incoming, []);
     const before = await database.entries();
     await expect(database.rotate(snapshot, [], { ...snapshot, caseKey: generateCaseKey() }, [], [])).rejects.toThrow();
     expect(await database.entries()).toEqual(before);

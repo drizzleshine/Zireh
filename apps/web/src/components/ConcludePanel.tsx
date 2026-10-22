@@ -31,7 +31,8 @@ export function ConcludePanel({ caseId }: { caseId: string }) {
   const clean = !!preview && findLeaks(publicationTexts(preview.publication).join("\n"), rec.pseudonyms).length === 0;
   const scanned = !!snapshot && scannedHash === snapshot.hash;
   const approved = !!preview && reviewedHash === preview.hash;
-  const canDownload = !hideNames || (scanned && approved && clean);
+  const unsaved = !!current && (outcome !== current.outcome || summary.trim() !== current.summary || openQuestion !== current.openQuestion || [...picked].sort().join() !== [...current.findingIds].sort().join());
+  const canDownload = !unsaved && (!hideNames || (scanned && approved && clean));
   const disputedPicked = findings.filter((f) => picked.includes(f.id) && f.tally.status === "disputed").length;
 
   return (
@@ -58,11 +59,11 @@ export function ConcludePanel({ caseId }: { caseId: string }) {
         </div>
         <div className="field">
           <label htmlFor="c-summary">{OUTCOMES.find((o) => o.id === outcome)!.ask}</label>
-          <textarea id="c-summary" className="textarea" required value={summary} onChange={(e) => setSummary(e.target.value)} />
+          <textarea id="c-summary" className="textarea" required maxLength={10_000} value={summary} onChange={(e) => setSummary(e.target.value)} />
         </div>
         <div className="field">
           <label htmlFor="c-open">{outcome === "resolved" ? "Anything left open?" : "What would settle it?"}</label>
-          <input id="c-open" className="input" required={outcome !== "resolved"} value={openQuestion} onChange={(e) => setOpenQuestion(e.target.value)} />
+          <input id="c-open" className="input" maxLength={2000} required={outcome !== "resolved"} value={openQuestion} onChange={(e) => setOpenQuestion(e.target.value)} />
         </div>
         <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
           <legend style={{ fontWeight: 600, fontSize: "var(--s-13)", marginBottom: 6 }}>Findings this rests on</legend>
@@ -137,7 +138,7 @@ export function ConcludePanel({ caseId }: { caseId: string }) {
                 )}
                 <button
                   className="btn small"
-                  disabled={scan === "running"}
+                  disabled={scan === "running" || unsaved}
                   onClick={async () => {
                     setScan("running");
                     setScannedHash(undefined);
@@ -160,14 +161,14 @@ export function ConcludePanel({ caseId }: { caseId: string }) {
             )}
             <PublicationPreview publication={preview.publication} />
             {hideNames && <div className="field">
-              <p className="level-note">{!scanned ? "Scan this version before exporting. Review every field above; scanning can miss identifying details." : !clean ? "A hidden value remains in this page. Edit its description and scan again." : approved ? "This exact version is reviewed." : "Read the complete page, then confirm it is safe to share."}</p>
-              <button className="btn small" disabled={!scanned || !clean || approved} onClick={() => setReviewedHash(preview.hash)}>Looks right</button>
+              <p className="level-note">{unsaved ? "Save your conclusion edits before scanning or exporting." : !scanned ? "Scan this version before exporting. Review every field above; scanning can miss identifying details." : !clean ? "A hidden value remains in this page. Edit its description and scan again." : approved ? "This exact version is reviewed." : "Read the complete page, then confirm it is safe to share."}</p>
+              <button className="btn small" disabled={unsaved || !scanned || !clean || approved} onClick={() => setReviewedHash(preview.hash)}>Looks right</button>
             </div>}
             <div className="meta">
               <span title={preview.hash}>Page hash sha256 {preview.hash.slice(0, 16)}…</span>
               <span style={{ flex: 1 }} />
               <button className="btn primary small" disabled={!canDownload} onClick={() => {
-                if (!current) return;
+                if (!current || unsaved) return;
                 const plain = buildPublication(rec, { hideNames: false, publishedAt: current.createdAt });
                 const final = buildPublication(rec, { hideNames, publishedAt: current.createdAt });
                 if (hideNames && (scannedHash !== plain.hash || reviewedHash !== final.hash || findLeaks(publicationTexts(final.publication).join("\n"), rec.pseudonyms).length)) {

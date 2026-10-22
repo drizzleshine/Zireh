@@ -2,6 +2,8 @@ import { fromBase64Url, toBase64Url, utf8ToBytes } from "./bytes.ts";
 import { openJson, sealJson, type Sealed } from "./box.ts";
 import { randomBytes } from "./random.ts";
 
+export const MAX_BACKUP_BYTES = 64 * 1024 * 1024;
+
 export interface EncryptedBackup {
   readonly v: 1;
   readonly kdf: "PBKDF2-SHA256";
@@ -21,11 +23,13 @@ async function backupKey(passphrase: string, salt: string): Promise<string> {
 export async function encryptBackup(value: unknown, passphrase: string): Promise<EncryptedBackup> {
   const salt = toBase64Url(randomBytes(32));
   const box = await sealJson(await backupKey(passphrase, salt), value, context(salt));
-  return { v: 1, kdf: "PBKDF2-SHA256", iterations: 600000, salt, box };
+  const encrypted = { v: 1, kdf: "PBKDF2-SHA256", iterations: 600000, salt, box } as const;
+  if (JSON.stringify(encrypted).length > MAX_BACKUP_BYTES) throw new Error("Encrypted backup exceeds 64 MiB; reduce the case size before exporting");
+  return encrypted;
 }
 export async function decryptBackup(value: unknown, passphrase: string): Promise<unknown> {
   const data = value as Partial<EncryptedBackup> | null;
-  if (!data || data.v !== 1 || data.kdf !== "PBKDF2-SHA256" || data.iterations !== 600000 || typeof data.salt !== "string" || data.box?.v !== 1 || typeof data.box.iv !== "string" || typeof data.box.ct !== "string" || data.box.ct.length > 64 * 1024 * 1024) throw new Error("Invalid or unsupported backup file");
+  if (!data || data.v !== 1 || data.kdf !== "PBKDF2-SHA256" || data.iterations !== 600000 || typeof data.salt !== "string" || data.box?.v !== 1 || typeof data.box.iv !== "string" || typeof data.box.ct !== "string" || data.box.ct.length > MAX_BACKUP_BYTES) throw new Error("Invalid or unsupported backup file");
   try { return await openJson(await backupKey(passphrase, data.salt), data.box, context(data.salt)); }
   catch { throw new Error("Could not decrypt this backup. Check the passphrase and file."); }
 }
