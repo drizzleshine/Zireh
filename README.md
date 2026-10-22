@@ -28,7 +28,7 @@ Everything up to "send" runs on your computer, using **NVIDIA Nemotron 3 Nano 4B
 | 4 | **Leak check** | The local model plays the provider: "what could I infer about this person?" Risky pieces are generalized once, then blocked. A deterministic floor blocks any piece containing a hidden value, whatever the model says. |
 | 5 | **Decoys** | Plausible cover questions on unrelated topics. Near-duplicates and decoys with odd placeholders are rejected, because they'd point at the real question. |
 | 6 | **Send** | Every piece, real or decoy, goes out on **its own Tor circuit**, paid with **its own unlinkable ecash coins**, to the relay's **onion service**. |
-| 7 | **Reassemble** | Decoy answers are discarded; real answers are combined locally with citations that are checked in code, and the hidden names are put back. |
+| 7 | **Reassemble** | Decoy answers are excluded from reassembly; real answers are combined locally with citations checked for existing answer IDs (not factual support), and the hidden names are put back. |
 
 ![Research view](docs/screenshots/research.png)
 
@@ -65,15 +65,16 @@ Everything up to "send" runs on your computer, using **NVIDIA Nemotron 3 Nano 4B
   and time metadata, and you can mark faces, plates or signs to pixelate them first.
 - **Findings page**: export a single self-contained HTML page with a SHA-256 content hash, with
   names hidden (using the same descriptions the AI saw) or shown.
-- **Privacy log**: every payload that left the computer, exactly as sent, with its hash and cost.
+- **Privacy log**: paid research and search requests are recorded before sending, with the complete serialized body, its hash, attempt status and settled cost. Failed attempts remain visible; recovery updates the same request ID.
 - **Fictional demo case** to try everything without real material.
 
 ![Case board](docs/screenshots/board.png)
 
 ## Use it from any AI tool
 
-The daemon also speaks the OpenAI API, so agent harnesses, editors and scripts can route
-through the full privacy pipeline by changing one URL:
+The daemon offers a non-streaming OpenAI-compatible text adapter. Editors and scripts that
+use plain text chat can route through the privacy pipeline by changing one URL. Tool calls
+and vision are unsupported; `stream` is ignored and the adapter returns one JSON response:
 
 ```bash
 export OPENAI_BASE_URL=http://127.0.0.1:7878/v1
@@ -87,7 +88,10 @@ Tor, and answered with names restored. Every request shows up in the privacy log
 
 ## Payments: per-token billing without identity
 
-1. Top up any amount with a shielded Zcash payment to a fresh address.
+The current watcher is simulated: no real ZEC moves. The demo exercises quotes, blind minting
+and per-token settlements; real chain intake remains unimplemented.
+
+1. Request a quote and mark the simulated payment as confirmed.
 2. The relay issues **blind-signed ecash coins** (Cashu-style BDHKE, verified against the Cashu
    NUT-00 test vectors). The relay can't link coins to the payment or to each other.
 3. Each call pays the **worst case** (input bound + `max_tokens`); the relay returns **change**
@@ -96,6 +100,15 @@ Tor, and answered with names restored. Every request shows up in the privacy log
    overcharges, including hidden reasoning tokens beyond the cap you set.
 5. Dropped connections never cost twice: calls are idempotent by request id and recovered
    automatically.
+
+
+Paid-provider demo safety: the current payment watcher is simulated. Setting `NEBIUS_API_KEY`
+or `TAVILY_API_KEY` requires `RELAY_DEMO=1`. Demo top-ups default to at most 5,000,000 credits
+per quote and 20,000,000 credits per UTC day. A separate daily budget reserves each provider
+call's maximum charge before spending coins. Both daily counters persist across restarts.
+`RELAY_DEMO_QUOTE_LIMIT` and `RELAY_DEMO_DAILY_LIMIT` configure those ceilings. The relay binds
+to `127.0.0.1`; optional Tor onion exposure retains that local binding. This is a capped demo,
+not a real Zcash payment service.
 
 ## NVIDIA Nemotron and Nebius Token Factory
 
@@ -152,8 +165,8 @@ pnpm dev                      # Tor mode: relay and sync host as onion services
 `pnpm dev --direct` skips Tor for fast local iteration; the UI shows Tor as off.
 
 ```bash
-pnpm check        # layer check + typecheck + 110 tests
-pnpm smoke:tor    # live: three requests on three circuits, three different exits
+pnpm check        # layer check + typecheck + 153 tests
+pnpm smoke:tor    # live: three independently isolated requests through Tor
 ```
 
 ## Measured on an M1 MacBook (8 GB)
@@ -177,8 +190,10 @@ pnpm smoke:tor    # live: three requests on three circuits, three different exit
   hiding is manual (mark and pixelate); the local model is text-only.
 - **The device is the trust boundary.** Case keys and coins live unencrypted in this browser's
   storage and the daemon's data folder; protect the computer (disk encryption, screen lock).
-- **Pseudonym tables merge by union.** If a teammate's device still has a value marked for
-  hiding, it can come back after you chose "Don't hide". Hiding more is the safe failure.
+- **Concurrent edits use authenticated record revisions.** Devices reject older or repeated
+  versions they have already seen. A newly joined device can still be shown an older authentic
+  history until it receives a newer checkpoint from another member. Concurrent edits to the
+  same record use a deterministic revision order; they are not merged field by field.
 - **Small-model judgment.** Nano 4B can miss a name; that's why there are pattern detectors, a
   second classification pass and a deterministic leak floor. The privacy log shows exactly what
   was sent, so a miss is visible.
@@ -206,11 +221,3 @@ Track: **Personal AI**. All code in this repository was written during the submi
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
-Paid-provider demo safety: the current payment watcher is simulated. Setting `NEBIUS_API_KEY`
-or `TAVILY_API_KEY` requires `RELAY_DEMO=1`. Demo top-ups default to at most 5,000,000 credits
-per quote and 20,000,000 credits per UTC day. A separate daily budget reserves each provider
-call's maximum charge before spending coins. Both daily counters persist across restarts.
-`RELAY_DEMO_QUOTE_LIMIT` and `RELAY_DEMO_DAILY_LIMIT` configure those ceilings. The relay binds
-to `127.0.0.1`; optional Tor onion exposure retains that local binding. This is a capped demo,
-not a real Zcash payment service.
