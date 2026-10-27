@@ -301,7 +301,8 @@ describe("F13 truthful attempted payloads", () => {
     const call = await s.relay.prepareChat(MODEL, [{ role: "user", content: "x".repeat(3000) }], 10);
     await expect(s.relay.send(call)).rejects.toMatchObject({ code: "network" });
     expect(s.ledger.receipts()).toMatchObject([{ id: call.requestId, state: "failed" }]);
-    const { recovered } = await s.relay.recover();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_001);
+    const { recovered } = await s.relay.recover().finally(() => clock.mockRestore());
     expect(recovered).toHaveLength(1);
     const receipts = s.ledger.receipts();
     expect(receipts).toHaveLength(1);
@@ -459,5 +460,27 @@ describe("G1 whole-plan allocation and scheduling", () => {
     expect(s.seen).toHaveLength(0);
     expect(s.relay.pending.list()).toHaveLength(0);
     expect(s.wallet.balance).toBe(1_048_576);
+  });
+});
+
+describe("G2 dispute API", () => {
+  it("scopes stakes to the case, supports one retry and keeps written-off receipts", async () => {
+    const s = setup();
+    await topUp(s.call, 65_536);
+    const call = await s.relay.prepareChat(MODEL, [{ role: "user", content: "question" }], 100, { role: "real", caseId: "case-a" });
+    s.relay.pending.save({ ...call, status: "disputed", dispute: "Settlement disputed: missing change" });
+    const before = await (await s.call("/api/receipts?caseId=case-a")).json();
+    expect(before.disputes).toMatchObject([{ requestId: call.requestId, amount: 65_536 }]);
+    expect((await (await s.call("/api/receipts?caseId=other")).json()).disputes).toHaveLength(0);
+    expect((await s.call(`/api/disputes/${call.requestId}/retry`, {})).status).toBe(200);
+    expect(s.seen).toHaveLength(1);
+    expect((await s.call(`/api/disputes/${call.requestId}/retry`, {})).status).toBe(404);
+    const next = await s.relay.prepareChat(MODEL, [{ role: "user", content: "another question" }], 100, { role: "real", caseId: "case-a" });
+    s.relay.pending.save({ ...next, status: "disputed", dispute: "Settlement disputed: invalid signature" });
+    expect((await s.call(`/api/disputes/${next.requestId}/write-off`, {})).status).toBe(200);
+    const after = await (await s.call("/api/receipts?caseId=case-a")).json();
+    expect(after.disputes).toHaveLength(0);
+    expect(after.writtenOff).toMatchObject([{ requestId: next.requestId }]);
+    expect(after.receipts).toContainEqual(expect.objectContaining({ id: next.requestId, state: "written-off" }));
   });
 });

@@ -4,7 +4,7 @@ import type { FetchLike, ModelPrice } from "@zireh/schema";
 import { directTransport } from "@zireh/tor";
 import { generateMintKeys, memoryProofStore, memorySpentStore, Mint, prepareTopup, Wallet } from "@zireh/wallet";
 import { fixedRate, simulatedWatcher } from "@zireh/zcash";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createRelay, memoryResponseStore } from "@zireh/relay-core";
 
 const MODEL = "nvidia/nemotron-3-super-120b-a12b";
@@ -84,7 +84,8 @@ describe("relay + client", () => {
     await expect(lossy.send(call)).rejects.toMatchObject({ code: "network" });
     expect(lossy.pending.list()).toHaveLength(1);
 
-    const { recovered } = await lossy.recover();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_001);
+    const { recovered } = await lossy.recover().finally(() => clock.mockRestore());
     expect(recovered).toHaveLength(1);
     expect(wallet.balance).toBe(100_000 - recovered[0]!.charged);
   });
@@ -177,7 +178,8 @@ describe("F09 atomic client money movement", () => {
     await expect(broken.send(call)).rejects.toThrow("injected completion failure");
     expect(s.wallet.balance).toBe(reservedBalance);
     expect(s.client.pending.list()).toHaveLength(1);
-    const { recovered } = await s.client.recover();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_001);
+    const { recovered } = await s.client.recover().finally(() => clock.mockRestore());
     expect(recovered).toHaveLength(1);
     expect(s.wallet.balance).toBe(65_536 - recovered[0]!.charged);
     expect(s.client.pending.list()).toHaveLength(0);
@@ -213,7 +215,7 @@ describe("F08 settlement conservation", () => {
     await expect(client.send(call)).rejects.toMatchObject({ code: "settlement_disputed" });
     expect(s.wallet.balance).toBe(reservedBalance);
     expect(client.pending.list()).toMatchObject([{ requestId: call.requestId, status: "disputed" }]);
-    const { recovered } = await s.client.recover();
+    const recovered = [await s.client.retryDispute(call.requestId)];
     expect(recovered).toHaveLength(1);
     expect(s.wallet.balance).toBe(65_536 - recovered[0]!.charged);
   });
@@ -225,7 +227,7 @@ describe("F07 durable settlement recovery", () => {
     const s = setup(scriptedModel(() => "private answer"), memoryResponseStore(15 * 60_000, () => now));
     await fund(s.client, s.relayFetch, 524_288);
     let drop = true;
-    const client = new RelayClient({ baseUrl: "http://relay.test", wallet: s.wallet,
+    const client = new RelayClient({ baseUrl: "http://relay.test", wallet: s.wallet, now: () => now,
       transport: directTransport(async (url, init) => {
         const res = await s.handler(new Request(url, init));
         if (drop && url.endsWith("/v1/chat")) { drop = false; throw new Error("lost reply"); }
@@ -316,4 +318,71 @@ it("G1 recovery never submits unsent plan reservations and startup returns their
   reopened.discardUnsent();
   expect(reopened.pending.list()).toHaveLength(0);
   expect(s.wallet.balance).toBe(1_048_576);
+});
+
+describe("G2 dispute controls and recovery backoff", () => {
+  it("skips disputed calls automatically, rechecks once manually, and retains a written-off journal", async () => {
+    const s = setup();
+    await fund(s.client, s.relayFetch, 65_536);
+    let chats = 0;
+    const client = new RelayClient({ baseUrl: "http://relay.test", wallet: s.wallet, transport: directTransport(async (url, init) => {
+      const response = await s.relayFetch(url, init);
+      if (!url.endsWith("/v1/chat")) return response;
+      chats++;
+      const body = await response.json();
+      body.settlement.change = [];
+      return Response.json(body);
+    }) });
+    const call = await client.prepareChat(MODEL, ask, 100);
+    await expect(client.send(call)).rejects.toMatchObject({ code: "settlement_disputed" });
+    const heldBalance = s.wallet.balance;
+    await client.recover();
+    expect(chats).toBe(1);
+    await expect(client.retryDispute(call.requestId)).rejects.toMatchObject({ code: "settlement_disputed" });
+    expect(chats).toBe(2);
+    client.writeOffDispute(call.requestId);
+    expect(client.pending.list()).toHaveLength(0);
+    expect(s.wallet.balance).toBe(heldBalance);
+    expect(s.wallet.money.list("written-off:")).toMatchObject([{ call: { requestId: call.requestId }, amount: 65_536 }]);
+    await client.recover();
+    expect(chats).toBe(2);
+    await expect(client.send(call)).rejects.toThrow(/written off/i);
+  });
+
+  it("persists exponential retry deadlines across clients and caps the wait at one hour", async () => {
+    const s = setup();
+    await fund(s.client, s.relayFetch, 65_536);
+    let now = 1_000_000;
+    let chats = 0;
+    const transport = directTransport(async (url, init) => {
+      if (url.endsWith("/v1/chat")) { chats++; throw new Error("offline"); }
+      return s.relayFetch(url, init);
+    });
+    const options = { baseUrl: "http://relay.test", wallet: s.wallet, transport, now: () => now };
+    const first = new RelayClient(options);
+    const call = await first.prepareChat(MODEL, ask, 100);
+    await expect(first.send(call)).rejects.toMatchObject({ code: "network" });
+    const reopened = new RelayClient(options);
+    for (const delay of [60_000, 120_000, 240_000, 480_000, 960_000, 1_920_000, 3_600_000, 3_600_000]) {
+      const before = chats;
+      now += delay - 1;
+      await reopened.recover();
+      expect(chats).toBe(before);
+      now++;
+      await reopened.recover();
+      expect(chats).toBe(before + 1);
+    }
+  });
+});
+
+it("G2 write-off rolls back when removing pending fails", async () => {
+  const s = setup();
+  await fund(s.client, s.relayFetch, 65_536);
+  const call = await s.client.prepareChat(MODEL, ask, 100);
+  s.client.pending.save({ ...call, status: "disputed", dispute: "Settlement disputed" });
+  const client = new RelayClient({ baseUrl: "http://relay.test", wallet: s.wallet, transport: directTransport(s.relayFetch),
+    pending: { ...s.client.pending, remove() { throw new Error("journal unavailable"); } } });
+  expect(() => client.writeOffDispute(call.requestId)).toThrow("journal unavailable");
+  expect(s.wallet.money.list("written-off:")).toHaveLength(0);
+  expect(s.client.pending.list()).toHaveLength(1);
 });

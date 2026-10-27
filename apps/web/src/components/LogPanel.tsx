@@ -8,10 +8,27 @@ type Data = Awaited<ReturnType<typeof api.receipts>>;
 export function LogPanel({ caseId }: { caseId: string }) {
   const [data, setData] = useState<Data | undefined>();
   const [error, setError] = useState<string | undefined>();
+  const [busy, setBusy] = useState<string | undefined>();
+  const [actionError, setActionError] = useState<string | undefined>();
+  const [confirmLoss, setConfirmLoss] = useState<string | undefined>();
   const [scope, setScope] = useState<"case" | "all">("case");
   useEffect(() => {
     api.receipts(scope === "case" ? caseId : undefined).then(setData, (e: Error) => setError(e.message));
   }, [caseId, scope]);
+
+  async function resolveDispute(requestId: string, action: "retry" | "write-off") {
+    setBusy(requestId); setActionError(undefined);
+    try {
+      if (action === "retry") await api.retryDispute(requestId);
+      else await api.writeOffDispute(requestId);
+      setConfirmLoss(undefined);
+    } catch (e) { setActionError((e as Error).message); }
+    finally {
+      try { setData(await api.receipts(scope === "case" ? caseId : undefined)); }
+      catch (e) { setActionError((e as Error).message); }
+      setBusy(undefined);
+    }
+  }
 
   if (error) return <section className="panel"><p className="error">{error}</p></section>;
   if (!data) return <section className="panel">Loading…</section>;
@@ -49,9 +66,21 @@ export function LogPanel({ caseId }: { caseId: string }) {
           <span>overcharges detected</span>
         </div>
       </div>
-      {data.disputes?.map((dispute) => <p className="error" key={dispute.requestId} role="alert">
-        {dispute.reason} Request {dispute.requestId}. Its recovery record is retained; change has not been accepted.
-      </p>)}
+      {actionError && <p className="error" role="alert">{actionError}</p>}
+      {data.disputes?.map((dispute) => <div key={dispute.requestId}>
+        <p className="error" role="alert">{dispute.reason} Request {dispute.requestId}.
+          {" "}{formatUsd(dispute.amount)} ({dispute.amount.toLocaleString()} credits) at stake. Automatic retries are paused.</p>
+        <div className="actions">
+          <button disabled={!!busy} onClick={() => void resolveDispute(dispute.requestId, "retry")}>{busy === dispute.requestId ? "Working…" : "Re-check once"}</button>
+          {confirmLoss === dispute.requestId ? <>
+            <span>Accept this loss permanently? The audit record will be kept.</span>
+            <button disabled={!!busy} onClick={() => void resolveDispute(dispute.requestId, "write-off")}>Accept loss</button>
+            <button disabled={!!busy} onClick={() => setConfirmLoss(undefined)}>Keep dispute</button>
+          </> : <button disabled={!!busy} onClick={() => setConfirmLoss(dispute.requestId)}>Write off…</button>}
+        </div>
+      </div>)}
+      {data.writtenOff?.map((entry) => <p key={entry.requestId}>Written off {formatUsd(entry.amount)} ({entry.amount.toLocaleString()} credits)
+        {" "}on {new Date(entry.at).toLocaleString()}. Request {entry.requestId}. {entry.reason}</p>)}
       {receipts.length === 0 ? (
         <div className="empty">
           <strong>Nothing has been sent yet</strong>
@@ -85,7 +114,7 @@ export function LogPanel({ caseId }: { caseId: string }) {
                   })()}
                   <div className="hash">sha256 {r.payloadSha256}</div>
                   {r.payloadWire && <details><summary>Complete request body</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{r.payloadWire}</pre></details>}
-                  {(r.state === "failed" || r.state === "disputed") && r.error && <div className="error">{r.error}</div>}
+                  {(r.state === "failed" || r.state === "disputed" || r.state === "written-off") && r.error && <div className="error">{r.error}</div>}
                 </td>
                 <td>
                   {r.destination === "local" ? "Answered locally" : r.role === "decoy" ? "Decoy" : r.destination === "search" ? "Web search" : "Question"}

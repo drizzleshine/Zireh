@@ -26,6 +26,8 @@ export interface PendingCall {
   readonly audit?: { readonly role: "real" | "decoy"; readonly caseId?: string; readonly runId?: string; readonly pieceId?: string };
   readonly status?: "reserved" | "disputed" | "settlement-pending";
   readonly dispute?: string;
+  readonly attempts?: number;
+  readonly nextRetryAt?: number;
   readonly maxCharge?: number;
   readonly kind: "chat" | "search";
   readonly path: string;
@@ -71,7 +73,15 @@ export interface RelayObserver {
   attempt(call: PendingCall, circuit: string): void;
   result(call: PendingCall, result: CallResult, recovered: boolean): void;
   failure(call: PendingCall, error: Error, charged?: number): void;
+  writtenOff?(call: PendingCall, amount: number): void;
 }
+export interface WrittenOff {
+  readonly call: PendingCall;
+  readonly amount: number;
+  readonly at: number;
+  readonly reported: boolean;
+}
+
 export interface Completion {
   readonly call: PendingCall;
   readonly outcome: CallResult | { error: string; charged: number };
@@ -97,6 +107,7 @@ export interface RelayClientOptions {
   readonly transport: Transport;
   readonly wallet: Wallet;
   readonly pending?: PendingStore;
+  readonly now?: () => number;
 }
 
 /**
@@ -106,6 +117,7 @@ export interface RelayClientOptions {
  */
 export class RelayClient {
   private observer: RelayObserver | undefined;
+  private readonly active = new Map<string, Promise<CallResult>>();
   observe(observer: RelayObserver): void { this.observer = observer; }
 
   private infoCache: RelayInfo | undefined;
@@ -305,7 +317,16 @@ export class RelayClient {
     });
   }
 
-  async send(call: PendingCall, circuitTag: string = newCircuitTag(), recovered = false): Promise<CallResult> {
+  send(call: PendingCall, circuitTag: string = newCircuitTag(), recovered = false): Promise<CallResult> {
+    const running = this.active.get(call.requestId);
+    if (running) return running;
+    const promise = this.sendOnce(call, circuitTag, recovered).finally(() => this.active.delete(call.requestId));
+    this.active.set(call.requestId, promise);
+    return promise;
+  }
+
+  private async sendOnce(call: PendingCall, circuitTag: string, recovered: boolean): Promise<CallResult> {
+    if (this.options.wallet.money.get(`written-off:${call.requestId}`)) throw new Error("This request was written off; it cannot be resent");
     const completed = this.options.wallet.money.get<Completion>(`completion:${call.requestId}`);
     if (completed) {
       this.notifyCompletion(call.requestId, recovered);
@@ -355,9 +376,45 @@ export class RelayClient {
           this.pending.save({ ...call, status: "settlement-pending" });
         }
       }
+      const saved = this.pending.list().find((pending) => pending.requestId === call.requestId);
+      if (saved && saved.status !== "disputed") {
+        const attempts = (saved.attempts ?? 0) + 1;
+        const delay = Math.min(3_600_000, 60_000 * 2 ** Math.min(attempts - 1, 6));
+        this.pending.save({ ...saved, attempts, nextRetryAt: (this.options.now ?? Date.now)() + delay });
+      }
       this.observer?.failure(call, err as Error);
       throw err; // retryable errors keep the call pending for `recover`
     }
+  }
+
+  /** A disputed settlement is only rechecked by this explicit, single-send action. */
+  async retryDispute(requestId: string): Promise<CallResult> {
+    const call = this.pending.list().find((pending) => pending.requestId === requestId && pending.status === "disputed");
+    if (!call) throw new RelayCallError("not_found", "No unresolved dispute for this request", false);
+    return this.send(call);
+  }
+
+  /** Accept the full locked stake as a loss, retaining evidence without returning spent coins. */
+  writeOffDispute(requestId: string): void {
+    if (this.active.has(requestId)) throw new Error("Wait for the manual re-check to finish");
+    const money = this.options.wallet.money;
+    money.atomically(() => {
+      const call = this.pending.list().find((pending) => pending.requestId === requestId && pending.status === "disputed");
+      if (!call) throw new RelayCallError("not_found", "No unresolved dispute for this request", false);
+      money.put(`written-off:${requestId}`, { call, amount: sum(call.proofs), at: (this.options.now ?? Date.now)(), reported: false } satisfies WrittenOff);
+      this.pending.remove(requestId);
+    });
+    this.notifyWrittenOff(requestId);
+  }
+
+  writtenOff(): WrittenOff[] { return this.options.wallet.money.list<WrittenOff>("written-off:"); }
+
+  private notifyWrittenOff(requestId: string): void {
+    const key = `written-off:${requestId}`;
+    const entry = this.options.wallet.money.get<WrittenOff>(key);
+    if (!entry || entry.reported || !this.observer?.writtenOff) return;
+    this.observer.writtenOff(entry.call, entry.amount);
+    this.options.wallet.money.put(key, { ...entry, reported: true });
   }
 
   /** Credit change once: only a call that is still pending can be settled. */
@@ -405,6 +462,7 @@ export class RelayClient {
     const recovered: CallResult[] = [];
     const failed: RelayCallError[] = [];
     let topups = 0;
+    for (const entry of this.writtenOff()) this.notifyWrittenOff(entry.call.requestId);
     for (const completion of this.completions()) {
       if (!completion.reported) this.notifyCompletion(completion.call.requestId, true);
     }
@@ -417,7 +475,7 @@ export class RelayClient {
       catch (error) { if (error instanceof RelayCallError) failed.push(error); else throw error; }
     }
     for (const call of this.pending.list()) {
-      if (call.status === "reserved") continue;
+      if (call.status === "reserved" || call.status === "disputed" || (call.nextRetryAt ?? 0) > (this.options.now ?? Date.now)() || this.active.has(call.requestId)) continue;
       try {
         recovered.push(await this.send(call, newCircuitTag(), true));
       } catch (err) {

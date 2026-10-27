@@ -21,6 +21,10 @@ export function observePayments(relay: RelayClient, ledger: Ledger): void {
       ledger.updateReceipt(call.requestId, { state: recovered ? "recovered" : "settled", charged: result.charged,
         ...(result.kind === "chat" ? { expectedCharge: result.bill.expected, overcharged: result.bill.overcharged } : {}) });
     },
+    writtenOff(call, amount) {
+      ensure(call);
+      ledger.updateReceipt(call.requestId, { state: "written-off", charged: amount, error: call.dispute ?? "Dispute written off by the user" });
+    },
     failure(call, error, charged) {
       ensure(call);
       ledger.updateReceipt(call.requestId, { state: error.message.includes("disputed") || error instanceof RelayCallError && error.code === "settlement_disputed" ? "disputed" : "failed",

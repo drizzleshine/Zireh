@@ -162,7 +162,8 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
     "GET /api/receipts": async (_req, url) => {
       const caseId = url.searchParams.get("caseId") ?? undefined;
       const receipts = deps.ledger.receipts().filter((r) => !caseId || r.caseId === caseId);
-      return json(200, { receipts, summary: deps.ledger.summary(caseId), disputes: deps.relay.pending.list().filter((call) => call.status === "disputed").map((call) => ({ requestId: call.requestId, reason: call.dispute })) });
+      return json(200, { receipts, summary: deps.ledger.summary(caseId), disputes: deps.relay.pending.list().filter((call) => call.status === "disputed" && (!caseId || call.audit?.caseId === caseId)).map((call) => ({ requestId: call.requestId, reason: call.dispute, amount: call.proofs.reduce((n, proof) => n + proof.amount, 0) })),
+        writtenOff: deps.relay.writtenOff().filter((entry) => !caseId || entry.call.audit?.caseId === caseId).map((entry) => ({ requestId: entry.call.requestId, reason: entry.call.dispute, amount: entry.amount, at: entry.at })) });
     },
 
     /** Server-sent events: each pipeline stage as it happens, then the final answer. */
@@ -257,7 +258,14 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
     const url = new URL(req.url);
     const cancelMatch = req.method === "POST" && /^\/api\/research\/([0-9a-f]{32})\/cancel$/.exec(url.pathname);
     const sendMatch = req.method === "POST" && /^\/api\/research\/([0-9a-f]{32})\/send$/.exec(url.pathname);
-    const route = sendMatch ? async () => {
+    const disputeMatch = req.method === "POST" && /^\/api\/disputes\/([0-9a-f]{32})\/(retry|write-off)$/.exec(url.pathname);
+    const route = disputeMatch ? async () => {
+      const [, requestId, action] = disputeMatch;
+      if (!deps.relay.pending.list().some((call) => call.requestId === requestId && call.status === "disputed")) return json(404, { error: "No unresolved dispute for this request" });
+      if (action === "write-off") deps.relay.writeOffDispute(requestId!);
+      else await deps.relay.retryDispute(requestId!);
+      return json(200, { ok: true });
+    } : sendMatch ? async () => {
       const approve = approvals.get(sendMatch[1]!);
       if (!approve) return json(409, { error: "This run is not waiting for review" });
       approvals.delete(sendMatch[1]!);

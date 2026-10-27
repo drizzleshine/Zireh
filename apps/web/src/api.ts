@@ -39,7 +39,9 @@ export const api = {
   simulatePayment: (quoteId: string) => call<{ ok: true }>("/api/wallet/simulate-payment", { quoteId }),
   redeem: (quote: TopupQuote) => call<{ balance: number }>("/api/wallet/redeem", quote),
   receipts: (caseId?: string) =>
-    call<{ receipts: Receipt[]; disputes: { requestId: string; reason?: string }[]; summary: { calls: number; real: number; decoys: number; spent: number; overcharges: number } }>(`/api/receipts${caseId ? `?caseId=${caseId}` : ""}`),
+    call<{ receipts: Receipt[]; disputes: { requestId: string; reason?: string; amount: number }[]; writtenOff: { requestId: string; reason?: string; amount: number; at: number }[]; summary: { calls: number; real: number; decoys: number; spent: number; overcharges: number } }>(`/api/receipts${caseId ? `?caseId=${caseId}` : ""}`),
+  retryDispute: (requestId: string) => call<{ ok: true }>(`/api/disputes/${requestId}/retry`, {}),
+  writeOffDispute: (requestId: string) => call<{ ok: true }>(`/api/disputes/${requestId}/write-off`, {}),
   search: (query: string, table: readonly Pseudonym[], caseId?: string) =>
     call<{ redactedQuery: string; hits: { title: string; url: string; content: string }[]; table: Pseudonym[]; charged: number }>("/api/search", { query, table, caseId }),
   redact: (texts: string[], table: readonly Pseudonym[]) => call<{ table: Pseudonym[] }>("/api/redact", { texts, table }),
