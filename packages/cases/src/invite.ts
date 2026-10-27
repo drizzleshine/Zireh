@@ -1,4 +1,4 @@
-import { SyncHost } from "@zireh/schema";
+import { InviteSyncHost } from "@zireh/schema";
 import { fromBase64Url, toBase64Url, utf8ToBytes, bytesToUtf8, sha256Hex } from "@zireh/crypto";
 
 /**
@@ -15,7 +15,7 @@ export interface Invite {
   readonly keyEpoch?: number;
 }
 
-export const inviteFragment = (invite: Invite): string => (invite.syncId || invite.requiresSignatures || invite.host) ? `zp2.${toBase64Url(utf8ToBytes(JSON.stringify({ ...invite, ...(invite.host ? { host: SyncHost.parse(invite.host) } : {}), syncId: invite.syncId ?? invite.caseId, keyEpoch: invite.keyEpoch ?? 0 })))}` : `zp1.${invite.caseId}.${invite.caseKey}`;
+export const inviteFragment = (invite: Invite): string => (invite.syncId || invite.requiresSignatures || invite.host) ? `zp2.${toBase64Url(utf8ToBytes(JSON.stringify({ ...invite, ...(invite.host ? { host: InviteSyncHost.parse(invite.host) } : {}), syncId: invite.syncId ?? invite.caseId, keyEpoch: invite.keyEpoch ?? 0 })))}` : `zp1.${invite.caseId}.${invite.caseKey}`;
 
 export function parseInvite(text: string): Invite | undefined {
   if (text.length > 4096) return undefined;
@@ -25,7 +25,7 @@ export function parseInvite(text: string): Invite | undefined {
       const invite = JSON.parse(bytesToUtf8(fromBase64Url(v2[1]!))) as Invite;
       if (!/^[0-9a-f]{32}$/.test(invite.caseId) || !/^[0-9a-f]{32}$/.test(invite.syncId ?? "") || fromBase64Url(invite.caseKey).length !== 32 || !Number.isSafeInteger(invite.keyEpoch) || invite.keyEpoch! < 0) return undefined;
       if (invite.requiresSignatures !== undefined && typeof invite.requiresSignatures !== "boolean") return undefined;
-      if (invite.host !== undefined) { const host = SyncHost.safeParse(invite.host); if (!host.success) return undefined; return { ...invite, host: host.data }; }
+      if (invite.host !== undefined) { const host = InviteSyncHost.safeParse(invite.host); if (!host.success) return undefined; return { ...invite, host: host.data }; }
       return invite;
     } catch { return undefined; }
   }

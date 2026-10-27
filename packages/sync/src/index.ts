@@ -137,7 +137,11 @@ export class SyncClient {
       headers: { "content-type": "application/json", "x-case-token": token },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    if (!res.ok) throw new SyncError(`sync host: HTTP ${res.status} ${await res.text()}`, res.status);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      console.error(`sync host error: HTTP ${res.status} ${detail.slice(0, 500)}`);
+      throw new SyncError(`sync host: HTTP ${res.status}`, res.status);
+    }
     return schema.parse(await res.json());
   }
 

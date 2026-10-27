@@ -9,3 +9,12 @@ export const SyncHost = z.string().max(256).refine((value) => {
       (host === "127.0.0.1" || host === "localhost" || /^[a-z2-7]{56}\.onion$/.test(host));
   } catch { return false; }
 }, "Use a Tor v3 onion URL or a loopback URL without credentials, path, query or fragment").transform((value) => new URL(value).origin);
+
+/** Hosts that may be written into an invite: onion origins only, never loopback. */
+export const InviteSyncHost = z.string().max(256).refine((value) => {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash && url.pathname === "/" &&
+      /^[a-z2-7]{56}\.onion$/.test(url.hostname);
+  } catch { return false; }
+}, "Use a Tor v3 onion URL without credentials, path, query or fragment").transform((value) => new URL(value).origin);

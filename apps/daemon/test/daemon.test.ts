@@ -28,9 +28,10 @@ const local = scriptedModel((messages: readonly ChatMessage[]) => {
   return `local: ${user}`;
 }, "nemotron-3-nano:4b");
 
-function setup(localModel: ChatModel = local, upstreamOverride?: ChatModel, dropChatReply?: () => boolean) {
+function setup(localModel: ChatModel = local, upstreamOverride?: ChatModel, dropChatReply?: () => boolean, syncHandler?: FetchLike) {
   const seen: string[] = []; // every user message that reached the cloud model
   const searches: string[] = [];
+  const fetched: string[] = []; // every outbound URL the daemon attempted
   const upstream = upstreamOverride ?? scriptedModel((messages) => {
     seen.push(messages.at(-1)!.content);
     return "an answer";
@@ -44,6 +45,8 @@ function setup(localModel: ChatModel = local, upstreamOverride?: ChatModel, drop
     responses: memoryResponseStore(),
   });
   const relayFetch: FetchLike = async (url, init) => {
+    fetched.push(String(url));
+    if (syncHandler && !String(url).startsWith("http://relay.test")) return syncHandler(url, init);
     const response = await relayHandler(new Request(url, init));
     if (url.endsWith("/v1/chat") && dropChatReply?.()) throw new Error("lost chat reply");
     return response;
@@ -72,7 +75,7 @@ function setup(localModel: ChatModel = local, upstreamOverride?: ChatModel, drop
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       }),
     );
-  return { call, seen, searches, wallet, ledger, daemon, relay };
+  return { call, seen, searches, fetched, wallet, ledger, daemon, relay };
 }
 
 async function topUp(call: ReturnType<typeof setup>["call"], credits: number) {
@@ -398,7 +401,33 @@ describe("invite-supplied sync destinations", () => {
     const body = { caseId: "a".repeat(32), token: "b".repeat(64), after: 0 };
     expect((await s.call("/api/sync/pull", { ...body, host: "http://169.254.169.254" })).status).toBe(400);
     expect((await s.call("/api/sync/pull", { ...body, host: "http://localhost:8788/secret" })).status).toBe(400);
-    expect((await s.call("/api/sync/pull", { ...body, host: "http://localhost:8788" })).status).toBe(404);
+    expect((await s.call("/api/sync/pull", { ...body, host: "http://localhost:8788" })).status).toBe(400);
+  });
+});
+
+describe("G3 invite sync hosts", () => {
+  it("rejects a loopback host that is not the configured syncUrl without an outbound request", async () => {
+    const s = setup();
+    const body = { caseId: "a".repeat(32), token: "b".repeat(64), after: 0 };
+    const res = await s.call("/api/sync/pull", { ...body, host: "http://127.0.0.1:11434" });
+    expect(res.status).toBe(400);
+    expect(s.fetched).toHaveLength(0);
+  });
+  it("still allows the configured syncUrl", async () => {
+    const s = setup(local, undefined, undefined, async () => Response.json({ records: [], cursor: 0, head: 0 }));
+    const body = { caseId: "a".repeat(32), token: "b".repeat(64), after: 0 };
+    const res = await s.call("/api/sync/pull", { ...body, host: "http://sync.test" });
+    expect(res.status).toBe(200);
+    expect(s.fetched).toHaveLength(1);
+  });
+  it("does not leak the sync host error body in the daemon API response", async () => {
+    const secret = "super-secret-upstream-detail-98765";
+    const s = setup(local, undefined, undefined, async () => new Response(secret, { status: 500 }));
+    const body = { caseId: "a".repeat(32), token: "b".repeat(64), after: 0 };
+    const res = await s.call("/api/sync/pull", { ...body, host: "http://sync.test" });
+    expect(res.status).toBe(500);
+    const text = await res.text();
+    expect(text).not.toContain(secret);
   });
 });
 

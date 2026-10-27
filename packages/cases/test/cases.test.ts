@@ -1,4 +1,4 @@
-import { generateCaseKey, sha256Hex } from "@zireh/crypto";
+import { fromBase64Url, generateCaseKey, toBase64Url, utf8ToBytes, sha256Hex } from "@zireh/crypto";
 import { describe, expect, it } from "vitest";
 import {
   caseToken,
@@ -133,5 +133,13 @@ describe("invite sync-host location", () => {
     for (const host of ["http://169.254.169.254", "http://192.168.1.1", "https://public.example", "http://user@localhost:8788", "http://localhost:8788/path", "http://localhost:8788/?secret=1"]) {
       expect(() => inviteFragment({ caseId: "a".repeat(32), caseKey: generateCaseKey(), host })).toThrow();
     }
+  });
+  it("never writes a loopback host into an invite and rejects one on parse", () => {
+    for (const host of ["http://127.0.0.1:11434", "http://localhost:8788"]) {
+      expect(() => inviteFragment({ caseId: "a".repeat(32), caseKey: generateCaseKey(), host })).toThrow();
+    }
+    const bad = `zp2.${toBase64Url(utf8ToBytes(JSON.stringify({ caseId: "a".repeat(32), caseKey: generateCaseKey(), host: "http://127.0.0.1:11434", syncId: "a".repeat(32), keyEpoch: 0 })))}`;
+    expect(parseInvite(`https://app.test/#${bad}`)).toBeUndefined();
+    expect(fromBase64Url(bad.slice(4)).length).toBeGreaterThan(0);
   });
 });

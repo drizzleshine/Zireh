@@ -1,7 +1,7 @@
 import type { StoredResearch } from "./research-history.ts";
 import { caseToken, inviteFragment, newCase, newMember, type CaseRecords, type Invite } from "@zireh/cases";
 import { MAX_BACKUP_BYTES, canonicalJson, decryptBackup, encryptBackup, fromBase64Url, generateCaseKey, generateMemberKeys, memberIdForKey, signValue, verifyValue, type MemberKeys, randomId } from "@zireh/crypto";
-import { SyncHost, Collections, type Case, type CollectionName, type Member, type PrivacyLevel, type Pseudonym, type RecordOf } from "@zireh/schema";
+import { InviteSyncHost, SyncHost, Collections, type Case, type CollectionName, type Member, type PrivacyLevel, type Pseudonym, type RecordOf } from "@zireh/schema";
 import { compareRevisions, envelopeRevision, LEGACY_REVISION, recordAuthor, rekeyRecord, assertSyncable, takeSyncBatch, openRecord, sealRecord, type RecordSigner, type Envelope } from "@zireh/sync";
 import { get } from "idb-keyval";
 import { database, type StoredRecord, type WorkspaceData } from "./persistence.ts";
@@ -214,7 +214,7 @@ export async function createCase(input: { title: string; question: string; priva
 
 /** Join from an invite: pull the case, then add yourself as a member. */
 export async function joinCase(invite: Invite, memberName: string): Promise<string> {
-  if (invite.host !== undefined) SyncHost.parse(invite.host);
+  if (invite.host !== undefined) InviteSyncHost.parse(invite.host);
   const existing = state.workspaces.find((workspace) => workspace.caseId === invite.caseId);
   if (existing) {
     if (existing.caseKey === invite.caseKey) {
@@ -244,9 +244,11 @@ export async function moveOnBoard(caseId: string, itemId: string, x: number, y: 
 export const inviteLink = async (caseId: string): Promise<string> => {
   const w = workspace(caseId);
   if (w.needsInvite) throw new Error("Ask the creator for an updated invite");
-  const host = SyncHost.parse(w.syncUrl ?? (await api.syncConfig()).host);
-  if (!w.syncUrl) await change(() => database.patchWorkspace(caseId, { syncUrl: host }));
-  return `${location.origin}/#${inviteFragment({ caseId, caseKey: w.caseKey, host, ...(w.requiresSignatures ? { requiresSignatures: true } : {}), ...(w.syncId ? { syncId: w.syncId, keyEpoch: w.keyEpoch ?? 1 } : {}) })}`;
+  const raw = w.syncUrl ?? (await api.syncConfig()).host;
+  if (!w.syncUrl) await change(() => database.patchWorkspace(caseId, { syncUrl: SyncHost.parse(raw) }));
+  const onion = InviteSyncHost.safeParse(raw);
+  const host = onion.success ? onion.data : undefined;
+  return `${location.origin}/#${inviteFragment({ caseId, caseKey: w.caseKey, ...(host ? { host } : {}), ...(w.requiresSignatures ? { requiresSignatures: true } : {}), ...(w.syncId ? { syncId: w.syncId, keyEpoch: w.keyEpoch ?? 1 } : {}) })}`;
 };
 
 export const myMemberId = (caseId: string): string => workspace(caseId).memberId;

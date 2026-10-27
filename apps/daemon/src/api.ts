@@ -5,7 +5,7 @@ import { RelayCallError, type RelayClient } from "@zireh/inference";
 import type { Ledger } from "@zireh/ledger";
 import type { ChatModel } from "@zireh/llm";
 import { redactText } from "@zireh/redact";
-import { PrivacyLevel, Pseudonym, TopupQuote, SyncHost, type DaemonStatus } from "@zireh/schema";
+import { InviteSyncHost, PrivacyLevel, Pseudonym, TopupQuote, SyncHost, type DaemonStatus } from "@zireh/schema";
 import { Envelope, SyncClient, SyncError } from "@zireh/sync";
 import { InsufficientFunds, type Wallet } from "@zireh/wallet";
 import { z } from "zod";
@@ -232,12 +232,18 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
     "GET /api/sync/config": async () => json(200, { host: SyncHost.parse(deps.syncUrl) }),
 
     "POST /api/sync/push": async (req) => {
-      const body = z.object({ caseId: z.string().regex(/^[0-9a-f]{32}$/), token: z.string(), records: z.array(Envelope).min(1).max(200), host: SyncHost.optional() }).parse(await req.json());
+      const body = z.object({ caseId: z.string().regex(/^[0-9a-f]{32}$/), token: z.string(), records: z.array(Envelope).min(1).max(200), host: z.string().max(256).optional() }).parse(await req.json());
+      if (body.host !== undefined && body.host !== deps.syncUrl && !InviteSyncHost.safeParse(body.host).success) {
+        return json(400, { error: "bad request", issues: ["host: Use a Tor v3 onion URL or the configured sync host"] });
+      }
       return json(200, await sync(body.host).push(body.caseId, body.token, body.records));
     },
 
     "POST /api/sync/pull": async (req) => {
-      const body = z.object({ caseId: z.string().regex(/^[0-9a-f]{32}$/), token: z.string(), after: z.number().int().nonnegative(), host: SyncHost.optional() }).parse(await req.json());
+      const body = z.object({ caseId: z.string().regex(/^[0-9a-f]{32}$/), token: z.string(), after: z.number().int().nonnegative(), host: z.string().max(256).optional() }).parse(await req.json());
+      if (body.host !== undefined && body.host !== deps.syncUrl && !InviteSyncHost.safeParse(body.host).success) {
+        return json(400, { error: "bad request", issues: ["host: Use a Tor v3 onion URL or the configured sync host"] });
+      }
       return json(200, await sync(body.host).pull(body.caseId, body.token, body.after));
     },
   };
