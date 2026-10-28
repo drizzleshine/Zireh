@@ -77,6 +77,8 @@ card (WebGPU; about 2.5 GB, downloaded once when you turn it on).
 
 ![Case board](docs/screenshots/board.png)
 
+![Privacy log](docs/screenshots/privacy-log.png)
+
 ## Payments: per-token billing without identity
 
 Top-ups are simulated by default: no real ZEC moves, and "Mark as paid" stands in for a payment.
