@@ -1,9 +1,9 @@
 import { memberName, newObservation } from "@zireh/cases";
 import type { Evidence, Pseudonym } from "@zireh/schema";
-import { DownloadSimple, Sparkle, EyeSlash as EyeOff, Lightbulb, LinkSimple as Link2, User as UserRound } from "@phosphor-icons/react";
+import { PencilSimple, Sparkle, EyeSlash as EyeOff, Lightbulb, LinkSimple as Link2, User as UserRound } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { evidenceDownload, isEmbeddedImage } from "../../evidence.ts";
+import { isEmbeddedImage } from "../../evidence.ts";
 import { scan } from "../../intake.ts";
 import { myMemberId, save, useStore } from "../../store.ts";
 import type { OpenItem } from "../CaseView.tsx";
@@ -21,7 +21,7 @@ import { ago } from "./ago.ts";
 import { Highlighted } from "./Highlighted.tsx";
 
 /** The reading pane: the whole item, where it came from, what it is used in, and what to do with it. */
-export function Reader({ caseId, evidence: e, query, table, onOpen }: { caseId: string; evidence: Evidence; query: string; table: readonly Pseudonym[]; onOpen: OpenItem }) {
+export function Reader({ caseId, evidence: e, query, table, onOpen, onEdit }: { caseId: string; evidence: Evidence; query: string; table: readonly Pseudonym[]; onOpen: OpenItem; onEdit: () => void }) {
   const rec = useStore((s) => s.cases[caseId])!;
   const mine = e.addedBy === myMemberId(caseId);
   const [note, setNote, clearNote] = useDraft(caseId, `observation.${e.id}`, "");
@@ -45,21 +45,11 @@ export function Reader({ caseId, evidence: e, query, table, onOpen }: { caseId: 
             sha256 {e.sha256.slice(0, 16)}…
           </span>
           <span className="ml-auto flex items-center gap-1">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-muted-foreground"
-              onClick={() => {
-                const { blob, filename } = evidenceDownload(e);
-                const a = document.createElement("a");
-                a.href = URL.createObjectURL(blob);
-                a.download = filename;
-                a.click();
-                setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-              }}
-            >
-              <DownloadSimple /> Download
-            </Button>
+            {mine && (
+              <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={onEdit}>
+                <PencilSimple /> Edit
+              </Button>
+            )}
             <Comments caseId={caseId} targetId={e.id} />
           </span>
         </>
@@ -165,7 +155,7 @@ export function Reader({ caseId, evidence: e, query, table, onOpen }: { caseId: 
               <EyeOff className="size-3.5 text-protected" /> {hits.length} detail{hits.length === 1 ? "" : "s"} underlined here {hits.length === 1 ? "is" : "are"} replaced before anything goes to an AI.
             </p>
           )}
-          {e.body.length > 200_000 && <p className="text-xs text-muted-foreground">Showing the first 200,000 characters. Download the original for the rest.</p>}
+          {e.body.length > 200_000 && <p className="text-xs text-muted-foreground">Showing the first 200,000 characters.</p>}
         </div>
       )}
 

@@ -1,7 +1,7 @@
 import type { CaseRecords } from "@zireh/cases";
-import { Check, Fingerprint, LockSimple as Lock, Plus, User as UserRound } from "@phosphor-icons/react";
+import { Check, Fingerprint, LockSimple as Lock, Plus, Trash, User as UserRound } from "@phosphor-icons/react";
 import { useState } from "react";
-import { codenames, nextCodename, setIdentity, useIdentities } from "../sources.ts";
+import { addSource, nextCodename, removeSource, setIdentity, useIdentities, useSources } from "../sources.ts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from "@/components/ui/command";
@@ -15,8 +15,8 @@ import { cn } from "@/lib/utils";
 export function SourcePicker({ rec, value, onChange, disabled, className, plain }: { rec: CaseRecords; value: string | undefined; onChange: (source: string | undefined) => void; disabled?: boolean; className?: string; plain?: boolean }) {
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
-  const existing = codenames(rec);
-  const fresh = nextCodename(rec);
+  const existing = useSources(rec.case.id, rec);
+  const fresh = nextCodename(existing);
   const pick = (source: string | undefined) => {
     onChange(source);
     setOpen(false);
@@ -90,7 +90,7 @@ export function SourcePicker({ rec, value, onChange, disabled, className, plain 
 /** Every source in the case, with a real-identity note that never leaves this browser. */
 export function SourcesSheet({ caseId, rec, open, onOpenChange }: { caseId: string; rec: CaseRecords; open: boolean; onOpenChange: (open: boolean) => void }) {
   const identities = useIdentities(caseId);
-  const list = codenames(rec);
+  const list = useSources(caseId, rec);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -100,7 +100,10 @@ export function SourcesSheet({ caseId, rec, open, onOpenChange }: { caseId: stri
           <SheetDescription>Your team only sees codenames. A real name you write here stays in this browser and is always hidden from AI.</SheetDescription>
         </SheetHeader>
         <div className="grid content-start gap-3 overflow-y-auto p-4">
-          {list.length === 0 && <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No sources yet. Use “Add source” on any file.</p>}
+          <Button variant="outline" size="sm" className="justify-self-start" onClick={() => addSource(caseId, nextCodename(list))}>
+            <Plus /> Add source
+          </Button>
+          {list.length === 0 && <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No sources yet. Add one here, or pick one when you add evidence.</p>}
           {list.map((codename) => {
             const items = rec.evidence.filter((e) => e.source === codename);
             const backs = rec.findings.filter((f) => rec.observations.some((o) => f.observationIds.includes(o.id) && o.evidenceIds.some((id) => items.some((e) => e.id === id)))).length;
@@ -110,8 +113,13 @@ export function SourcesSheet({ caseId, rec, open, onOpenChange }: { caseId: stri
                   <UserRound className="size-4 text-muted-foreground" />
                   <span className="font-medium">{codename}</span>
                   <span className="ml-auto text-xs text-muted-foreground">
-                    {items.length} item{items.length === 1 ? "" : "s"} · backs {backs} finding{backs === 1 ? "" : "s"}
+                    {items.length ? `${items.length} item${items.length === 1 ? "" : "s"} · backs ${backs} finding${backs === 1 ? "" : "s"}` : "Not used yet · only on this device"}
                   </span>
+                  {items.length === 0 && (
+                    <Button variant="ghost" size="icon" className="size-7 text-muted-foreground" aria-label={`Remove ${codename}`} onClick={() => removeSource(caseId, codename)}>
+                      <Trash />
+                    </Button>
+                  )}
                 </div>
                 {codename !== "Public record" && (
                   <label className="grid gap-1">

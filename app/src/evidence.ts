@@ -13,16 +13,6 @@ export function evidenceContext(evidence: readonly Evidence[], selected: readonl
   return { entries, omitted: Math.max(0, eligible.length - entries.length) };
 }
 
-export function evidenceDownload(evidence: Evidence): { blob: Blob; filename: string } {
-  const title = evidence.title.replace(/[^\p{L}\p{N}._-]+/gu, "-").slice(0, 100) || "evidence";
-  const image = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(evidence.body);
-  if (evidence.kind === "image" && image) {
-    const bytes = Uint8Array.from(atob(image[2]!), (character) => character.charCodeAt(0));
-    return { blob: new Blob([bytes], { type: `image/${image[1]}` }), filename: `${title}.${image[1] === "jpeg" ? "jpg" : image[1]}` };
-  }
-  return { blob: new Blob([evidence.body], { type: "text/plain;charset=utf-8" }), filename: `${title}.txt` };
-}
-
 /** Chain of custody: what is in the case file, its fingerprint, who it came from, who added it, what relies on it. */
 export function custodyCsv(rec: import("@zireh/cases").CaseRecords): string {
   const cell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);

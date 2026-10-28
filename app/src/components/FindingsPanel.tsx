@@ -13,7 +13,7 @@ import { TONE_TEXT, TONE_DOT, verdict } from "./findings/verdict.ts";
 import { type Filter, FILTERS } from "./findings/filters.ts";
 import { FindingDetail } from "./findings/FindingDetail.tsx";
 import { CheckSheet } from "./findings/CheckSheet.tsx";
-import { NewFindingForm } from "./findings/NewFindingForm.tsx";
+import { FindingForm } from "./findings/FindingForm.tsx";
 
 /**
  * The claims your team would print, one line each with whether it's ready. Writing a
@@ -37,6 +37,7 @@ export function FindingsPanel({ caseId, focus, onOpen }: { caseId: string; focus
   const current = shown.find((j) => j.f.id === open) ?? judged.find((j) => j.f.id === open) ?? shown[0];
   const [checking, setChecking] = useState<string | boolean>(false);
   const [writing, setWriting] = useState(false);
+  const [editing, setEditing] = useState<string>();
 
   // Something another tab pointed at: open the finding it belongs to, or the draft to check.
   useEffect(() => {
@@ -49,7 +50,7 @@ export function FindingsPanel({ caseId, focus, onOpen }: { caseId: string; focus
     <section className="page" aria-label="Findings">
       {!rec.case.requiresSignatures && <p className="rounded-lg border bg-muted/50 px-4 py-2 text-xs text-muted-foreground">This is an older case, so who wrote what can't be proven. New cases fix this.</p>}
       <PageBar hint="The claims you'd print. Each one needs two separate sources and your team's agreement.">
-        {findings.length > 0 && !writing && (
+        {findings.length > 0 && !writing && !editing && (
           <Button size="sm" onClick={() => setWriting(true)}>
             <Plus /> New finding
           </Button>
@@ -106,6 +107,7 @@ export function FindingsPanel({ caseId, focus, onOpen }: { caseId: string; focus
                   onSelect={() => {
                     setOpen(f.id);
                     setWriting(false);
+                    setEditing(undefined);
                   }}
                   icon={<span className="grid size-4 place-items-center"><span className={cn("block size-2.5 rounded-full", TONE_DOT[v.tone])} /></span>}
                   title={f.statement}
@@ -116,14 +118,18 @@ export function FindingsPanel({ caseId, focus, onOpen }: { caseId: string; focus
           </SideList>
           {writing || findings.length === 0 ? (
             <Pane title="New finding" meta="Write the claim, then tick what proves it.">
-              <NewFindingForm caseId={caseId} rec={rec} me={me} accepted={accepted} onDone={(id) => { setWriting(false); if (id) setOpen(id); }} />
+              <FindingForm caseId={caseId} rec={rec} me={me} accepted={accepted} onDone={(id) => { setWriting(false); if (id) setOpen(id); }} />
+            </Pane>
+          ) : current && editing === current.f.id ? (
+            <Pane title="Edit finding" meta="Reword the claim or change what proves it.">
+              <FindingForm key={current.f.id} caseId={caseId} rec={rec} me={me} accepted={accepted} finding={current.f} onDone={() => setEditing(undefined)} />
             </Pane>
           ) : current ? (
             <div className={cn(!open && "max-lg:hidden")}>
               <button type="button" onClick={() => setOpen(undefined)} className="mb-3 flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground lg:hidden">
                 <CaretLeft className="size-4" /> All findings
               </button>
-              <FindingDetail key={current.f.id} caseId={caseId} rec={rec} finding={current.f} verdict={current.v} me={me} onOpen={onOpen} />
+              <FindingDetail key={current.f.id} caseId={caseId} rec={rec} finding={current.f} verdict={current.v} me={me} onOpen={onOpen} onEdit={() => setEditing(current.f.id)} />
             </div>
           ) : null}
       </div>

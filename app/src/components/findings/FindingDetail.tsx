@@ -13,7 +13,6 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { splitAi } from "./splitAi.ts";
 import { type Tone, TONE_TEXT, TONE_DOT, verdict } from "./verdict.ts";
-import { EditFinding } from "./EditFinding.tsx";
 
 const DECISIONS: { id: Review["decision"]; label: string }[] = [
   { id: "support", label: "I agree" },
@@ -22,11 +21,10 @@ const DECISIONS: { id: Review["decision"]; label: string }[] = [
 ];
 
 /** Everything behind one finding, and the one action most people take here: reviewing it. */
-export function FindingDetail({ caseId, rec, finding: f, verdict: v, me, onOpen }: { caseId: string; rec: CaseRecords & { verifiedReviews?: string[] }; finding: FindingView; verdict: { tone: Tone; text: string }; me: string; onOpen?: OpenItem | undefined }) {
+export function FindingDetail({ caseId, rec, finding: f, verdict: v, me, onOpen, onEdit }: { caseId: string; rec: CaseRecords & { verifiedReviews?: string[] }; finding: FindingView; verdict: { tone: Tone; text: string }; me: string; onOpen?: OpenItem | undefined; onEdit: () => void }) {
   const mine = f.reviews.filter((r) => r.memberId === me).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1);
   const c = corroboration(rec, f);
   const observations = rec.observations.filter((o) => f.observationIds.includes(o.id));
-  const [editing, setEditing] = useState(false);
   const [reason, setReason] = useState<{ decision: Review["decision"]; text: string }>();
   const review = (decision: Review["decision"], text = "") =>
     void save(caseId, "reviews", newReview(caseId, me, { findingId: f.id, decision, reason: text })).catch((error: Error) => toast.error("Couldn't save your review", { description: error.message }));
@@ -38,8 +36,8 @@ export function FindingDetail({ caseId, rec, finding: f, verdict: v, me, onOpen 
         <>
           <span className="text-xs text-muted-foreground">Written by {memberName(rec, f.createdBy)}</span>
           <span className="ml-auto flex items-center gap-1">
-            {f.createdBy === me && !editing && (
-              <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => setEditing(true)}>
+            {f.createdBy === me && (
+              <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={onEdit}>
                 <PencilSimple /> Edit
               </Button>
             )}
@@ -48,18 +46,14 @@ export function FindingDetail({ caseId, rec, finding: f, verdict: v, me, onOpen 
         </>
       }
     >
-      {editing ? (
-        <EditFinding caseId={caseId} finding={f} onDone={() => setEditing(false)} />
-      ) : (
-        <header className="grid gap-2">
+      <header className="grid gap-2">
           <p className="font-serif text-[20px] leading-snug text-pretty">{f.statement}</p>
           <p className={cn("flex items-center gap-2 text-sm font-medium", TONE_TEXT[v.tone])}>
             <span className={cn("size-2 rounded-full", TONE_DOT[v.tone])} />
             {v.text}
           </p>
           {f.uncertainty && <p className="text-sm text-muted-foreground">Still uncertain: {f.uncertainty}</p>}
-        </header>
-      )}
+      </header>
 
       <div className="grid gap-2">
         <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Proven by</p>

@@ -20,6 +20,7 @@ import { KINDS, kindOf } from "./evidence/kinds.ts";
 import { ago } from "./evidence/ago.ts";
 import { Intake } from "./evidence/Intake.tsx";
 import { Reader } from "./evidence/Reader.tsx";
+import { EditEvidence } from "./evidence/EditEvidence.tsx";
 
 export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus?: string | undefined; onOpen: OpenItem }) {
   const rec = useStore((s) => s.cases[caseId])!;
@@ -28,6 +29,7 @@ export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus
   const [filter, setFilter] = useState<Evidence["kind"] | "all">("all");
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<string>();
   // The open item lives in the URL (/case/<id>/evidence/<item>), so reload and Back keep it.
   const chosen = focus;
   const setChosen = (id: string | undefined) => onOpen("evidence", id);
@@ -56,7 +58,7 @@ export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus
     <section className="page" aria-label="Evidence" onDragEnter={(e) => e.dataTransfer.types.includes("Files") && setAdding(true)}>
       <SourcesSheet caseId={caseId} rec={rec} open={sourcesOpen} onOpenChange={setSourcesOpen} />
       <PageBar hint="Files, tips and links for this case, read and encrypted in this browser.">
-        {rec.evidence.length > 0 && !adding && (
+        {rec.evidence.length > 0 && !adding && !editing && (
           <>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -65,9 +67,6 @@ export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => setSourcesOpen(true)}>
-                  <UserRound /> Sources
-                </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => {
                     const href = URL.createObjectURL(new Blob([custodyCsv(rec)], { type: "text/csv;charset=utf-8" }));
@@ -83,6 +82,9 @@ export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            <Button size="sm" variant="outline" onClick={() => setSourcesOpen(true)}>
+              <UserRound /> <span className="hidden sm:inline">Sources</span>
+            </Button>
             <Button size="sm" variant={intakeOpen ? "outline" : "default"} onClick={() => setAdding((v) => !v)}>
               {intakeOpen ? <X /> : <Plus />}
               <span className="hidden sm:inline">{intakeOpen ? "Close" : "Add evidence"}</span>
@@ -145,6 +147,7 @@ export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus
                   onSelect={() => {
                       setChosen(e.id);
                       setAdding(false);
+                      setEditing(undefined);
                     }}
                   icon={<Icon />}
                   title={e.title}
@@ -169,12 +172,16 @@ export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus
             </p>
             <Intake caseId={caseId} table={table} drafts={drafts} setDrafts={setDrafts} />
           </Pane>
+        ) : current && editing === current.id ? (
+          <Pane title="Edit evidence" meta={current.title}>
+            <EditEvidence key={current.id} caseId={caseId} rec={rec} evidence={current} onDone={() => setEditing(undefined)} />
+          </Pane>
         ) : current ? (
           <div className={cn(!chosen && "max-lg:hidden")}>
             <button type="button" onClick={() => setChosen(undefined)} className="mb-3 flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground lg:hidden">
               <CaretLeft className="size-4" /> All evidence
             </button>
-            <Reader key={current.id} caseId={caseId} evidence={current} query={query} table={table} onOpen={onOpen} />
+            <Reader key={current.id} caseId={caseId} evidence={current} query={query} table={table} onOpen={onOpen} onEdit={() => setEditing(current.id)} />
           </div>
           ) : null}
       </div>

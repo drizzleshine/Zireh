@@ -10,7 +10,7 @@ import { database, Keys } from "./persistence.ts";
  * hidden from AI calls made on this device.
  */
 
-type Vault = Record<string, string>; // codename → real identity
+type Vault = Record<string, string>; // codename → real identity, "" for a source added here with none noted yet
 const listeners = new Set<() => void>();
 const cache = new Map<string, Vault>();
 const EMPTY: Vault = Object.freeze({}) as Vault;
@@ -46,13 +46,26 @@ export const identitiesReady: Promise<void> =
         () => {},
       );
 
-export function setIdentity(caseId: string, codename: string, identity: string) {
+function update(caseId: string, change: (vault: Vault) => void) {
   const next = { ...read(caseId) };
-  if (identity.trim()) next[codename] = identity.trim();
-  else delete next[codename];
+  change(next);
   cache.set(caseId, next);
   store(caseId, next);
   emit();
+}
+
+/** Clearing the identity keeps the source listed; removeSource forgets it. */
+export function setIdentity(caseId: string, codename: string, identity: string) {
+  update(caseId, (v) => (v[codename] = identity.trim()));
+}
+
+/** A source can exist on this device before any evidence names it; the team sees it once it's used. */
+export function addSource(caseId: string, codename: string) {
+  update(caseId, (v) => (v[codename] ??= ""));
+}
+
+export function removeSource(caseId: string, codename: string) {
+  update(caseId, (v) => delete v[codename]);
 }
 
 /** Drop every identity noted for a case on this device. */
@@ -75,13 +88,13 @@ export function useIdentities(caseId: string): Vault {
 
 /** The team's hide list plus this device's source identities, for scans and AI calls made here. */
 export function withIdentities(caseId: string, table: readonly Pseudonym[]): Pseudonym[] {
-  const names = Object.values(read(caseId)).filter((n) => !table.some((p) => p.original.toLowerCase() === n.toLowerCase()));
+  const names = Object.values(read(caseId)).filter((n) => n && !table.some((p) => p.original.toLowerCase() === n.toLowerCase()));
   return names.length ? extendTable(table, names.map((text) => ({ text, kind: "person" as const, hint: "a source" }))) : [...table];
 }
 
 /** Drop this device's source identities before a table is saved for the team. */
 export function withoutIdentities(caseId: string, table: readonly Pseudonym[]): Pseudonym[] {
-  const names = new Set(Object.values(read(caseId)).map((n) => n.toLowerCase()));
+  const names = new Set(Object.values(read(caseId)).filter(Boolean).map((n) => n.toLowerCase()));
   return table.filter((p) => !names.has(p.original.toLowerCase()));
 }
 
@@ -89,9 +102,15 @@ export function codenames(rec: CaseRecords): string[] {
   return [...new Set(rec.evidence.flatMap((e) => (e.source ? [e.source] : [])))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
 
+/** Sources named by evidence, plus the ones added on this device and not used yet. */
+export function useSources(caseId: string, rec: CaseRecords): string[] {
+  const vault = useIdentities(caseId);
+  return [...new Set([...codenames(rec), ...Object.keys(vault)])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+
 /** "Source A", "Source B", … then "Source AA". */
-export function nextCodename(rec: CaseRecords): string {
-  const taken = new Set(codenames(rec).map((c) => c.toLowerCase()));
+export function nextCodename(existing: readonly string[]): string {
+  const taken = new Set(existing.map((c) => c.toLowerCase()));
   for (let i = 0; ; i++) {
     const letters = i < 26 ? String.fromCharCode(65 + i) : String.fromCharCode(65 + Math.floor(i / 26) - 1) + String.fromCharCode(65 + (i % 26));
     if (!taken.has(`source ${letters}`.toLowerCase())) return `Source ${letters}`;

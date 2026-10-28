@@ -1,6 +1,6 @@
-import { newFinding, type CaseRecords } from "@zireh/cases";
+import { newFinding, type CaseRecords, type FindingView } from "@zireh/cases";
 import type { Observation } from "@zireh/schema";
-import { Plus } from "@phosphor-icons/react";
+import { Check, Plus } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { useDraft } from "../../drafts.ts";
 import { save } from "../../store.ts";
@@ -13,13 +13,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { splitAi } from "./splitAi.ts";
 
-/** Write the claim first, then tick what proves it; the source count updates as you tick. */
-export function NewFindingForm({ caseId, rec, me, accepted, onDone }: { caseId: string; rec: CaseRecords; me: string; accepted: Observation[]; onDone: (id?: string) => void }) {
+/**
+ * Write the claim first, then tick what proves it; the source count updates as you tick. Given a
+ * finding, the same form rewords it in place: its reviews stay attached.
+ */
+export function FindingForm({ caseId, rec, me, accepted, finding, onDone }: { caseId: string; rec: CaseRecords; me: string; accepted: Observation[]; finding?: FindingView; onDone: (id?: string) => void }) {
   // Kept as a draft: navigating away half-way and coming back finds it as you left it.
-  const [statement, setStatement, clearStatement] = useDraft(caseId, "finding.new.statement", "");
-  const [uncertainty, setUncertainty, clearUncertainty] = useDraft(caseId, "finding.new.uncertainty", "");
-  const [picked, setPicked, clearPicked] = useDraft<string[]>(caseId, "finding.new.observations", []);
-  const sources = new Set(rec.evidence.filter((e) => accepted.some((o) => picked.includes(o.id) && o.evidenceIds.includes(e.id))).flatMap((e) => (e.source ? [e.source] : [])));
+  const key = `finding.${finding?.id ?? "new"}`;
+  const [statement, setStatement, clearStatement] = useDraft(caseId, `${key}.statement`, finding?.statement ?? "");
+  const [uncertainty, setUncertainty, clearUncertainty] = useDraft(caseId, `${key}.uncertainty`, finding?.uncertainty ?? "");
+  const [picked, setPicked, clearPicked] = useDraft<string[]>(caseId, `${key}.observations`, finding?.observationIds ?? []);
+  const choices = [...accepted, ...rec.observations.filter((o) => o.status !== "accepted" && finding?.observationIds.includes(o.id))];
+  const sources = new Set(rec.evidence.filter((e) => choices.some((o) => picked.includes(o.id) && o.evidenceIds.includes(e.id))).flatMap((e) => (e.source ? [e.source] : [])));
 
   return (
     <form
@@ -27,15 +32,19 @@ export function NewFindingForm({ caseId, rec, me, accepted, onDone }: { caseId: 
       onSubmit={async (e) => {
         e.preventDefault();
         try {
-          const finding = newFinding(caseId, me, { statement, observationIds: picked, uncertainty });
-          await save(caseId, "findings", finding);
+          let saved;
+          if (finding) {
+            const { reviews: _r, tally: _t, missingObservations: _m, ...kept } = finding;
+            saved = { ...kept, statement: statement.trim(), uncertainty, observationIds: picked };
+          } else saved = newFinding(caseId, me, { statement, observationIds: picked, uncertainty });
+          await save(caseId, "findings", saved);
           clearStatement();
           clearUncertainty();
           clearPicked();
-          toast.success("Finding added", { description: "Your team can now review it." });
-          onDone(finding.id);
+          if (!finding) toast.success("Finding added", { description: "Your team can now review it." });
+          onDone(saved.id);
         } catch (error) {
-          toast.error("Couldn't add the finding", { description: (error as Error).message });
+          toast.error(finding ? "Couldn't save the finding" : "Couldn't add the finding", { description: (error as Error).message });
         }
       }}
     >
@@ -51,11 +60,11 @@ export function NewFindingForm({ caseId, rec, me, accepted, onDone }: { caseId: 
               {picked.length === 0 ? "Tick at least one" : `${sources.size} source${sources.size === 1 ? "" : "s"}${sources.size >= 2 ? " ✓" : ", two needed to publish"}`}
             </span>
           </div>
-          {accepted.length === 0 ? (
+          {choices.length === 0 ? (
             <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">No accepted observations yet. Check the new ones first.</p>
           ) : (
             <ul className="grid gap-2">
-              {accepted.map((o) => {
+              {choices.map((o) => {
                 const from = rec.evidence.filter((e) => o.evidenceIds.includes(e.id));
                 return (
                   <li key={o.id}>
@@ -77,13 +86,28 @@ export function NewFindingForm({ caseId, rec, me, accepted, onDone }: { caseId: 
           <Input id="nf-uncertainty" value={uncertainty} onChange={(e) => setUncertainty(e.target.value)} />
         </div>
       </div>
-      <div className={cn(PANE_FOOTER, "justify-end")}>
-        <Button type="button" variant="ghost" onClick={() => onDone()}>
-          Cancel
-        </Button>
-        <Button type="submit" disabled={!picked.length || !statement.trim()}>
-          <Plus /> Add finding
-        </Button>
+      <div className={PANE_FOOTER}>
+        {finding && <span className="text-xs text-muted-foreground">Reviews stay attached. Ask your team to look again if the meaning changed.</span>}
+        <span className="ml-auto flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              if (finding) {
+                clearStatement();
+                clearUncertainty();
+                clearPicked();
+              }
+              onDone();
+            }}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" size="sm" disabled={!picked.length || !statement.trim()}>
+            {finding ? <Check /> : <Plus />} {finding ? "Save" : "Add finding"}
+          </Button>
+        </span>
       </div>
     </form>
   );
