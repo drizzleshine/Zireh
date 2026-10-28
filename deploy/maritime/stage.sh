@@ -15,6 +15,6 @@ if [ "$service" = zeccheckout ]; then
   exit 0
 fi
 cd "$root"
-git ls-files -co --exclude-standard -z | grep -zv -E '^(docs/|context/|\.claude/|apps/web/test/)' | xargs -0 -I{} rsync -R "{}" "$out/"
+git ls-files -co --exclude-standard -z | grep -zv -E '^(docs/|context/|\.claude/|app/test/)' | xargs -0 -I{} rsync -R "{}" "$out/"
 cp "deploy/maritime/$service.Dockerfile" "$out/Dockerfile"
 echo "staged $service in $out ($(du -sh "$out" | cut -f1))"

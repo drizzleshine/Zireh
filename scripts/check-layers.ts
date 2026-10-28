@@ -11,15 +11,20 @@ import { join } from "node:path";
 const root = new URL("..", import.meta.url).pathname;
 type Pkg = { name: string; dir: string; kind: "package" | "app"; layer: number; deps: string[] };
 
+/** Packages live in packages/*; apps are app/ and the servers being retired in legacy/*. */
+function dirsOf(kind: "package" | "app"): string[] {
+  const under = (base: string) =>
+    existsSync(join(root, base)) ? readdirSync(join(root, base)).map((d) => join(root, base, d)) : [];
+  return kind === "package" ? under("packages") : [join(root, "app"), ...under("legacy")];
+}
+
 function load(kind: "package" | "app"): Pkg[] {
-  const base = join(root, kind === "package" ? "packages" : "apps");
-  if (!existsSync(base)) return [];
-  return readdirSync(base)
-    .filter((d) => existsSync(join(base, d, "package.json")))
-    .map((d) => {
-      const json = JSON.parse(readFileSync(join(base, d, "package.json"), "utf8"));
+  return dirsOf(kind)
+    .filter((dir) => existsSync(join(dir, "package.json")))
+    .map((dir) => {
+      const json = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
       const deps = Object.keys({ ...json.dependencies, ...json.devDependencies }).filter((n) => n.startsWith("@zireh/"));
-      return { name: json.name, dir: join(base, d), kind, layer: json.zireh?.layer ?? Infinity, deps };
+      return { name: json.name, dir, kind, layer: json.zireh?.layer ?? Infinity, deps };
     });
 }
 

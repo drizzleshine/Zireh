@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
-  "zireh": { "layer": 7 },
+  "zireh": {
+    "layer": 7
+  },
   "dependencies": {
     "@zireh/crypto": "workspace:*",
     "@zireh/schema": "workspace:*",

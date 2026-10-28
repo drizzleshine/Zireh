@@ -1,10 +1,10 @@
 import { randomId, shuffle } from "@zireh/crypto";
-import { makeDecoys, stockDecoys, tooSimilar } from "@zireh/decoy";
-import { checkLeak, generalize, passes, type LeakReport } from "@zireh/leakcheck";
+import { makeDecoys, stockDecoys, tooSimilar } from "./decoy.ts";
+import { checkLeak, generalize, passes, type LeakReport } from "./leakcheck.ts";
 import { abortableModel, type ChatModel } from "@zireh/llm";
-import { applyTable, findLeaks, redactText, redactWithoutModel, restore, withHints } from "@zireh/redact";
+import { applyTable, findLeaks, redactText, redactWithoutModel, restore, withHints } from "./redact/index.ts";
 import { LEVELS, type ChatMessage, type OutboundPiece, type PrivacyLevel, type Pseudonym, type TraceStep } from "@zireh/schema";
-import { reassemble, splitTask, type Reassembled } from "@zireh/split";
+import { reassemble, splitTask, type Reassembled } from "./split.ts";
 
 /** Shared by every outbound call from every user: cache hits on it identify no one. */
 export const SYSTEM_PROMPT = `You are a careful research assistant. Answer concisely and factually.

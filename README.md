@@ -145,19 +145,17 @@ A monorepo of small packages in strict layers. A package may only import from lo
 |---|---|
 | L0 | `schema` (contracts and validators), `crypto` (hashing, AES-GCM case box, BDHKE) |
 | L1 | `llm` (one OpenAI-compatible client for local and cloud models, JSON helper) |
-| L2 | `redact`, `split`, `leakcheck`, `decoy` (privacy stages) |
-| L3 | `shield` (composes the stages into a pipeline with a live trace) |
-| L4 | `tor` (circuit-isolated transport, onion services), `wallet` (mint, wallet, pricing, bill audit), `zcash` (payment watcher) |
-| L5 | `inference` (paid, idempotent relay client), `relay-core` (relay handler) |
-| L6 | `ledger` (run state machine, privacy log) |
+| L3 | `shield` (the privacy pipeline: redact, split, leak check, decoys, live trace) |
+| L4 | `tor` (circuit-isolated transport, onion services), `wallet` (mint, wallet, pricing, bill audit, ledger, Zcash payment watchers) |
+| L5 | `relay-client` (paid, idempotent relay client), `relay` (relay handler) |
 | L7 | `cases` (collaboration domain, publication), `sync` (sealed envelopes) |
 
-| App | Runs | Composes |
+| Folder | Runs | Composes |
 |---|---|---|
-| `apps/daemon` | your computer (127.0.0.1) | local model, shield, Tor, wallet, ledger, sync proxy; serves the UI |
-| `apps/web` | your browser | cases, sync, encryption, UI |
-| `apps/relay` | server, as an onion service | relay-core, Token Factory, Tavily, mint |
-| `apps/sync-host` | server, as an onion service | ciphertext log |
+| `app/` | your browser | cases, sync, encryption, UI |
+| `legacy/daemon` | your computer (127.0.0.1) | local model, shield, Tor, wallet, sync proxy; serves the UI. Moving into the browser |
+| `legacy/relay` | server, as an onion service | relay, Token Factory, Tavily, mint. Being replaced by one Rust host |
+| `legacy/sync-host` | server, as an onion service | ciphertext log. Being replaced by one Rust host |
 
 More detail: [`context/architecture.md`](context/architecture.md), design decisions and measured
 numbers: [`context/decisions.md`](context/decisions.md).

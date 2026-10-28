@@ -1,4 +1,4 @@
-import { STOCK, stockDecoys } from "@zireh/decoy";
+import { STOCK, stockDecoys } from "@zireh/shield";
 import { describe, expect, it } from "vitest";
 import { compile, finish, NeedsLocalModel } from "../src/index.ts";
 

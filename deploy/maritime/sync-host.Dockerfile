@@ -7,4 +7,4 @@ COPY . .
 RUN pnpm install --frozen-lockfile
 ENV SYNC_HOST_BIND=0.0.0.0 SYNC_DB=/data/sync/sync.db
 EXPOSE 8080
-CMD ["node_modules/.bin/tsx", "apps/sync-host/src/main.ts"]
+CMD ["node_modules/.bin/tsx", "legacy/sync-host/src/main.ts"]

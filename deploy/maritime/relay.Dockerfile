@@ -7,4 +7,4 @@ COPY . .
 RUN pnpm install --frozen-lockfile
 ENV RELAY_HOST=0.0.0.0 RELAY_DATA_DIR=/data/relay
 EXPOSE 8080
-CMD ["node_modules/.bin/tsx", "apps/relay/src/main.ts"]
+CMD ["node_modules/.bin/tsx", "legacy/relay/src/main.ts"]

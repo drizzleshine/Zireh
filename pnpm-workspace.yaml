@@ -1,5 +1,6 @@
 packages:
   - packages/*
-  - apps/*
+  - app
+  - legacy/*
 allowBuilds:
   esbuild: false

@@ -33,15 +33,15 @@ function run(name: string, cwd: string, args: string[], extra: NodeJS.ProcessEnv
 }
 
 console.log("building web UI…");
-const build = spawn("pnpm", ["--filter", "@zireh/web", "build"], { cwd: root, stdio: "inherit" });
+const build = spawn("pnpm", ["--filter", "@zireh/app", "build"], { cwd: root, stdio: "inherit" });
 build.on("exit", (code) => {
   if (code !== 0) process.exit(code ?? 1);
   const relayDir = join(root, ".zireh/relay");
   const syncDir = join(root, ".zireh/sync");
-  run("relay", "apps/relay", ["src/main.ts"], { RELAY_DATA_DIR: relayDir, ...(direct ? {} : { RELAY_ONION: "1" }) });
-  run("sync", "apps/sync-host", ["src/main.ts"], { SYNC_DB: join(syncDir, "sync.db"), ...(direct ? {} : { SYNC_ONION: "1" }) });
+  run("relay", "legacy/relay", ["src/main.ts"], { RELAY_DATA_DIR: relayDir, ...(direct ? {} : { RELAY_ONION: "1" }) });
+  run("sync", "legacy/sync-host", ["src/main.ts"], { SYNC_DB: join(syncDir, "sync.db"), ...(direct ? {} : { SYNC_ONION: "1" }) });
   const startDaemon = (urls: NodeJS.ProcessEnv) => {
-    run("daemon", "apps/daemon", ["src/main.ts"], { DAEMON_DATA_DIR: join(root, ".zireh/daemon"), ...urls, ...(direct ? { ZIREH_TRANSPORT: "direct" } : {}) });
+    run("daemon", "legacy/daemon", ["src/main.ts"], { DAEMON_DATA_DIR: join(root, ".zireh/daemon"), ...urls, ...(direct ? { ZIREH_TRANSPORT: "direct" } : {}) });
     console.log(`\nZireh: open http://127.0.0.1:7878  (${direct ? "DIRECT mode, no Tor" : "Tor mode: relay and sync host are onion services"})\n`);
   };
   if (direct) return startDaemon({});
