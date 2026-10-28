@@ -1,6 +1,6 @@
 # The Rust host as a hosted container. Its database lives under /data, which survives
 # restarts and redeploys. Built from a staged copy of host/ (see stage.sh).
-FROM rust:1.88-slim AS build
+FROM rust:1.97-slim AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
