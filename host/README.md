@@ -33,3 +33,21 @@ cargo test
 `caseId` is 32 lowercase hex characters; the token is 64 lowercase hex characters. Exact duplicate
 envelopes (same case, id, collection and sealed JSON) are not appended twice. A push body that is not
 valid JSON gets a bare `500 Internal Server Error`, as the Node host did.
+
+## Payments (library module)
+
+`src/features/payments/` is an in-process Zcash payment engine adapted from ZecCheckout (MIT, see
+`NOTICE.md` there). It has no HTTP routes; the relay calls it directly. It holds only a Unified Full
+Viewing Key (never a spending key), gives each invoice its own shielded (Orchard + Sapling) address,
+and watches the chain through a lightwalletd gRPC connection, the only outbound network access.
+
+```rust
+let p = Arc::new(Payments::open("payments.db", "testnet", &ufvk, Settings::default())?);
+let inv = p.create_invoice(250_000, "order-42", 3600)?;   // id, address, payment_uri, amount_zat, expires_at
+let st = p.status(&inv.id)?;                               // pending | underpaid | detected | paid | expired
+tokio::spawn(p.clone().run_scanner(default_lightwalletd_url("testnet")?.into(), Duration::from_secs(15), None));
+```
+
+Defaults: 3 confirmations, diversifier indices start at 1,000,000, lightwalletd
+`https://testnet.zec.rocks:443` / `https://zec.rocks:443`. `payments::keygen::testnet_wallet()` makes a
+throwaway testnet seed phrase and UFVK (testnet only).

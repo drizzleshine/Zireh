@@ -15,17 +15,39 @@ path = "src/main.rs"
 
 [dependencies]
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio"] }
-tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "net"] }
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "net", "time"] }
 rusqlite = { version = "=0.41.1", features = ["bundled"] }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = { version = "=1.0.154", features = ["raw_value", "float_roundtrip"] }
-sha2 = "=0.11.1"
+# 0.10: the Zcash crates pin bip32, which needs sha2 0.10.
+sha2 = "=0.10.9"
 hex = "=0.4.3"
 form_urlencoded = "=1.2.2"
 k256 = { version = "=0.13.4", default-features = false, features = ["arithmetic"] }
 getrandom = "=0.4.3"
 ryu-js = "=1.0.3"
 http-body-util = "=0.1.5"
+anyhow = "=1.0.104"
+tracing = "=0.1.44"
+rand = "=0.8.8"
+bip39 = "=2.2.2"
+zcash_client_backend = { version = "=0.24.0", features = ["lightwalletd-tonic-transport", "lightwalletd-tonic-tls-webpki-roots"] }
+zcash_keys = { version = "=0.16.1", features = ["orchard", "sapling"] }
+zcash_protocol = "=0.10.6"
+zcash_address = "=0.13.0"
+zip321 = "=0.9.0"
+zip32 = "=0.2.1"
+zcash_note_encryption = "=0.4.2"
+orchard = "=0.15.5"
+sapling-crypto = "=0.7.0"
+tonic = { version = "=0.14.6", features = ["tls-webpki-roots"] }
 
 [dev-dependencies]
 tower = { version = "=0.5.3", features = ["util"] }
+
+# Debug info for the Zcash crates costs gigabytes of disk; tests don't need it.
+[profile.dev]
+debug = 0
+
+[profile.dev.package."*"]
+opt-level = 2
