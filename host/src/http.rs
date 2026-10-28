@@ -36,7 +36,16 @@ pub fn internal_error() -> Response {
 
 pub use crate::js::js_number;
 
-/// `/health` (any method, as before) and the JSON 404 for everything unrouted.
+/// `/health` (any method, as before) and the JSON 404 for everything unrouted: in the relay's
+/// words under `/v1/` (except the sync service's `/v1/cases`), in the sync host's elsewhere, as
+/// each answered when they were separate servers.
 pub fn base_router() -> Router {
-    Router::new().route("/health", any(|| async { json(200, serde_json::json!({ "ok": true })) })).fallback(|| async { not_found() })
+    Router::new().route("/health", any(|| async { json(200, serde_json::json!({ "ok": true })) })).fallback(|uri: axum::http::Uri| async move {
+        let path = uri.path();
+        if path.starts_with("/v1/") && !path.starts_with("/v1/cases") {
+            json(404, serde_json::json!({ "error": "not_found", "message": "no such route" }))
+        } else {
+            not_found()
+        }
+    })
 }

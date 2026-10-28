@@ -26,10 +26,10 @@ pub struct BlindedMessage {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct BlindSignature {
     pub amount: u64,
-    #[serde(rename = "C_")]
-    pub c: String,
     #[serde(rename = "keysetId")]
     pub keyset_id: String,
+    #[serde(rename = "C_")]
+    pub c: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -136,7 +136,7 @@ impl<S: SpentStore> Mint<S> {
 
     /// Verify and burn coins. Returns their total. All-or-nothing; `commit` runs inside the
     /// same transaction that records them as spent.
-    pub fn redeem(&self, proofs: &[Proof], commit: &mut dyn FnMut() -> CommitResult) -> Result<u64, RedeemError> {
+    pub fn redeem(&self, proofs: &[Proof], commit: &mut dyn FnMut(Option<&rusqlite::Connection>) -> CommitResult) -> Result<u64, RedeemError> {
         for p in proofs {
             let pair = self.pair(p.amount, &p.keyset_id)?;
             let secret = hex::decode(&p.secret).unwrap_or_default();
@@ -176,5 +176,6 @@ impl From<MintError> for RedeemError {
     }
 }
 
-/// What a commit callback returns: an error message aborts the transaction.
+/// What a commit callback returns: an error message aborts the transaction. The callback gets
+/// the open SQLite transaction (when the store has one) so its writes commit together with the burn.
 pub type CommitResult = Result<(), String>;

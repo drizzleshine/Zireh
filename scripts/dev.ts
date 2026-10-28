@@ -1,11 +1,11 @@
 /**
- * Run the stack locally: the Rust host (cargo run, sync service on :8788) and the web app's
- * Vite dev server, with each output line prefixed [host] / [app]. Ctrl-C stops both.
+ * Run the stack locally: the Rust host (cargo run: sync, relay and payments on :8788) and the
+ * web app's Vite dev server, with each output line prefixed [host] / [app]. Ctrl-C stops both.
  *
  *   pnpm dev
  *
- * The relay is being ported into the Rust host. App features that used the old local daemon
- * (local model, wallet, relay calls) do not work until that work lands.
+ * The app still expects the old local daemon for its privacy pipeline and wallet; those move into
+ * the browser next, and until then the research and top-up screens can't reach the host.
  * Reads variables from .env if present. Data lives in .zireh/.
  */
 import { spawn, type ChildProcess } from "node:child_process";
@@ -46,6 +46,7 @@ function stop(code = 0) {
 
 run("host", "cargo", ["run", "--manifest-path", "host/Cargo.toml"], {
   SYNC_DB: ".zireh/sync/sync.db",
+  RELAY_DATA_DIR: ".zireh/relay",
   PORT: "8788",
 });
 run("app", "pnpm", ["--filter", "@zireh/app", "dev"]);

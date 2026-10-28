@@ -5,8 +5,7 @@ import type { QuoteState, TopupQuote } from "@zireh/schema";
  * Relay-side payment intake. A quote gives the client a fresh shielded address and an
  * amount; the watcher reports when that address has received it. Implementations:
  *  - `simulatedWatcher`: no chain; payments are marked by hand. Labeled "simulated".
- *  - `zecCheckoutWatcher`: real testnet/mainnet payments, seen through a ZecCheckout sidecar
- *    that holds only a viewing key (see zeccheckout.ts).
+ *  Real testnet/mainnet payments are watched by the Rust host (host/src/features/payments).
  */
 export interface PaymentWatcher {
   readonly network: TopupQuote["network"];
@@ -114,4 +113,3 @@ export function settleMint(quotes: QuoteStore, quoteId: string, get: (quoteId: s
   });
 }
 
-export { zecCheckoutWatcher, type ZecCheckoutOptions } from "./zeccheckout.ts";

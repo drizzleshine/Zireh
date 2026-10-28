@@ -2,4 +2,5 @@
 
 pub mod mint;
 pub mod payments;
+pub mod relay;
 pub mod sync;

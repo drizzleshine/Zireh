@@ -111,7 +111,7 @@ fn coin<S: SpentStore>(mint: &Mint<S>, keys: &MintKeys, amount: u64, seed: u8) -
 }
 
 fn redeem_code<S: SpentStore>(mint: &Mint<S>, proofs: &[Proof]) -> Result<u64, &'static str> {
-    mint.redeem(proofs, &mut || Ok(())).map_err(|e| match e {
+    mint.redeem(proofs, &mut |_| Ok(())).map_err(|e| match e {
         RedeemError::Mint(e) => e.code.as_str(),
         RedeemError::Storage(_) => "storage",
     })
@@ -151,11 +151,11 @@ fn sqlite_spent_store_is_atomic_and_rolls_back_when_the_commit_fails() {
     let store = SqliteSpentStore(&db);
     let ab = ["a".to_string(), "b".to_string()];
 
-    assert_eq!(store.mark_spent(&ab, &mut || Err("disk full".into())), Err("disk full".into()));
-    assert_eq!(store.mark_spent(&ab, &mut || Ok(())), Ok(true), "the failed attempt left nothing behind");
-    assert_eq!(store.mark_spent(&["b".into(), "c".into()], &mut || Ok(())), Ok(false));
-    assert_eq!(store.mark_spent(&["c".into()], &mut || Ok(())), Ok(true), "c was not marked by the refused batch");
-    assert_eq!(store.mark_spent(&["d".into(), "d".into()], &mut || Ok(())), Ok(false));
+    assert_eq!(store.mark_spent(&ab, &mut |_| Err("disk full".into())), Err("disk full".into()));
+    assert_eq!(store.mark_spent(&ab, &mut |_| Ok(())), Ok(true), "the failed attempt left nothing behind");
+    assert_eq!(store.mark_spent(&["b".into(), "c".into()], &mut |_| Ok(())), Ok(false));
+    assert_eq!(store.mark_spent(&["c".into()], &mut |_| Ok(())), Ok(true), "c was not marked by the refused batch");
+    assert_eq!(store.mark_spent(&["d".into(), "d".into()], &mut |_| Ok(())), Ok(false));
     let count: i64 = db.lock().unwrap().query_row("SELECT COUNT(*) FROM spent", [], |r| r.get(0)).unwrap();
     assert_eq!(count, 3);
 }

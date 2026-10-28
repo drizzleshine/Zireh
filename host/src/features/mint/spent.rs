@@ -11,20 +11,20 @@ use super::CommitResult;
 pub trait SpentStore {
     /// Marks every secret spent; `Ok(false)` (and nothing marked) if any was already spent or
     /// the list repeats a secret.
-    fn mark_spent(&self, secrets: &[String], commit: &mut dyn FnMut() -> CommitResult) -> Result<bool, String>;
+    fn mark_spent(&self, secrets: &[String], commit: &mut dyn FnMut(Option<&Connection>) -> CommitResult) -> Result<bool, String>;
 }
 
 #[derive(Default)]
 pub struct MemorySpentStore(Mutex<HashSet<String>>);
 
 impl SpentStore for MemorySpentStore {
-    fn mark_spent(&self, secrets: &[String], commit: &mut dyn FnMut() -> CommitResult) -> Result<bool, String> {
+    fn mark_spent(&self, secrets: &[String], commit: &mut dyn FnMut(Option<&Connection>) -> CommitResult) -> Result<bool, String> {
         let mut spent = self.0.lock().expect("spent set");
         let unique: HashSet<&String> = secrets.iter().collect();
         if unique.len() != secrets.len() || secrets.iter().any(|s| spent.contains(s)) {
             return Ok(false);
         }
-        commit()?;
+        commit(None)?;
         spent.extend(secrets.iter().cloned());
         Ok(true)
     }
@@ -33,26 +33,36 @@ impl SpentStore for MemorySpentStore {
 /// The `spent` table of `relay.db`, unchanged from the TypeScript relay.
 pub struct SqliteSpentStore<'a>(pub &'a Mutex<Connection>);
 
-pub const SPENT_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS spent (secret TEXT PRIMARY KEY) WITHOUT ROWID;";
-
-impl SpentStore for SqliteSpentStore<'_> {
-    fn mark_spent(&self, secrets: &[String], commit: &mut dyn FnMut() -> CommitResult) -> Result<bool, String> {
+impl SqliteSpentStore<'_> {
+    /// Marks secrets spent inside a transaction the caller already holds.
+    pub fn mark_in(tx: &Connection, secrets: &[String]) -> Result<bool, String> {
         let unique: HashSet<&String> = secrets.iter().collect();
         if unique.len() != secrets.len() {
             return Ok(false);
         }
-        let mut conn = self.0.lock().map_err(|e| e.to_string())?;
-        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
         for s in secrets {
             let seen: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM spent WHERE secret = ?1)", params![s], |r| r.get(0)).map_err(|e| e.to_string())?;
             if seen {
-                return Ok(false); // dropping the transaction rolls it back
+                return Ok(false);
             }
         }
         for s in secrets {
             tx.execute("INSERT INTO spent (secret) VALUES (?1)", params![s]).map_err(|e| e.to_string())?;
         }
-        commit()?;
+        Ok(true)
+    }
+}
+
+pub const SPENT_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS spent (secret TEXT PRIMARY KEY) WITHOUT ROWID;";
+
+impl SpentStore for SqliteSpentStore<'_> {
+    fn mark_spent(&self, secrets: &[String], commit: &mut dyn FnMut(Option<&Connection>) -> CommitResult) -> Result<bool, String> {
+        let mut conn = self.0.lock().map_err(|e| e.to_string())?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
+        if !Self::mark_in(&tx, secrets)? {
+            return Ok(false); // dropping the transaction rolls it back
+        }
+        commit(Some(&tx))?;
         tx.commit().map_err(|e| e.to_string())?;
         Ok(true)
     }
