@@ -112,93 +112,6 @@ importers:
         specifier: ^8.3.4
         version: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)
 
-  legacy/daemon:
-    dependencies:
-      '@hono/node-server':
-        specifier: ^2.1.5
-        version: 2.1.5(hono@4.13.13)
-      '@zireh/crypto':
-        specifier: workspace:*
-        version: link:../../packages/crypto
-      '@zireh/llm':
-        specifier: workspace:*
-        version: link:../../packages/llm
-      '@zireh/relay-client':
-        specifier: workspace:*
-        version: link:../../packages/relay-client
-      '@zireh/schema':
-        specifier: workspace:*
-        version: link:../../packages/schema
-      '@zireh/shield':
-        specifier: workspace:*
-        version: link:../../packages/shield
-      '@zireh/sync':
-        specifier: workspace:*
-        version: link:../../packages/sync
-      '@zireh/tor':
-        specifier: workspace:*
-        version: link:../../packages/tor
-      '@zireh/wallet':
-        specifier: workspace:*
-        version: link:../../packages/wallet
-      zod:
-        specifier: ^4.6.7
-        version: 4.6.7
-    devDependencies:
-      '@zireh/relay':
-        specifier: workspace:*
-        version: link:../../packages/relay
-
-  legacy/relay:
-    dependencies:
-      '@hono/node-server':
-        specifier: ^2.1.5
-        version: 2.1.5(hono@4.13.13)
-      '@zireh/llm':
-        specifier: workspace:*
-        version: link:../../packages/llm
-      '@zireh/relay':
-        specifier: workspace:*
-        version: link:../../packages/relay
-      '@zireh/schema':
-        specifier: workspace:*
-        version: link:../../packages/schema
-      '@zireh/tor':
-        specifier: workspace:*
-        version: link:../../packages/tor
-      '@zireh/wallet':
-        specifier: workspace:*
-        version: link:../../packages/wallet
-    devDependencies:
-      '@zireh/relay-client':
-        specifier: workspace:*
-        version: link:../../packages/relay-client
-
-  legacy/sync-host:
-    dependencies:
-      '@hono/node-server':
-        specifier: ^2.1.5
-        version: 2.1.5(hono@4.13.13)
-      '@zireh/cases':
-        specifier: workspace:*
-        version: link:../../packages/cases
-      '@zireh/sync':
-        specifier: workspace:*
-        version: link:../../packages/sync
-      '@zireh/tor':
-        specifier: workspace:*
-        version: link:../../packages/tor
-      zod:
-        specifier: ^4.6.7
-        version: 4.6.7
-    devDependencies:
-      '@zireh/crypto':
-        specifier: workspace:*
-        version: link:../../packages/crypto
-      '@zireh/schema':
-        specifier: workspace:*
-        version: link:../../packages/schema
-
   packages/cases:
     dependencies:
       '@zireh/crypto':
@@ -500,12 +413,6 @@ packages:
 
   '@fontsource-variable/outfit@5.2.8':
     resolution: {integrity: sha512-4oUDCZx/Tcz6HZP423w/niqEH31Gks5IsqHV2ZZz1qKHaVIZdj2f0/S1IK2n8jl6Xo0o3N+3RjNHlV9R73ozQA==}
-
-  '@hono/node-server@2.1.5':
-    resolution: {integrity: sha512-MgP/I06GdvsilDspMk/qmRzpk8LOUStP6jFAbSRi40W09DhoyUn+Mj7eyKICPqeYKybOjVFLVIAQzvu1bfIa7Q==}
-    engines: {node: '>=20'}
-    peerDependencies:
-      hono: ^4 || ^5.0.0-0
 
   '@huggingface/jinja@0.5.11':
     resolution: {integrity: sha512-YzEzwM5oQf4r0vs7ifWQ+yuVR1YkAHrjERQ+a8WRsStHHp4NRBg+NesjiFc+X2AFUpRvvrIeHDS1xFy9jY/IjQ==}
@@ -2070,10 +1977,6 @@ packages:
   has-property-descriptors@1.0.2:
     resolution: {integrity: sha512-55JNKuIW+vq4Ke1BjOTjM2YctQIvCT7GFzHwmfZPGo5wnrgkid0YQtnAleFSqumZm4az3n2BS+erby5ipJdgrg==}
 
-  hono@4.13.13:
-    resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
-    engines: {node: '>=16.9.0'}
-
   idb-keyval@6.3.0:
     resolution: {integrity: sha512-um+2dgAWmYsu615EXpWVwSmapJhON0G43t3Ka/EVaohzPQXSMqKEqeDK/oIW3Ow+BXaF2PvSc+oBTFp793A5Ow==}
 
@@ -2684,10 +2587,6 @@ snapshots:
   '@floating-ui/utils@0.2.12': {}
 
   '@fontsource-variable/outfit@5.2.8': {}
-
-  '@hono/node-server@2.1.5(hono@4.13.13)':
-    dependencies:
-      hono: 4.13.13
 
   '@huggingface/jinja@0.5.11': {}
 
@@ -4090,8 +3989,6 @@ snapshots:
   has-property-descriptors@1.0.2:
     dependencies:
       es-define-property: 1.0.1
-
-  hono@4.13.13: {}
 
   idb-keyval@6.3.0: {}
 

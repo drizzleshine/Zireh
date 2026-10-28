@@ -1,4 +1,4 @@
-//! Port of legacy/sync-host/test/host.test.ts plus every route and error path of host.ts.
+//! Port of the retired TypeScript sync host tests plus every route and error path of host.ts.
 //! The host never decrypts, so envelopes here carry opaque `iv`/`ct` strings.
 
 use axum::{

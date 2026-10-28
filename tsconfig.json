@@ -6,8 +6,6 @@
     "app/src",
     "app/test",
     "app/vite.config.ts",
-    "legacy/*/src",
-    "legacy/*/test",
     "scripts",
     "vitest.config.ts"
   ],

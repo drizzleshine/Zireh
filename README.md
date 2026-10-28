@@ -153,30 +153,25 @@ A monorepo of small packages in strict layers. A package may only import from lo
 | Folder | Runs | Composes |
 |---|---|---|
 | `app/` | your browser | cases, sync, encryption, UI |
-| `legacy/daemon` | your computer (127.0.0.1) | local model, shield, Tor, wallet, sync proxy; serves the UI. Moving into the browser |
-| `legacy/relay` | server, as an onion service | relay, Token Factory, Tavily, mint. Being replaced by one Rust host |
-| `legacy/sync-host` | server, as an onion service | ciphertext log. Being replaced by one Rust host |
+| `host/` | server | Rust: the sync service now; the relay is being ported into it |
 
-More detail: [`context/architecture.md`](context/architecture.md), design decisions and measured
-numbers: [`context/decisions.md`](context/decisions.md).
+Design notes are kept outside the repo.
 
 ## Run it
 
-Requirements: Node 22.19+ within the 22.x line, Node 24.x, or Node 26+ (matching the locked Undici and Vitest engines), pnpm, [Ollama](https://ollama.com), Tor (`brew install tor ollama`).
+Requirements: Node 22.19+ within the 22.x line, Node 24.x, or Node 26+, pnpm, and a Rust toolchain (cargo).
 
 ```bash
 pnpm install
-ollama pull nemotron-3-nano:4b
-cp .env.example .env          # optional: paid-provider keys require RELAY_DEMO=1
-pnpm dev                      # Tor mode: relay and sync host as onion services
-# open http://127.0.0.1:7878, top up (simulated Zcash), try the demo case
+cp .env.example .env          # optional
+pnpm dev                      # Rust host on :8788 + the web app's Vite dev server
 ```
 
-`pnpm dev --direct` skips Tor for fast local iteration; the UI shows Tor as off.
+Note: the old local daemon and relay are being replaced. App features that used the daemon
+(local model, wallet, relay calls) do not work until the port into the Rust host lands.
 
 ```bash
-pnpm check        # layer check + typecheck + 179 tests
-pnpm smoke:tor    # live: three independently isolated requests through Tor
+pnpm check        # layer check + typecheck
 ```
 
 ## Measured on an M1 MacBook (8 GB)

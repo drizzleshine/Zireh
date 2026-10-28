@@ -1,5 +1,5 @@
 /**
- * Enforces the package layering in context/architecture.md §4:
+ * Enforces the package layering rules:
  *  - every package declares `zireh.layer` in package.json;
  *  - a package may depend only on @zireh packages in strictly lower layers;
  *  - apps may depend on any package but never on another app;
@@ -11,11 +11,11 @@ import { join } from "node:path";
 const root = new URL("..", import.meta.url).pathname;
 type Pkg = { name: string; dir: string; kind: "package" | "app"; layer: number; deps: string[] };
 
-/** Packages live in packages/*; apps are app/ and the servers being retired in legacy/*. */
+/** Packages live in packages/*; the only app is app/. */
 function dirsOf(kind: "package" | "app"): string[] {
   const under = (base: string) =>
     existsSync(join(root, base)) ? readdirSync(join(root, base)).map((d) => join(root, base, d)) : [];
-  return kind === "package" ? under("packages") : [join(root, "app"), ...under("legacy")];
+  return kind === "package" ? under("packages") : [join(root, "app")];
 }
 
 function load(kind: "package" | "app"): Pkg[] {

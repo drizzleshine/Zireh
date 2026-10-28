@@ -1,6 +1,6 @@
 # zireh-host
 
-Zireh's single Rust backend. This slice is the sync host (port of `legacy/sync-host`); the relay
+Zireh's single Rust backend. This slice is the sync host (port of the retired TypeScript sync host); the relay
 will join it as `src/features/relay` and be merged in `src/main.rs`.
 
 ## Run

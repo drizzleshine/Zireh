@@ -1,7 +1,6 @@
 packages:
   - packages/*
   - app
-  - legacy/*
 allowBuilds:
   esbuild: false
   onnxruntime-node: false

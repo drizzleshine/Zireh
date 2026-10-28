@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
-# Deploy the relay or the sync host to Maritime as an always-on, public HTTPS container:
-#   deploy/maritime/deploy.sh relay|sync-host|zeccheckout [agent-name]
-# Needs `maritime login` first. Uploads a staged copy of the repo (see stage.sh: no .zireh/,
+# Deploy the Rust host (or ZecCheckout) to Maritime as an always-on, public HTTPS container:
+#   deploy/maritime/deploy.sh host|zeccheckout [agent-name]
+# Needs `maritime login` first. Uploads a staged copy (see stage.sh: host/ sources only, no .zireh/,
 # .env or node_modules), creates the agent, and waits for it to answer /health.
-# Secrets are set afterwards, never uploaded:
-#   maritime env set <agent> NEBIUS_API_KEY=... RELAY_DEMO=1 --secret --reload --json
-# Real payments: deploy zeccheckout first, then point the relay at it:
+# Secrets are set afterwards, never uploaded. The relay is being ported into the host; until
+# then the host serves sync only. ZecCheckout (real Zcash top-ups):
 #   maritime env set zireh-zeccheckout ZC_UFVK=uviewtest1... ZC_API_KEY=... --secret --reload --json
-#   maritime env set zireh-relay ZECCHECKOUT_URL=https://... ZECCHECKOUT_API_KEY=... --secret --reload --json
 set -euo pipefail
-service="${1:?relay, sync-host or zeccheckout}"
+service="${1:?host or zeccheckout}"
 name="${2:-zireh-$service}"
 here="$(cd "$(dirname "$0")" && pwd)"
 stage="$(mktemp -d)/$service"

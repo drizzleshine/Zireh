@@ -10,3 +10,6 @@ coverage/
 .zireh/
 *.tsbuildinfo
 target/
+
+# Local notes and retired code, never committed
+/context/

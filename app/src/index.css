@@ -8,7 +8,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Tokens follow context/design.md: record-office paper, ink, viridian for "protected",
+ * Tokens follow the design notes: record-office paper, ink, viridian for "protected",
  * amber for decoys, alarm for leaks. shadcn variables map onto them.
  */
 :root {
@@ -148,7 +148,7 @@
 }
 
 
-/* The one motion moment (context/design.md): hidden values are covered by ink bars in turn,
+/* The one motion moment (local design notes): hidden values are covered by ink bars in turn,
    and envelopes for the provider arrive one by one. */
 /*
  * Spacing system (8px scale). Every screen uses these roles, so the rhythm is the same everywhere:

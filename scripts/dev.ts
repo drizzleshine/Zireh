@@ -1,18 +1,18 @@
 /**
- * Run the whole stack locally: relay, sync host and daemon (each restarts when its code
- * changes), plus the built web UI served by the daemon at http://127.0.0.1:7878.
+ * Run the stack locally: the Rust host (cargo run, sync service on :8788) and the web app's
+ * Vite dev server, with each output line prefixed [host] / [app]. Ctrl-C stops both.
  *
- *   pnpm dev            Tor on (default). The daemon starts a private Tor client.
- *   pnpm dev --direct   No Tor: for development without network anonymity (labeled in the UI).
+ *   pnpm dev
  *
- * Reads NEBIUS_API_KEY / TAVILY_API_KEY from .env if present. Data lives in .zireh/.
+ * The relay is being ported into the Rust host. App features that used the old local daemon
+ * (local model, wallet, relay calls) do not work until that work lands.
+ * Reads variables from .env if present. Data lives in .zireh/.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = new URL("..", import.meta.url).pathname;
-const direct = process.argv.includes("--direct");
 
 const env: NodeJS.ProcessEnv = { ...process.env };
 const envFile = join(root, ".env");
@@ -24,41 +24,30 @@ if (existsSync(envFile)) {
 }
 
 const children: ChildProcess[] = [];
-function run(name: string, cwd: string, args: string[], extra: NodeJS.ProcessEnv = {}) {
-  const child = spawn("pnpm", ["exec", "tsx", "watch", "--clear-screen=false", ...args], { cwd: join(root, cwd), env: { ...env, ...extra }, stdio: ["ignore", "pipe", "pipe"] });
-  const prefix = `[${name}]`.padEnd(8);
+function run(name: string, cmd: string, args: string[], extra: NodeJS.ProcessEnv = {}) {
+  const child = spawn(cmd, args, { cwd: root, env: { ...env, ...extra }, stdio: ["ignore", "pipe", "pipe"] });
+  const prefix = `[${name}]`.padEnd(7);
   for (const stream of [child.stdout!, child.stderr!])
     stream.on("data", (d: Buffer) => process.stdout.write(d.toString().replace(/^(?=.)/gm, `${prefix} `)));
+  child.on("exit", (code) => {
+    console.log(`${prefix} exited (${code ?? "signal"})`);
+    stop(code ?? 0);
+  });
   children.push(child);
 }
 
-console.log("building web UI…");
-const build = spawn("pnpm", ["--filter", "@zireh/app", "build"], { cwd: root, stdio: "inherit" });
-build.on("exit", (code) => {
-  if (code !== 0) process.exit(code ?? 1);
-  const relayDir = join(root, ".zireh/relay");
-  const syncDir = join(root, ".zireh/sync");
-  run("relay", "legacy/relay", ["src/main.ts"], { RELAY_DATA_DIR: relayDir, ...(direct ? {} : { RELAY_ONION: "1" }) });
-  run("sync", "legacy/sync-host", ["src/main.ts"], { SYNC_DB: join(syncDir, "sync.db"), ...(direct ? {} : { SYNC_ONION: "1" }) });
-  const startDaemon = (urls: NodeJS.ProcessEnv) => {
-    run("daemon", "legacy/daemon", ["src/main.ts"], { DAEMON_DATA_DIR: join(root, ".zireh/daemon"), ...urls, ...(direct ? { ZIREH_TRANSPORT: "direct" } : {}) });
-    console.log(`\nZireh: open http://127.0.0.1:7878  (${direct ? "DIRECT mode, no Tor" : "Tor mode: relay and sync host are onion services"})\n`);
-  };
-  if (direct) return startDaemon({});
-  // Tor mode: wait for both onion addresses, then point the daemon at them.
-  console.log("publishing relay and sync host as onion services (first run can take a minute)…");
-  for (const f of [join(relayDir, "onion-url"), join(syncDir, "onion-url")]) if (existsSync(f)) rmSync(f);
-  const timer = setInterval(() => {
-    const files = [join(relayDir, "onion-url"), join(syncDir, "onion-url")];
-    if (!files.every(existsSync)) return;
-    clearInterval(timer);
-    startDaemon({ RELAY_URL: readFileSync(files[0]!, "utf8").trim(), SYNC_URL: readFileSync(files[1]!, "utf8").trim() });
-  }, 500);
-});
-
-const stop = () => {
+let stopping = false;
+function stop(code = 0) {
+  if (stopping) return;
+  stopping = true;
   for (const c of children) c.kill("SIGTERM");
-  process.exit(0);
-};
-process.on("SIGINT", stop);
-process.on("SIGTERM", stop);
+  setTimeout(() => process.exit(code), 200);
+}
+
+run("host", "cargo", ["run", "--manifest-path", "host/Cargo.toml"], {
+  SYNC_DB: ".zireh/sync/sync.db",
+  PORT: "8788",
+});
+run("app", "pnpm", ["--filter", "@zireh/app", "dev"]);
+process.on("SIGINT", () => stop());
+process.on("SIGTERM", () => stop());
