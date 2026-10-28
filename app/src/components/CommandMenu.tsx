@@ -1,4 +1,5 @@
 import { BookOpenText, CalendarBlank as CalendarRange, EyeSlash as EyeOff, FileMagnifyingGlass as FileSearch, Flask as FlaskConical, FolderLock, Graph as Network, Notebook as NotebookPen, Plus, Receipt as ReceiptText, Scales as Scale, Sparkle as Sparkles, Wallet, GearSix } from "@phosphor-icons/react";
+import { textOf } from "../evidence.ts";
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator, CommandShortcut } from "@/components/ui/command";
 import { useStore } from "../store.ts";
 import type { OpenItem, Tab } from "./CaseView.tsx";
@@ -59,7 +60,7 @@ export function CommandMenu({ open, onOpenChange, selected, onSelect, onTab, onO
         {evidence.length > 0 && (
           <CommandGroup heading="Evidence">
             {evidence.map((e) => (
-              <CommandItem key={e.id} value={`evidence ${e.title} ${e.body.slice(0, 200)}`} onSelect={run(() => onOpen("evidence", e.id))}>
+              <CommandItem key={e.id} value={`evidence ${e.title} ${textOf(e).slice(0, 200)}`} onSelect={run(() => onOpen("evidence", e.id))}>
                 <FileSearch />
                 <span className="truncate">{e.title}</span>
               </CommandItem>

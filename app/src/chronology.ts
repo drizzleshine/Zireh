@@ -1,3 +1,4 @@
+import { readableText } from "./evidence.ts";
 import type { Evidence } from "@zireh/schema";
 
 /**
@@ -51,12 +52,12 @@ export function chronology(evidence: readonly Evidence[]): { events: ChronoEvent
   const events: ChronoEvent[] = [];
   const undated: Evidence[] = [];
   for (const e of evidence) {
-    if (e.kind === "image") continue;
+    const body = readableText(e);
     const added = new Date(e.addedAt);
     const seen = new Set<string>();
     const taken: [number, number][] = [];
     let found = false;
-    for (const source of [{ text: e.title, title: true }, { text: e.body.slice(0, 200_000), title: false }]) {
+    for (const source of [{ text: e.title, title: true }, { text: body.slice(0, 200_000), title: false }]) {
       for (const { re, parse } of PATTERNS) {
         for (const m of source.text.matchAll(re)) {
           const at = m.index;
@@ -77,7 +78,7 @@ export function chronology(evidence: readonly Evidence[]): { events: ChronoEvent
             ...(end ? { end } : {}),
             precision: p.d === undefined ? "month" : "day",
             label: m[0],
-            text: source.title ? sentenceAround(e.body, 0) || e.title : sentenceAround(source.text, at),
+            text: source.title ? sentenceAround(body, 0) || e.title : sentenceAround(source.text, at),
             evidence: e,
             guessedYear: p.y === undefined,
           });

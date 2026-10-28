@@ -319,6 +319,22 @@ async fn pull_is_capped_at_500_and_paginates() {
 }
 
 #[tokio::test]
+async fn pull_pages_stop_at_a_byte_budget_but_always_carry_one_record() {
+    let app = app();
+    let t = token('a');
+    let big = |n: u32| json!({ "id": id(n), "collection": "evidence", "sealed": { "v": 1, "iv": "i", "ct": "x".repeat(20 * 1024 * 1024) } });
+    for n in 1..=2 {
+        let body = json!({ "records": [big(n)] }).to_string();
+        assert_eq!(post_raw(&app, CASE, Some(&t), body).await.status, StatusCode::OK);
+    }
+    let first = pull(&app, CASE, &t, 0).await.json();
+    assert_eq!(first["records"].as_array().unwrap().len(), 1);
+    assert_eq!((first["cursor"].as_i64(), first["head"].as_i64()), (Some(1), Some(2)));
+    let second = pull(&app, CASE, &t, 1).await.json();
+    assert_eq!(second["records"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn after_parameter_follows_javascript_number_semantics() {
     let app = app();
     let t = token('a');
@@ -360,7 +376,7 @@ async fn pull_text(app: &Router, t: &str, q: &str) -> String {
 #[tokio::test]
 async fn too_large_by_content_length_is_413_before_anything_else() {
     let app = app();
-    let req = Request::post(path(CASE, "")).header("content-length", (4 * 1024 * 1024 + 1).to_string()).body(Body::empty()).unwrap();
+    let req = Request::post(path(CASE, "")).header("content-length", (24 * 1024 * 1024 + 1).to_string()).body(Body::empty()).unwrap();
     err(&send(&app, req).await, 413, "too large");
 }
 
@@ -368,7 +384,7 @@ async fn too_large_by_content_length_is_413_before_anything_else() {
 async fn too_large_by_actual_bytes_is_413_and_limit_is_inclusive() {
     let app = app();
     let t = token('a');
-    let limit = 4 * 1024 * 1024;
+    let limit = 24 * 1024 * 1024;
     let make = |ct_len: usize| json!({ "records": [{ "id": id(1), "collection": "cases", "sealed": { "v": 1, "iv": "i", "ct": "x".repeat(ct_len) } }] }).to_string();
     let base = make(0).len();
     // exactly at the limit is accepted

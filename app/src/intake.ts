@@ -1,43 +1,32 @@
 import { detectPatterns, properNounCandidates } from "@zireh/shield";
-import type { EntityKind, Evidence, Pseudonym } from "@zireh/schema";
+import { sha256Hex } from "@zireh/crypto";
+import { MAX_ATTACHMENT_BYTES, type Attachment, type EntityKind, type Pseudonym } from "@zireh/schema";
+import { formatBytes } from "./evidence.ts";
 import { prepareImage } from "./media.ts";
 
 /**
- * Evidence intake: turn whatever the user pastes or drops into evidence drafts, and scan
- * each one on this device for what would be hidden before any AI call.
+ * Evidence intake: read what the user attaches into files kept as received, and scan text on
+ * this device for what would be hidden before any AI call.
  */
-
-export interface Draft {
-  readonly key: string;
-  kind: Evidence["kind"];
-  title: string;
-  body: string;
-  /** What happened to the source on the way in (re-encoded, text extracted, truncated…). */
-  note?: string;
-  /** Codename of who it came from. */
-  source?: string | undefined;
-}
 
 const MAX_TEXT = 1_000_000;
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|log|eml|html?|xml|ya?ml|srt|vtt|rtf)$/i;
-const URL_ONLY = /^\s*(https?:\/\/[^\s]+)\s*$/i;
 const stem = (name: string) => name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || "Untitled";
-const key = () => crypto.randomUUID();
 
-/** Best guess at a kind for typed or pasted text; the user can always change it. */
-export function guessText(text: string): Pick<Draft, "kind" | "title"> {
-  const url = URL_ONLY.exec(text);
+/** A title for a new item: the first line of the text, else the first file's name. */
+export function titleFor(text: string, files: readonly Attachment[]): string {
+  const url = /^\s*(https?:\/\/[^\s]+)\s*$/i.exec(text);
   if (url) {
     try {
       const u = new URL(url[1]!);
-      return { kind: "link", title: `${u.hostname.replace(/^www\./, "")}${u.pathname.length > 1 ? u.pathname.replace(/\/$/, "") : ""}`.slice(0, 120) };
+      return `${u.hostname.replace(/^www\./, "")}${u.pathname.length > 1 ? u.pathname.replace(/\/$/, "") : ""}`.slice(0, 120);
     } catch {
       /* fall through: not a parseable URL */
     }
   }
   const firstLine = text.trim().split("\n")[0]!.replace(/^#+\s*/, "").trim();
-  const title = firstLine.length > 80 ? `${firstLine.slice(0, 77).replace(/\s+\S*$/, "")}…` : firstLine;
-  return { kind: text.length > 600 || text.split(/\n\s*\n/).length > 2 ? "document" : "note", title };
+  if (firstLine) return firstLine.length > 80 ? `${firstLine.slice(0, 77).replace(/\s+\S*$/, "")}…` : firstLine;
+  return files[0] ? stem(files[0].name) : "Untitled";
 }
 
 async function pdfText(file: File): Promise<{ text: string; pages: number }> {
@@ -54,29 +43,41 @@ async function pdfText(file: File): Promise<{ text: string; pages: number }> {
   return { text: pages.map((p, i) => `[Page ${i + 1}]\n${p.trim()}`).join("\n\n"), pages: doc.numPages };
 }
 
-/** One file → one draft. Images are re-encoded here, so metadata never reaches storage. */
-export async function fromFile(file: File): Promise<Draft> {
-  if (file.type.startsWith("image/")) {
+const toBase64 = (bytes: Uint8Array) => {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(out);
+};
+
+/**
+ * One file → one attachment, kept as received. Pictures are re-encoded here so location and
+ * camera data never reach storage; PDF and text files also get their text read for search and AI.
+ */
+export async function readFile(file: File): Promise<Attachment> {
+  let name = file.name || "file";
+  let type = file.type || "application/octet-stream";
+  let bytes: Uint8Array;
+  let text: string | undefined;
+  if (/^image\/(png|jpeg|webp|gif|heic|heif|avif|bmp)$/.test(file.type)) {
     const img = await prepareImage(file);
-    return { key: key(), kind: "image", title: stem(file.name), body: img.dataUrl, note: `Re-encoded at ${img.width}×${img.height}. Location, camera and time data removed.` };
+    bytes = Uint8Array.from(atob(img.dataUrl.split(",")[1]!), (c) => c.charCodeAt(0));
+    name = `${name.replace(/\.[^.]+$/, "")}.jpg`;
+    type = "image/jpeg";
+  } else {
+    if (file.size > MAX_ATTACHMENT_BYTES) throw new Error(`${file.name} is ${formatBytes(file.size)}. Files can be at most ${formatBytes(MAX_ATTACHMENT_BYTES)}.`);
+    bytes = new Uint8Array(await file.arrayBuffer());
+    if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) text = (await pdfText(file).catch(() => undefined))?.text;
+    else if (file.type.startsWith("text/") || file.type === "application/json" || TEXT_EXT.test(file.name)) text = (await file.text()).slice(0, MAX_TEXT);
+    if (text !== undefined && !text.replace(/\[Page \d+\]/g, "").trim()) text = undefined;
   }
-  if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
-    const { text, pages } = await pdfText(file);
-    if (!text.replace(/\[Page \d+\]/g, "").trim()) throw new Error(`${file.name} has no text layer (a scan?). Add its pages as images instead.`);
-    return { key: key(), kind: "document", title: stem(file.name), ...clamp(text), note: `Text extracted from ${pages} page${pages === 1 ? "" : "s"} on this device. The PDF itself is not kept.` };
-  }
-  if (file.type.startsWith("text/") || file.type === "application/json" || TEXT_EXT.test(file.name)) {
-    return { key: key(), kind: "document", title: stem(file.name), ...clamp(await file.text()) };
-  }
-  throw new Error(`${file.name}: only text, PDF and image files can be read here.`);
+  return { name: name.slice(0, 200), type: type.slice(0, 120), size: bytes.byteLength, sha256: sha256Hex(bytes), data: toBase64(bytes), ...(text ? { text } : {}) };
 }
 
-function clamp(text: string): { body: string; note?: string } {
-  return text.length > MAX_TEXT ? { body: text.slice(0, MAX_TEXT), note: `Trimmed to the first ${MAX_TEXT.toLocaleString()} characters.` } : { body: text };
-}
-
-export function fromText(text: string): Draft {
-  return { key: key(), ...guessText(text), body: text.slice(0, MAX_TEXT) };
+/** A picture after redaction: the pixelated JPEG replaces the original, with a new fingerprint. */
+export function replaceImage(file: Attachment, dataUrl: string): Attachment {
+  const data = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  return { ...file, type: "image/jpeg", data, size: bytes.byteLength, sha256: sha256Hex(bytes) };
 }
 
 export interface Hit {

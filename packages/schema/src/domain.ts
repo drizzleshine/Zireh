@@ -29,19 +29,40 @@ export const Case = z.object({
 });
 export type Case = z.infer<typeof Case>;
 
+/** Older evidence carried one of these; new evidence is text plus attachments and has no kind. */
 export const EvidenceKind = z.enum(["note", "document", "link", "image"]);
+
+/** Files on one evidence item, together, before base64. Encrypted and synced, so kept modest. */
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+/** A file exactly as received (pictures re-encoded on this device to drop location and camera data). */
+export const Attachment = z.object({
+  name: z.string().trim().min(1).max(200),
+  type: z.string().max(120), // MIME type as the browser reported it; the viewer decides what it may render
+  size: z.number().int().nonnegative().max(MAX_ATTACHMENT_BYTES),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  data: z.string().regex(/^[A-Za-z0-9+/]*={0,2}$/), // base64
+  /** Text read from the file on this device (PDF or plain text), for search, scanning and AI. */
+  text: z.string().max(3_000_000).optional(),
+});
+export type Attachment = z.infer<typeof Attachment>;
+
 export const Evidence = z.object({
   id: Id,
   caseId: Id,
-  kind: EvidenceKind,
+  kind: EvidenceKind.optional(),
   title: z.string().trim().min(1).max(200),
-  body: z.string().max(3_000_000), // text, or a data: URL for an image already stripped of metadata on this device
+  body: z.string().max(3_000_000), // the member's own text; on older "image" evidence, a data: URL
+  attachments: z.array(Attachment).max(20).optional(),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   addedBy: Id,
   addedAt: Iso,
   /** Who it came from, by codename only ("Source A"). Real identities never enter the case. */
   source: z.string().trim().min(1).max(60).optional(),
-}).refine((evidence) => evidence.kind !== "image" || /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(evidence.body), "Images must be embedded PNG, JPEG or WebP data; external image URLs are not loaded");
+})
+  .refine((evidence) => evidence.kind !== "image" || /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(evidence.body), "Images must be embedded PNG, JPEG or WebP data; external image URLs are not loaded")
+  .refine((evidence) => (evidence.attachments ?? []).reduce((n, a) => n + a.size, 0) <= MAX_ATTACHMENT_BYTES, "Attachments on one item can total at most 10 MB")
+  .refine((evidence) => evidence.body.trim() !== "" || (evidence.attachments?.length ?? 0) > 0, "Evidence needs text or a file");
 export type Evidence = z.infer<typeof Evidence>;
 
 export const Author = z.discriminatedUnion("kind", [

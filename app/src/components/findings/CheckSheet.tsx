@@ -1,4 +1,5 @@
 import { memberName, type CaseRecords } from "@zireh/cases";
+import { readableText } from "../../evidence.ts";
 import type { Observation } from "@zireh/schema";
 import { Check, CheckCircle, XCircle } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
@@ -56,7 +57,7 @@ export function CheckSheet({ caseId, rec, drafts, start, open, onClose, onOpen }
                         {e.title}
                       </button>
                       <span className={cn("text-xs", e.source ? "text-muted-foreground" : "text-decoy")}>{e.source ?? "No source set"}</span>
-                      {e.kind !== "image" && <p className="line-clamp-6 font-serif text-sm leading-relaxed text-foreground/80">{e.body.slice(0, 800)}</p>}
+                      {readableText(e) && <p className="line-clamp-6 font-serif text-sm leading-relaxed text-foreground/80">{readableText(e).slice(0, 800)}</p>}
                     </div>
                   ))
                 )}

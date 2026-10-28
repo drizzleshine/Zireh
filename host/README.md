@@ -45,7 +45,7 @@ another file). Real environment variables win.
 | --- | --- |
 | `GET /health` | `{"ok":true}` (any method) |
 | `GET /v1/cases/{caseId}/records?after=N` | Pull up to 500 records after `N`. Header `x-case-token` required. `200 {records, cursor, head}`; 401 bad/missing token, 404 unknown case, 403 wrong token |
-| `POST /v1/cases/{caseId}/records` | Push `{records: [1..200 envelopes]}`, body at most 4 MiB. First push registers the token. `200 {cursor}`; 413 too large, 400 invalid records, 401, 403 |
+| `POST /v1/cases/{caseId}/records` | Push `{records: [1..200 envelopes]}`, body at most 24 MiB. First push registers the token. `200 {cursor}`; 413 too large, 400 invalid records, 401, 403 |
 | other methods on that path | `405 {"error":"method not allowed"}` |
 | `GET /v1/info` | Keyset, prices, search price, `network` (simulated, testnet, mainnet), `upstreamOk` (AI answered its last 15 s check) |
 | `POST /v1/topup/quote` | `{credits}` → fresh shielded address, amount in ZEC, ZIP 321 `paymentUri` (real payments), expiry |

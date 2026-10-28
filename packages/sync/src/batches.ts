@@ -1,11 +1,11 @@
 import type { Envelope } from "./index.ts";
 
-export const MAX_SYNC_BODY_BYTES = 4 * 1024 * 1024;
+export const MAX_SYNC_BODY_BYTES = 24 * 1024 * 1024; // matches the host
 export const SYNC_BATCH_BYTES = 3.5 * 1024 * 1024;
 export const syncBytes = (records: readonly Envelope[]): number => new TextEncoder().encode(JSON.stringify({ records })).byteLength;
 
 export function assertSyncable(envelope: Envelope): void {
-  if (syncBytes([envelope]) > MAX_SYNC_BODY_BYTES) throw new Error("This evidence is too large to sync after encryption. Use a smaller image or split the document before saving.");
+  if (syncBytes([envelope]) > MAX_SYNC_BODY_BYTES) throw new Error("This item is too large to sync after encryption. Attach fewer or smaller files.");
 }
 
 /** Bound the wire bytes, including JSON overhead, and the host's record-count limit. */

@@ -2,6 +2,7 @@ import type { CaseRecords } from "@zireh/cases";
 import { extendTable } from "@zireh/shield";
 import type { Finding, Pseudonym } from "@zireh/schema";
 import { useSyncExternalStore } from "react";
+import { readableText } from "./evidence.ts";
 import { database, Keys } from "./persistence.ts";
 
 /**
@@ -153,9 +154,9 @@ export function verbatimRuns(published: string, rec: CaseRecords, min = 8): Verb
   const pub = shown.map((w) => w.toLowerCase());
   if (pub.length < min) return out;
   for (const e of rec.evidence) {
-    if (e.kind === "image" || e.kind === "link" || e.source === "Public record") continue;
+    if (e.kind === "link" || e.source === "Public record") continue;
     const grams = new Set<string>();
-    const w = words(e.body.slice(0, 300_000));
+    const w = words(readableText(e).slice(0, 300_000));
     for (let i = 0; i + min <= w.length; i++) grams.add(w.slice(i, i + min).join(" "));
     if (!grams.size) continue;
     for (let i = 0; i + min <= pub.length; ) {

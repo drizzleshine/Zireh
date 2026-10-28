@@ -25,7 +25,6 @@ export async function createDemoCase(yourName: string): Promise<string> {
   // Each item has a source, so the finding below meets the two-source rule.
   const tip = {
     ...newEvidence(caseId, me, {
-      kind: "note",
       title: "Anonymous tip, 2 March",
       body: "A dock clerk at Kestrel Bay says shift supervisor Ilan Roth stamps release forms for containers from Larkspur Freight without inspection, always on night shifts.",
     }),
@@ -33,7 +32,6 @@ export async function createDemoCase(yourName: string): Promise<string> {
   };
   const log = {
     ...newEvidence(caseId, sam.id, {
-      kind: "document",
       title: "Gate log extract, nights of 4–9 March",
       body: "Larkspur Freight containers LF-2291, LF-2304 and LF-2317 released between 01:10 and 02:40. Inspector field blank. Supervisor on duty: I. Roth.",
     }),
@@ -41,7 +39,6 @@ export async function createDemoCase(yourName: string): Promise<string> {
   };
   const threat = {
     ...newEvidence(caseId, me, {
-      kind: "note",
       title: "Message received by Mara Venn, 12 March",
       body: "Two days after the Harbor Ledger story ran, Mara Venn received a text from an unknown number: 'Stop writing about the bay.'",
     }),

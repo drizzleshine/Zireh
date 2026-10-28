@@ -46,8 +46,8 @@ Without the on-device model, names are hidden by rule and each question goes out
 
 ## Working as a team
 
-- **Cases** hold evidence (notes, documents, links, images), observations, findings with
-  reviews, comments, a case board and a conclusion.
+- **Cases** hold evidence (your text plus any files, viewable in the app or downloaded),
+  observations, findings with reviews, comments, a case board and a conclusion.
 - **Invite links** carry the case key in the URL fragment, which browsers never send to a server.
 - **The sync host** stores sealed records only; a one-way token decides who may write. Records
   are signed by their author, and removing a member rotates the key.
@@ -108,7 +108,6 @@ Set `VITE_HOST_URL` when building the app to use a deployed host.
 - **The topic still leaks.** Generalization hides who and where, not what the question is about.
 - **The device is the trust boundary.** Keys and coins sit unencrypted in browser storage;
   clearing site data deletes the coins, and backups don't include them yet.
-- **Real Zcash intake hasn't received a testnet payment yet.**
 - **A small model can miss a name.** Pattern detectors and the leak floor back it up, and the
   privacy log shows exactly what was sent.
 

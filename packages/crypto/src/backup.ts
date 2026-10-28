@@ -2,7 +2,7 @@ import { fromBase64Url, toBase64Url, utf8ToBytes } from "./bytes.ts";
 import { openJson, sealJson, type Sealed } from "./box.ts";
 import { randomBytes } from "./random.ts";
 
-export const MAX_BACKUP_BYTES = 64 * 1024 * 1024;
+export const MAX_BACKUP_BYTES = 512 * 1024 * 1024;
 
 export interface EncryptedBackup {
   readonly v: 1;
@@ -24,7 +24,7 @@ export async function encryptBackup(value: unknown, passphrase: string): Promise
   const salt = toBase64Url(randomBytes(32));
   const box = await sealJson(await backupKey(passphrase, salt), value, context(salt));
   const encrypted = { v: 1, kdf: "PBKDF2-SHA256", iterations: 600000, salt, box } as const;
-  if (JSON.stringify(encrypted).length > MAX_BACKUP_BYTES) throw new Error("Encrypted backup exceeds 64 MiB; reduce the case size before exporting");
+  if (JSON.stringify(encrypted).length > MAX_BACKUP_BYTES) throw new Error("Encrypted backup exceeds 512 MiB; reduce the case size before exporting");
   return encrypted;
 }
 export async function decryptBackup(value: unknown, passphrase: string): Promise<unknown> {

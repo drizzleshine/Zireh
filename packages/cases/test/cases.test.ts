@@ -20,7 +20,7 @@ function sampleCase(): CaseRecords & { ada: string; bo: string } {
   const ada = newMember("Ada");
   const bo = newMember("Bo");
   const c = newCase({ title: "Port report", question: "Who is behind the threats?", privacy: "private", createdBy: ada.id });
-  const ev = newEvidence(c.id, ada.id, { kind: "note", title: "Call log", body: "Three calls from an unknown number." });
+  const ev = newEvidence(c.id, ada.id, { title: "Call log", body: "Three calls from an unknown number." });
   const obs = newObservation(c.id, { kind: "member", memberId: bo.id }, { text: "Calls began after publication.", evidenceIds: [ev.id] });
   const finding = newFinding(c.id, ada.id, { statement: "Threats are linked to the report.", observationIds: [obs.id, "f".repeat(32)], uncertainty: "Timing only." });
   return {

@@ -11,7 +11,7 @@ use std::{
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use sha2::{Digest, Sha256};
 
-use super::MAX_RECORDS_PER_PULL;
+use super::{MAX_PULL_PAGE_BYTES, MAX_RECORDS_PER_PULL};
 
 /// Why a request was refused before touching any records.
 #[derive(Debug, PartialEq, Eq)]
@@ -114,11 +114,18 @@ impl Store {
         let conn = self.lock();
         Self::authorize(&conn, case_id, token, false)?;
         let mut stmt = conn.prepare("SELECT seq, id, collection, sealed FROM records WHERE case_id = ? AND seq > ? ORDER BY seq LIMIT ?")?;
-        let rows = stmt
-            .query_map(params![case_id, after, MAX_RECORDS_PER_PULL], |r| {
-                Ok(StoredRow { seq: r.get(0)?, id: r.get(1)?, collection: r.get(2)?, sealed: r.get(3)? })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut rows = Vec::new();
+        let mut bytes = 0;
+        for row in stmt.query_map(params![case_id, after, MAX_RECORDS_PER_PULL], |r| {
+            Ok(StoredRow { seq: r.get(0)?, id: r.get(1)?, collection: r.get(2)?, sealed: r.get(3)? })
+        })? {
+            let row = row?;
+            bytes += row.sealed.len();
+            if !rows.is_empty() && bytes > MAX_PULL_PAGE_BYTES {
+                break;
+            }
+            rows.push(row);
+        }
         let head = Self::head(&conn, case_id)?;
         Ok(Page { rows, head })
     }

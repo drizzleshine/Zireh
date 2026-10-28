@@ -1,9 +1,9 @@
-import type { Evidence } from "@zireh/schema";
 import { CaretLeft, DotsThree as MoreHorizontal, MagnifyingGlass as Search, User as UserRound, FileCsv as FileSpreadsheet, Plus, X } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { custodyCsv } from "../evidence.ts";
-import { type Draft } from "../intake.ts";
+import type { Attachment } from "@zireh/schema";
+import { filesOf, readableText } from "../evidence.ts";
 import { useIdentities, withIdentities } from "../sources.ts";
 import { useStore } from "../store.ts";
 import type { OpenItem } from "./CaseView.tsx";
@@ -12,11 +12,10 @@ import { SourcesSheet } from "./Sources.tsx";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import { Pane, SideItem, SideList, WITH_SIDE } from "./Pane.tsx";
 import { PageBar } from "./SectionTitle.tsx";
-import { KINDS, kindOf } from "./evidence/kinds.ts";
+import { evidenceIcon } from "./evidence/Files.tsx";
 import { ago } from "./evidence/ago.ts";
 import { Intake } from "./evidence/Intake.tsx";
 import { Reader } from "./evidence/Reader.tsx";
@@ -24,9 +23,8 @@ import { EditEvidence } from "./evidence/EditEvidence.tsx";
 
 export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus?: string | undefined; onOpen: OpenItem }) {
   const rec = useStore((s) => s.cases[caseId])!;
-  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [files, setFiles] = useState<Attachment[]>([]);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<Evidence["kind"] | "all">("all");
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string>();
@@ -34,17 +32,16 @@ export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus
   const chosen = focus;
   const setChosen = (id: string | undefined) => onOpen("evidence", id);
   // The add box stays out of the way until it's wanted: an empty case, the button, or a file dragged in.
-  const intakeOpen = adding || rec.evidence.length === 0 || drafts.length > 0;
+  const intakeOpen = adding || rec.evidence.length === 0 || files.length > 0;
   const identities = useIdentities(caseId);
   const table = useMemo(() => withIdentities(caseId, rec.pseudonyms), [caseId, rec.pseudonyms, identities]);
 
-  const counts = useMemo(() => Object.fromEntries(KINDS.map((k) => [k.id, rec.evidence.filter((e) => e.kind === k.id).length])) as Record<Evidence["kind"], number>, [rec.evidence]);
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     return [...rec.evidence]
       .sort((a, b) => b.addedAt.localeCompare(a.addedAt))
-      .filter((e) => (filter === "all" || e.kind === filter) && (!q || e.title.toLowerCase().includes(q) || e.source?.toLowerCase().includes(q) || (e.kind !== "image" && e.body.toLowerCase().includes(q))));
-  }, [rec.evidence, query, filter]);
+      .filter((e) => !q || e.title.toLowerCase().includes(q) || e.source?.toLowerCase().includes(q) || filesOf(e).some((f) => f.name.toLowerCase().includes(q)) || readableText(e).toLowerCase().includes(q));
+  }, [rec.evidence, query]);
   // Wide screens always show something in the reading pane; phones show the list until one is picked.
   const current = shown.find((e) => e.id === chosen) ?? rec.evidence.find((e) => e.id === chosen) ?? shown[0];
   const step = (by: number) => {
@@ -113,21 +110,11 @@ export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus
                         step(1);
                       }
                     }}
-                    placeholder="Search titles, sources and text"
+                    placeholder="Search titles, sources, text and files"
                     aria-label="Search evidence"
                     className="h-8 pl-8 text-sm"
                   />
                 </div>
-                <ToggleGroup type="single" size="sm" variant="outline" value={filter} onValueChange={(v) => v && setFilter(v as typeof filter)} aria-label="Show" className="justify-start">
-                  <ToggleGroupItem value="all" className="px-2.5 text-xs">
-                    All
-                  </ToggleGroupItem>
-                  {KINDS.filter((k) => counts[k.id]).map((k) => (
-                    <ToggleGroupItem key={k.id} value={k.id} className="gap-1 px-2.5 text-xs">
-                      {k.label}s <span className="tabular-nums opacity-60">{counts[k.id]}</span>
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
               </>
             )
           }
@@ -138,7 +125,8 @@ export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus
             <li className="px-3 py-6 text-center text-sm text-muted-foreground">Nothing matches.</li>
           ) : (
             shown.map((e) => {
-              const Icon = kindOf(e.kind).icon;
+              const Icon = evidenceIcon(e);
+              const fileCount = filesOf(e).length;
               const used = rec.observations.filter((o) => o.evidenceIds.includes(e.id) && o.status !== "rejected").length;
               return (
                 <SideItem
@@ -156,6 +144,8 @@ export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus
                       <span className={e.source ? "" : "text-decoy"}>{e.source ?? "No source"}</span>
                       <span aria-hidden="true">·</span>
                       <span>{ago(e.addedAt)}</span>
+                      {fileCount > 0 && <span aria-hidden="true">·</span>}
+                      {fileCount > 0 && <span>{fileCount} file{fileCount === 1 ? "" : "s"}</span>}
                       {used > 0 && <span aria-hidden="true">·</span>}
                       {used > 0 && <span>used {used}×</span>}
                     </>
@@ -166,11 +156,8 @@ export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus
           )}
         </SideList>
         {intakeOpen ? (
-          <Pane bodyClassName="grid gap-3 p-4 md:p-6">
-            <p className="text-center text-xs text-muted-foreground">
-              {new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-            </p>
-            <Intake caseId={caseId} table={table} drafts={drafts} setDrafts={setDrafts} />
+          <Pane title="New evidence" meta="Text and files are read and encrypted in this browser.">
+            <Intake caseId={caseId} table={table} files={files} setFiles={setFiles} onAdded={(id) => { setAdding(false); setChosen(id); }} />
           </Pane>
         ) : current && editing === current.id ? (
           <Pane title="Edit evidence" meta={current.title}>

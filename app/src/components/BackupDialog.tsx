@@ -28,7 +28,7 @@ export function BackupDialog({ caseId, onClose, onImported }: { caseId?: string;
         setDone(true);
         setPassphrase("");
       } else {
-        if (!file || file.size > MAX_BACKUP_BYTES) throw new Error("Choose a backup file smaller than 64 MiB");
+        if (!file || file.size > MAX_BACKUP_BYTES) throw new Error("Choose a backup file smaller than 512 MiB");
         const id = await restoreCase(await file.text(), passphrase);
         setPassphrase("");
         onImported?.(id);

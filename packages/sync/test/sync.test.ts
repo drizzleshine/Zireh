@@ -33,9 +33,9 @@ describe("sealed records", () => {
 
 describe("F15 sync wire limits", () => {
   it("rejects a single oversized encrypted record before it can be queued", async () => {
-    const { assertSyncable, takeSyncBatch } = await import("../src/index.ts");
+    const { assertSyncable, takeSyncBatch, MAX_SYNC_BODY_BYTES } = await import("../src/index.ts");
     const envelope = await sealRecord(generateCaseKey(), "cases", sampleCase());
-    const oversized = { ...envelope, sealed: { ...envelope.sealed, ct: "x".repeat(4 * 1024 * 1024) } };
+    const oversized = { ...envelope, sealed: { ...envelope.sealed, ct: "x".repeat(MAX_SYNC_BODY_BYTES) } };
     expect(() => assertSyncable(oversized)).toThrow("too large to sync");
     expect(() => takeSyncBatch([oversized])).toThrow("too large to sync");
   });

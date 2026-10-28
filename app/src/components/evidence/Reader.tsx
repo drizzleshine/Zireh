@@ -1,10 +1,10 @@
-import { memberName, newObservation } from "@zireh/cases";
+import { evidenceHash, memberName, newObservation } from "@zireh/cases";
 import type { Evidence, Pseudonym } from "@zireh/schema";
 import { PencilSimple, Sparkle, EyeSlash as EyeOff, Lightbulb, LinkSimple as Link2, User as UserRound } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { isEmbeddedImage } from "../../evidence.ts";
-import { scan } from "../../intake.ts";
+import { filesOf, readableText, textOf } from "../../evidence.ts";
+import { replaceImage, scan } from "../../intake.ts";
 import { myMemberId, save, useStore } from "../../store.ts";
 import type { OpenItem } from "../CaseView.tsx";
 import { useDraft } from "../../drafts.ts";
@@ -12,11 +12,10 @@ import { askAbout } from "../ResearchPanel.tsx";
 import { SourcePicker } from "../Sources.tsx";
 import { Comments } from "../Comments.tsx";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { Pane } from "../Pane.tsx";
-import { kindOf } from "./kinds.ts";
+import { evidenceIcon, FileTile, FileViewer } from "./Files.tsx";
 import { ago } from "./ago.ts";
 import { Highlighted } from "./Highlighted.tsx";
 
@@ -28,12 +27,14 @@ export function Reader({ caseId, evidence: e, query, table, onOpen, onEdit }: { 
   const [noting, setNoting] = useState(false);
   // A half-written observation reopens where it was left.
   const writing = noting || note.length > 0;
-  const [zoom, setZoom] = useState(false);
+  const [viewing, setViewing] = useState<number>();
+  const text = textOf(e);
+  const files = filesOf(e);
   // Only what the pipeline is certain to hide; capitalization guesses stay in the intake view.
-  const hits = useMemo(() => scan(e.body, table).filter((h) => !h.guess), [e.body, table]);
+  const hits = useMemo(() => scan(readableText(e), table).filter((h) => !h.guess), [e, table]);
   const used = rec.observations.filter((o) => o.evidenceIds.includes(e.id) && o.status !== "rejected");
-  const Icon = kindOf(e.kind).icon;
-  const url = e.kind === "link" ? /https?:\/\/[^\s]+/.exec(e.body)?.[0] : undefined;
+  const Icon = evidenceIcon(e);
+  const url = /https?:\/\/[^\s]+/.exec(text)?.[0];
 
   return (
     <Pane
@@ -59,7 +60,7 @@ export function Reader({ caseId, evidence: e, query, table, onOpen, onEdit }: { 
         <h2 className="text-lg leading-snug font-semibold text-pretty">{e.title}</h2>
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1">
-            <Icon className="size-3.5" /> {kindOf(e.kind).label}
+            <Icon className="size-3.5" /> {files.length ? `${files.length} file${files.length === 1 ? "" : "s"}` : "Text"}
           </span>
           <span aria-hidden="true">·</span>
           <span>
@@ -122,24 +123,7 @@ export function Reader({ caseId, evidence: e, query, table, onOpen, onEdit }: { 
         </form>
       )}
 
-      {e.kind === "image" ? (
-        isEmbeddedImage(e.body) ? (
-          <>
-            <button type="button" onClick={() => setZoom(true)} className="justify-self-start overflow-hidden rounded-lg" aria-label={`Enlarge ${e.title}`}>
-              <img src={e.body} alt={e.title} className="max-h-[60svh] w-auto rounded-lg" />
-            </button>
-            <Dialog open={zoom} onOpenChange={setZoom}>
-              <DialogContent className="max-w-[min(96vw,1200px)] p-2 sm:max-w-[min(96vw,1200px)]">
-                <DialogTitle className="sr-only">{e.title}</DialogTitle>
-                <DialogDescription className="sr-only">Enlarged evidence image</DialogDescription>
-                <img src={e.body} alt={e.title} className="max-h-[85vh] w-full rounded-md object-contain" />
-              </DialogContent>
-            </Dialog>
-          </>
-        ) : (
-          <p className="text-sm text-destructive">External or unsupported image content was blocked.</p>
-        )
-      ) : (
+      {text && (
         <div className="grid max-w-[70ch] gap-2">
           {url && (
             <a href={url} target="_blank" rel="noreferrer noopener" className="inline-flex max-w-full items-center gap-1.5 truncate text-sm text-protected underline-offset-2 hover:underline" title="Opens outside Zireh, from your own connection">
@@ -148,16 +132,45 @@ export function Reader({ caseId, evidence: e, query, table, onOpen, onEdit }: { 
             </a>
           )}
           <p className="font-serif text-[16px] leading-relaxed whitespace-pre-wrap">
-            <Highlighted text={e.body.slice(0, 200_000)} hits={hits} query={query} />
+            <Highlighted text={text.slice(0, 200_000)} hits={hits} query={query} />
           </p>
-          {hits.length > 0 && (
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <EyeOff className="size-3.5 text-protected" /> {hits.length} detail{hits.length === 1 ? "" : "s"} underlined here {hits.length === 1 ? "is" : "are"} replaced before anything goes to an AI.
-            </p>
-          )}
-          {e.body.length > 200_000 && <p className="text-xs text-muted-foreground">Showing the first 200,000 characters.</p>}
+          {text.length > 200_000 && <p className="text-xs text-muted-foreground">Showing the first 200,000 characters.</p>}
         </div>
       )}
+
+      {files.length > 0 && (
+        <ul className="flex flex-wrap gap-3" aria-label="Files">
+          {files.map((f, i) => (
+            <li key={`${f.sha256}-${i}`}>
+              <FileTile file={f} onOpen={() => setViewing(i)} />
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {hits.length > 0 && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <EyeOff className="size-3.5 text-protected" /> {hits.length} detail{hits.length === 1 ? "" : "s"} {text ? "underlined here" : "in this item's text"} {hits.length === 1 ? "is" : "are"} replaced before anything goes to an AI.
+        </p>
+      )}
+
+      <FileViewer
+        files={files}
+        index={viewing}
+        onIndex={setViewing}
+        onClose={() => setViewing(undefined)}
+        {...(mine
+          ? {
+              onRedact: (i: number, dataUrl: string) => {
+                const attachments = files.map((f, j) => (j === i ? replaceImage(f, dataUrl) : f));
+                const { kind: _kind, ...rest } = e;
+                void save(caseId, "evidence", { ...rest, body: text, attachments, sha256: evidenceHash(text, attachments) })
+                  .then(() => toast.success("Picture redacted", { description: "The hidden areas are gone from the saved copy." }))
+                  .catch((error: Error) => toast.error("Couldn't save the redaction", { description: error.message }));
+              },
+            }
+          : {})}
+      />
 
       <div className="grid gap-2">
         <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Used in</p>
@@ -180,7 +193,7 @@ export function Reader({ caseId, evidence: e, query, table, onOpen, onEdit }: { 
             <Button size="sm" variant="outline" onClick={() => setNoting(true)}>
               <Lightbulb /> Add observation
             </Button>
-            {e.kind !== "image" && (
+            {readableText(e) && (
               <Button
                 size="sm"
                 variant="outline"

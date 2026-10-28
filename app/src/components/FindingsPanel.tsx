@@ -4,13 +4,11 @@ import { useEffect, useState } from "react";
 import { myMemberId, useStore } from "../store.ts";
 import type { OpenItem } from "./CaseView.tsx";
 import { Pane, SideItem, SideList, WITH_SIDE } from "./Pane.tsx";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { PageBar } from "./SectionTitle.tsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { TONE_TEXT, TONE_DOT, verdict } from "./findings/verdict.ts";
-import { type Filter, FILTERS } from "./findings/filters.ts";
 import { FindingDetail } from "./findings/FindingDetail.tsx";
 import { CheckSheet } from "./findings/CheckSheet.tsx";
 import { FindingForm } from "./findings/FindingForm.tsx";
@@ -29,10 +27,8 @@ export function FindingsPanel({ caseId, focus, onOpen }: { caseId: string; focus
   const open = focus && rec.findings.some((f) => f.id === focus) ? focus : focus ? rec.findings.find((f) => f.observationIds.includes(focus))?.id : undefined;
   const setOpen = (id: string | undefined) => onOpen?.("findings", id);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
   const judged = findings.map((f) => ({ f, v: verdict(rec, f) }));
-  const counts = Object.fromEntries(FILTERS.map((x) => [x.id, judged.filter((j) => x.match(j.v.tone)).length])) as Record<Filter, number>;
-  const shown = judged.filter((j) => FILTERS.find((x) => x.id === filter)!.match(j.v.tone) && (!query.trim() || j.f.statement.toLowerCase().includes(query.trim().toLowerCase())));
+  const shown = judged.filter((j) => (!query.trim() || j.f.statement.toLowerCase().includes(query.trim().toLowerCase())));
   // Wide screens always show one; phones show the list until one is picked.
   const current = shown.find((j) => j.f.id === open) ?? judged.find((j) => j.f.id === open) ?? shown[0];
   const [checking, setChecking] = useState<string | boolean>(false);
@@ -79,19 +75,10 @@ export function FindingsPanel({ caseId, focus, onOpen }: { caseId: string; focus
             className={cn(open && "max-lg:hidden")}
             top={
               findings.length === 0 ? undefined : (
-                <>
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQuery("")} placeholder="Search findings" aria-label="Search findings" className="h-8 pl-8 text-sm" />
-                  </div>
-                  <ToggleGroup type="single" size="sm" variant="outline" value={filter} onValueChange={(v) => v && setFilter(v as Filter)} aria-label="Show" className="flex-wrap justify-start">
-                    {FILTERS.filter((x) => x.id === "all" || counts[x.id]).map((x) => (
-                      <ToggleGroupItem key={x.id} value={x.id} className="gap-1 px-2.5 text-xs">
-                        {x.label} {x.id !== "all" && <span className="tabular-nums opacity-60">{counts[x.id]}</span>}
-                      </ToggleGroupItem>
-                    ))}
-                  </ToggleGroup>
-                </>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQuery("")} placeholder="Search findings" aria-label="Search findings" className="h-8 pl-8 text-sm" />
+                </div>
               )
             }
           >

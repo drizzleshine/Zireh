@@ -1,5 +1,5 @@
 import { randomId, randomSalt, sha256Hex } from "@zireh/crypto";
-import type { Author, Case, Comment, Conclusion, Evidence, Finding, Link, Member, Observation, Outcome, PrivacyLevel, Reply, Review } from "@zireh/schema";
+import type { Attachment, Author, Case, Comment, Conclusion, Evidence, Finding, Link, Member, Observation, Outcome, PrivacyLevel, Reply, Review } from "@zireh/schema";
 
 /** Constructors for collaboration records. They fill ids, hashes and timestamps. */
 
@@ -21,14 +21,19 @@ export function newCase(input: { title: string; question: string; privacy: Priva
   };
 }
 
-export function newEvidence(caseId: string, addedBy: string, input: { kind: Evidence["kind"]; title: string; body: string }): Evidence {
+/** The fingerprint covers the text and every file, so changing either is visible in the custody log. */
+export function evidenceHash(body: string, attachments: readonly Attachment[] = []): string {
+  return attachments.length ? sha256Hex(JSON.stringify([body, ...attachments.map((a) => a.sha256)])) : sha256Hex(body);
+}
+
+export function newEvidence(caseId: string, addedBy: string, input: { title: string; body: string; attachments?: Attachment[] }): Evidence {
   return {
     id: randomId(),
     caseId,
-    kind: input.kind,
     title: input.title.trim(),
     body: input.body,
-    sha256: sha256Hex(input.body),
+    ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+    sha256: evidenceHash(input.body, input.attachments),
     addedBy,
     addedAt: now(),
   };

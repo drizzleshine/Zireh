@@ -70,7 +70,7 @@ export function SearchBox({ caseId }: { caseId: string }) {
                       variant="outline"
                       disabled={added.includes(h.url)}
                       onClick={async () => {
-                        await save(caseId, "evidence", newEvidence(caseId, myMemberId(caseId), { kind: "link", title: h.title.slice(0, 200) || h.url, body: `${h.url}\n\n${h.content}` }));
+                        await save(caseId, "evidence", newEvidence(caseId, myMemberId(caseId), { title: h.title.slice(0, 200) || h.url, body: `${h.url}\n\n${h.content}` }));
                         setAdded((a) => [...a, h.url]);
                       }}
                     >

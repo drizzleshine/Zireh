@@ -1,5 +1,7 @@
 import { commentsOn, type CaseRecords } from "@zireh/cases";
 import { type Edge, type Node } from "@xyflow/react";
+import type { Evidence } from "@zireh/schema";
+import { filesOf, textOf, viewOf } from "../../evidence.ts";
 
 export type Kind = "evidence" | "observation" | "finding";
 
@@ -25,13 +27,21 @@ export const CARD_W = 240;
 export const COLUMN_X: Record<Kind, number> = { evidence: 0, observation: 340, finding: 680 };
 export const ROW_H = 150;
 
+function evidenceCard(e: Evidence): Pick<CardData, "sub" | "detail" | "icon"> {
+  const files = filesOf(e);
+  const text = textOf(e);
+  const icon = files.length ? (viewOf(files[0]!) === "image" ? "image" : "document") : /^\s*https?:\/\//.test(text) ? "link" : "note";
+  const what = files.length ? `${files.length} file${files.length === 1 ? "" : "s"}` : "Text";
+  return { sub: `${what} · ${e.source ?? "no source"}`, detail: clip(text, 600), icon };
+}
+
 export const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
 export function cardsOf(rec: CaseRecords): { id: string; data: CardData }[] {
   return [
     ...rec.evidence.map((e) => ({
       id: e.id,
-      data: { kind: "evidence" as const, title: e.title, sub: `${e.kind} · ${e.source ?? "no source"}`, detail: e.kind === "image" ? "" : clip(e.body, 600), icon: e.kind, comments: commentsOn(rec, e.id).length },
+      data: { kind: "evidence" as const, title: e.title, ...evidenceCard(e), comments: commentsOn(rec, e.id).length },
     })),
     ...rec.observations
       .filter((o) => o.status !== "rejected")

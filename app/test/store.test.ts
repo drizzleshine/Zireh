@@ -19,7 +19,7 @@ describe("F14 immutable case snapshots", () => {
     const store = await import("../src/store.ts");
     await store.load();
     const before = store.getSnapshot().cases[c.id]!;
-    const evidence = newEvidence(c.id, member.id, { title: "new source", kind: "note", body: "source content" });
+    const evidence = newEvidence(c.id, member.id, { title: "new source", body: "source content" });
     remote.pull.mockResolvedValue({ records: [{ ...await sealRecord(key, "evidence", evidence), seq: 1 }], cursor: 1, head: 1 });
     await store.syncCase(c.id);
     const after = store.getSnapshot().cases[c.id]!;
@@ -43,8 +43,8 @@ describe("F10 independent offline tabs", () => {
     vi.resetModules();
     const second = await import("../src/store.ts");
     await second.load();
-    const a = newEvidence(c.id, member.id, { kind: "note", title: "first tab", body: "a" });
-    const b = newEvidence(c.id, member.id, { kind: "note", title: "second tab", body: "b" });
+    const a = newEvidence(c.id, member.id, { title: "first tab", body: "a" });
+    const b = newEvidence(c.id, member.id, { title: "second tab", body: "b" });
     await Promise.all([first.save(c.id, "evidence", a), second.save(c.id, "evidence", b)]);
     await Promise.all([first.syncCase(c.id), second.syncCase(c.id)]);
     await first.load();
@@ -57,7 +57,7 @@ describe("F10 atomic record and outbox writes", () => {
   it("rolls back the record if the envelope cannot be stored", async () => {
     const member = newMember("Ada");
     const c = newCase({ title: "case", question: "question", privacy: "private", createdBy: member.id });
-    const evidence = newEvidence(c.id, member.id, { kind: "note", title: "source", body: "body" });
+    const evidence = newEvidence(c.id, member.id, { title: "source", body: "body" });
     const envelope = await sealRecord(generateCaseKey(), "evidence", evidence);
     const uncloneable = { ...envelope, invalid: () => {} };
     const { database } = await import("../src/persistence.ts");
@@ -71,7 +71,7 @@ describe("F15 byte-bounded synchronization", () => {
     const member = newMember("Ada");
     const c = newCase({ title: "case", question: "question", privacy: "private", createdBy: member.id });
     const key = generateCaseKey();
-    const documents = ["a", "b"].map((body) => newEvidence(c.id, member.id, { kind: "document", title: body, body: body.repeat(1_600_000) }));
+    const documents = ["a", "b"].map((body) => newEvidence(c.id, member.id, { title: body, body: body.repeat(1_600_000) }));
     const outbox = await Promise.all(documents.map((record) => sealRecord(key, "evidence", record)));
     await set("workspaces", [{ caseId: c.id, caseKey: key, memberId: member.id, cursor: 0, outbox }]);
     await set(`case:${c.id}`, { case: c, members: [member], evidence: documents });
@@ -97,7 +97,7 @@ describe("F15 adaptive rejection recovery", () => {
     const member = newMember("Ada");
     const c = newCase({ title: "case", question: "question", privacy: "private", createdBy: member.id });
     const key = generateCaseKey();
-    const documents = ["a", "b"].map((body) => newEvidence(c.id, member.id, { kind: "note", title: body, body }));
+    const documents = ["a", "b"].map((body) => newEvidence(c.id, member.id, { title: body, body }));
     const outbox = await Promise.all(documents.map((record) => sealRecord(key, "evidence", record)));
     await set("workspaces", [{ caseId: c.id, caseKey: key, memberId: member.id, cursor: 0, outbox }]);
     await set(`case:${c.id}`, { case: c, members: [member], evidence: documents });
@@ -148,7 +148,7 @@ describe("encrypted case backup restore", () => {
     const store = await import("../src/store.ts");
     await store.load();
     const id = await store.createCase({ title: "confidential case", question: "private question", privacy: "private", memberName: "Ada" });
-    const evidence = newEvidence(id, store.myMemberId(id), { title: "source", kind: "note", body: "confidential source" });
+    const evidence = newEvidence(id, store.myMemberId(id), { title: "source", body: "confidential source" });
     await store.save(id, "evidence", evidence);
     await store.syncCase(id);
     const key = store.getSnapshot().workspaces[0]!.caseKey;
@@ -194,7 +194,7 @@ describe("member removal and case-key rotation", () => {
     const retained = { ...newMember("Cy"), id: retainedKeys.memberId, signingKey: retainedKeys.publicKey };
     await store.saveAs(id, "members", removed, removedKeys);
     await store.saveAs(id, "members", retained, retainedKeys);
-    const evidence = newEvidence(id, store.myMemberId(id), { kind: "note", title: "source", body: "private source" });
+    const evidence = newEvidence(id, store.myMemberId(id), { title: "source", body: "private source" });
     await store.save(id, "evidence", evidence);
     await store.syncCase(id);
     const before = structuredClone(store.getSnapshot().cases[id]!);
@@ -270,7 +270,7 @@ describe("rotation transaction boundaries", () => {
     const id = "a".repeat(32), oldKey = generateCaseKey(), nextKey = generateCaseKey();
     await database.putWorkspace({ caseId: id, caseKey: oldKey, memberId: "b".repeat(32), cursor: 0 });
     await database.patchWorkspace(id, { caseKey: nextKey });
-    const evidence = newEvidence(id, "b".repeat(32), { kind: "note", title: "stale", body: "stale source" });
+    const evidence = newEvidence(id, "b".repeat(32), { title: "stale", body: "stale source" });
     const envelope = await sealRecord(oldKey, "evidence", evidence);
     const entry = { caseId: id, collection: "evidence" as const, record: evidence, envelope };
     const before = await database.entries();
@@ -284,7 +284,7 @@ describe("rotation transaction boundaries", () => {
     const id = "a".repeat(32), key = generateCaseKey();
     const snapshot = { caseId: id, caseKey: key, memberId: "b".repeat(32), cursor: 0 };
     await database.putWorkspace(snapshot);
-    const evidence = newEvidence(id, snapshot.memberId, { kind: "note", title: "newly pulled", body: "must survive" });
+    const evidence = newEvidence(id, snapshot.memberId, { title: "newly pulled", body: "must survive" });
     const envelope = await sealRecord(key, "evidence", evidence);
     const incoming = [{ caseId: id, collection: "evidence" as const, record: evidence, envelope }];
     if (operation === "pull") await database.pull(id, incoming, 1, 0, key);

@@ -1,39 +1,49 @@
 import { newEvidence } from "@zireh/cases";
-import type { Pseudonym } from "@zireh/schema";
-import { DownloadSimple as ArrowDownToLine, FileArrowUp as FileUp, CircleNotch as Loader2, Plus, UploadSimple as Upload } from "@phosphor-icons/react";
+import { MAX_ATTACHMENT_BYTES, type Attachment, type Pseudonym } from "@zireh/schema";
+import { DownloadSimple as ArrowDownToLine, CircleNotch as Loader2, Paperclip, UploadSimple as Upload } from "@phosphor-icons/react";
 import { useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
 import { toast } from "sonner";
-import { fromFile, fromText, scan, type Draft } from "../../intake.ts";
+import { formatBytes } from "../../evidence.ts";
+import { readFile, replaceImage, scan, titleFor } from "../../intake.ts";
 import { myMemberId, save, useStore } from "../../store.ts";
 import { useDraft } from "../../drafts.ts";
+import { PANE_FOOTER } from "../Pane.tsx";
+import { SourcePicker } from "../Sources.tsx";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { DraftRow } from "./DraftRow.tsx";
+import { FileTile, FileViewer } from "./Files.tsx";
 import { ScanStrip } from "./ScanStrip.tsx";
 
 /**
- * One box for everything: type or paste text, paste or drop a link, an image, a PDF or a
- * text file. Each becomes a draft the user can check before it joins the encrypted case file.
+ * One box for everything: write what this is, attach any mix of files (pictures, PDFs,
+ * documents, recordings), pick who it came from. It all becomes one item in the case file.
  */
-export function Intake({ caseId, table, drafts, setDrafts }: { caseId: string; table: readonly Pseudonym[]; drafts: Draft[]; setDrafts: (fn: (d: Draft[]) => Draft[]) => void }) {
+export function Intake({ caseId, table, files, setFiles, onAdded }: { caseId: string; table: readonly Pseudonym[]; files: Attachment[]; setFiles: (fn: (f: Attachment[]) => Attachment[]) => void; onAdded: (id: string) => void }) {
   const rec = useStore((s) => s.cases[caseId])!;
   const [text, setText, clearText] = useDraft(caseId, "evidence.intake", "");
+  const [source, setSource] = useState<string>();
   const [over, setOver] = useState(false);
   const [reading, setReading] = useState(0);
   const [adding, setAdding] = useState(false);
+  const [viewing, setViewing] = useState<number>();
   const fileInput = useRef<HTMLInputElement>(null);
-  const textarea = useRef<HTMLTextAreaElement>(null);
   const depth = useRef(0);
+  const total = files.reduce((n, f) => n + f.size, 0);
 
-  const ingest = async (files: File[]) => {
-    setReading((n) => n + files.length);
-    for (const file of files) {
+  const ingest = async (list: File[]) => {
+    setReading((n) => n + list.length);
+    for (const file of list) {
       try {
-        const draft = await fromFile(file);
-        setDrafts((d) => [...d, draft]);
+        const attachment = await readFile(file);
+        setFiles((f) => {
+          if (f.reduce((n, a) => n + a.size, 0) + attachment.size > MAX_ATTACHMENT_BYTES) {
+            toast.error(`${file.name} doesn't fit`, { description: `Files on one item can total ${formatBytes(MAX_ATTACHMENT_BYTES)}. Add it as a separate item.` });
+            return f;
+          }
+          return [...f, attachment];
+        });
       } catch (error) {
         toast.error("Couldn't read that file", { description: (error as Error).message });
       } finally {
@@ -42,25 +52,17 @@ export function Intake({ caseId, table, drafts, setDrafts }: { caseId: string; t
     }
   };
 
-  const stageText = () => {
-    if (!text.trim()) return;
-    setDrafts((d) => [...d, fromText(text.trim())]);
-    clearText();
-  };
-
   const commit = async () => {
-    const all = text.trim() ? [...drafts, fromText(text.trim())] : drafts;
-    const invalid = all.find((d) => !d.title.trim() || !d.body);
-    if (invalid) return void toast.error("Every item needs a title and content");
+    if (!text.trim() && !files.length) return;
     setAdding(true);
     try {
-      for (const d of all) {
-        const evidence = newEvidence(caseId, myMemberId(caseId), { kind: d.kind, title: d.title.slice(0, 200), body: d.body });
-        await save(caseId, "evidence", d.source ? { ...evidence, source: d.source } : evidence);
-        setDrafts((ds) => ds.filter((x) => x.key !== d.key));
-      }
+      const evidence = newEvidence(caseId, myMemberId(caseId), { title: titleFor(text, files).slice(0, 200), body: text.trim(), attachments: files });
+      await save(caseId, "evidence", source ? { ...evidence, source } : evidence);
       clearText();
-      toast.success(all.length === 1 ? "Added to the case file" : `${all.length} items added to the case file`, { description: "Encrypted in this browser before syncing to your team." });
+      setFiles(() => []);
+      setSource(undefined);
+      toast.success("Added to the case file", { description: "Encrypted in this browser before syncing to your team." });
+      onAdded(evidence.id);
     } catch (error) {
       toast.error("Couldn't add evidence", { description: (error as Error).message });
     } finally {
@@ -69,121 +71,103 @@ export function Intake({ caseId, table, drafts, setDrafts }: { caseId: string; t
   };
 
   const onPaste = (e: ClipboardEvent) => {
-    const files = [...e.clipboardData.files];
-    if (files.length) {
+    const pasted = [...e.clipboardData.files];
+    if (pasted.length) {
       e.preventDefault();
-      void ingest(files);
+      void ingest(pasted);
     }
   };
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     depth.current = 0;
     setOver(false);
-    const files = [...e.dataTransfer.files];
-    if (files.length) return void ingest(files);
-    const dropped = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain");
-    if (dropped.trim()) setDrafts((d) => [...d, fromText(dropped.trim())]);
+    const dropped = [...e.dataTransfer.files];
+    if (dropped.length) return void ingest(dropped);
+    const link = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain");
+    if (link.trim()) setText(text ? `${text}\n${link.trim()}` : link.trim());
   };
 
   const live = useMemo(() => scan(text, table), [text, table]);
-  const total = drafts.length + (text.trim() ? 1 : 0);
 
   return (
-    <div className="grid gap-3">
-      <div
-        onDragEnter={(e) => {
-          e.preventDefault();
-          depth.current++;
-          setOver(true);
-        }}
-        onDragOver={(e) => e.preventDefault()}
-        onDragLeave={() => {
-          if (--depth.current <= 0) setOver(false);
-        }}
-        onDrop={onDrop}
-        className={cn(
-          "sticky bottom-4 z-10 min-w-0 rounded-2xl border bg-card shadow-[0_12px_32px_-16px_rgb(0_0_0/0.45)] transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/20",
-          over && "border-protected ring-[3px] ring-protected/25",
-        )}
-      >
-        <Textarea
-          ref={textarea}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onPaste={onPaste}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              void commit();
-            }
-          }}
-          placeholder="Paste or type here, or drop files… Everything is read, scanned and encrypted in this browser."
-          aria-label="New evidence"
-          className="min-h-24 resize-none border-0 bg-transparent px-4 pt-4 md:px-6 md:pt-6 font-serif text-[17px] leading-relaxed shadow-none focus-visible:ring-0 md:text-[17px] dark:bg-transparent"
-        />
-        {live.length > 0 && <ScanStrip hits={live} caseId={caseId} table={table} className="px-4 pb-2 md:px-6" />}
-        <div className="footer">
-          <input
-            ref={fileInput}
-            type="file"
-            multiple
-            hidden
-            accept="image/*,application/pdf,.pdf,text/*,.md,.csv,.json,.log,.eml,.html,.xml,.yaml,.yml,.srt,.vtt"
-            onChange={(e) => {
-              void ingest([...(e.target.files ?? [])]);
-              e.target.value = "";
-            }}
-          />
-          <Button type="button" variant="ghost" size="sm" onClick={() => fileInput.current?.click()} className="text-muted-foreground">
-            <FileUp /> Attach files
-          </Button>
-          {reading > 0 && (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" /> Reading {reading} file{reading === 1 ? "" : "s"} on this device…
-            </span>
-          )}
-          <span className="ml-auto flex items-center gap-2">
-            {text.trim() && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button type="button" variant="outline" size="sm" onClick={stageText}>
-                    <Plus /> Add another
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Keep this ready to add, and write or drop the next one</TooltipContent>
-              </Tooltip>
-            )}
-            <Button type="button" size="sm" disabled={!total || adding || reading > 0} onClick={() => void commit()}>
-              {adding ? <Loader2 className="animate-spin" /> : <Upload />}
-              {total > 1 ? `Add ${total} to case` : "Add to case"}
-              <Kbd className="ml-1 hidden bg-primary-foreground/15 text-primary-foreground sm:inline-flex">⌘↵</Kbd>
-            </Button>
-          </span>
-        </div>
-        {over && (
-          <div className="pointer-events-none absolute inset-0 grid place-items-center rounded-xl bg-protected-wash/90 text-protected">
-            <span className="flex items-center gap-2 text-sm font-medium">
-              <ArrowDownToLine className="size-5" /> Drop to read on this device. Nothing is uploaded.
-            </span>
-          </div>
-        )}
-      </div>
-
-      {drafts.length > 0 && (
-        <ul className="grid gap-2" aria-label="Staged evidence">
-          {drafts.map((d) => (
-            <DraftRow
-              key={d.key}
-              rec={rec}
-              caseId={caseId}
-              draft={d}
-              table={table}
-              onChange={(patch) => setDrafts((ds) => ds.map((x) => (x.key === d.key ? { ...x, ...patch } : x)))}
-              onRemove={() => setDrafts((ds) => ds.filter((x) => x.key !== d.key))}
-            />
+    <div
+      className="relative grid"
+      onDragEnter={(e) => {
+        e.preventDefault();
+        depth.current++;
+        setOver(true);
+      }}
+      onDragOver={(e) => e.preventDefault()}
+      onDragLeave={() => {
+        if (--depth.current <= 0) setOver(false);
+      }}
+      onDrop={onDrop}
+    >
+      {files.length > 0 && (
+        <ul className="flex flex-wrap gap-3 px-4 pt-4 md:px-6 md:pt-6" aria-label="Attached files">
+          {files.map((f, i) => (
+            <li key={`${f.sha256}-${i}`}>
+              <FileTile file={f} onOpen={() => setViewing(i)} onRemove={() => setFiles((all) => all.filter((_, j) => j !== i))} />
+            </li>
           ))}
         </ul>
       )}
+      <Textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onPaste={onPaste}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            void commit();
+          }
+        }}
+        autoFocus
+        placeholder="What is this, and where did it come from? Paste text or a link, or drop files."
+        aria-label="New evidence"
+        className="min-h-32 resize-none border-0 bg-transparent px-4 pt-4 font-serif text-[17px] leading-relaxed shadow-none focus-visible:ring-0 md:px-6 md:pt-5 md:text-[17px] dark:bg-transparent"
+      />
+      {live.length > 0 && <ScanStrip hits={live} caseId={caseId} table={table} className="px-4 pb-2 md:px-6" />}
+      <div className={PANE_FOOTER}>
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            void ingest([...(e.target.files ?? [])]);
+            e.target.value = "";
+          }}
+        />
+        <Button type="button" variant="ghost" size="sm" onClick={() => fileInput.current?.click()} className="text-muted-foreground">
+          <Paperclip /> Attach
+        </Button>
+        <SourcePicker rec={rec} value={source} onChange={setSource} />
+        {reading > 0 ? (
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" /> Reading on this device…
+          </span>
+        ) : (
+          total > 0 && <span className="text-xs text-muted-foreground tabular-nums">{formatBytes(total)} of {formatBytes(MAX_ATTACHMENT_BYTES)}</span>
+        )}
+        <Button type="button" size="sm" className="ml-auto" disabled={(!text.trim() && !files.length) || adding || reading > 0} onClick={() => void commit()}>
+          {adding ? <Loader2 className="animate-spin" /> : <Upload />}
+          Add to case
+          <Kbd className="ml-1 hidden bg-primary-foreground/15 text-primary-foreground sm:inline-flex">⌘↵</Kbd>
+        </Button>
+      </div>
+      <div className={cn("pointer-events-none absolute inset-0 grid place-items-center rounded-b-2xl bg-protected-wash/90 text-protected transition-opacity", over ? "opacity-100" : "opacity-0")}>
+        <span className="flex items-center gap-2 text-sm font-medium">
+          <ArrowDownToLine className="size-5" /> Drop to read on this device. Nothing is uploaded yet.
+        </span>
+      </div>
+      <FileViewer
+        files={files}
+        index={viewing}
+        onIndex={setViewing}
+        onClose={() => setViewing(undefined)}
+        onRedact={(i, dataUrl) => setFiles((all) => all.map((f, j) => (j === i ? replaceImage(f, dataUrl) : f)))}
+      />
     </div>
   );
 }

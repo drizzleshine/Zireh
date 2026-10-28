@@ -7,7 +7,7 @@ type Box = { x: number; y: number; w: number; h: number };
  * Hide faces, plates and signs before an image becomes evidence: drag boxes over them, then
  * pixelate. Runs on a canvas on this computer; the result replaces the image (no original kept).
  */
-export function ImageRedactor({ src, onChange }: { src: string; onChange: (dataUrl: string) => void }) {
+export function ImageRedactor({ src, onChange, canvasClassName }: { src: string; onChange: (dataUrl: string) => void; canvasClassName?: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [drag, setDrag] = useState<Box | undefined>();
@@ -57,7 +57,7 @@ export function ImageRedactor({ src, onChange }: { src: string; onChange: (dataU
       <div className="relative justify-self-start leading-none">
         <canvas
           ref={canvas}
-          className="block max-h-[360px] max-w-[min(100%,520px)] cursor-crosshair touch-none rounded-md border"
+          className={canvasClassName ?? "block max-h-[360px] max-w-[min(100%,520px)] cursor-crosshair touch-none rounded-md border"}
           aria-label="Image. Drag to mark areas to hide."
           onPointerDown={(e) => {
             (e.target as HTMLElement).setPointerCapture(e.pointerId);
