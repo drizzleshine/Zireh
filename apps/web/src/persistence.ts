@@ -20,9 +20,43 @@ export interface WorkspaceData {
   readonly syncError?: string | undefined;
 }
 export interface StoredRecord { readonly caseId: string; readonly collection: CollectionName; readonly record: { id: string }; readonly envelope?: Envelope; readonly echoPending?: boolean; readonly verified?: boolean }
-const workspaceKey = (id: string) => `workspace:${id}`;
-const recordKey = (entry: StoredRecord) => `record:${entry.caseId}:${entry.collection}:${entry.record.id}`;
-const outboxKey = (caseId: string, envelope: Envelope) => `outbox:${caseId}:${envelope.id}:${envelope.sealed.iv}`;
+/**
+ * Everything this browser keeps, in one IndexedDB object store ("zireh-records" → "data"), by key:
+ *
+ *   workspace:<case>                          keys, sync position and status for one case
+ *   record:<case>:<collection>:<id>           one decrypted record plus its sealed envelope
+ *   outbox:<case>:<id>:<iv>                   a sealed envelope still waiting to sync
+ *   clock:record:<case>:<collection>:<id>     the last revision number used for a record
+ *   history:<case>:<run>                      one research question and its answer (this device only)
+ *   drafts:<case>                             text typed but not yet saved (see drafts.ts)
+ *   vault:<case>                              sources' real identities (this device only, see sources.ts)
+ *   wallet:pending-topup                      a top-up quote waiting for its payment (see WalletDialog.tsx)
+ *   device-id, migrated-v1                    one-off values for the whole browser
+ *
+ * Build keys only through `Keys`, and read groups through `range`, so no caller scans everything.
+ */
+export const Keys = {
+  workspace: (caseId: string) => `workspace:${caseId}`,
+  record: (caseId: string, collection: CollectionName, id: string) => `record:${caseId}:${collection}:${id}`,
+  records: (caseId?: string) => (caseId ? `record:${caseId}:` : "record:"),
+  outbox: (caseId: string, envelope: Envelope) => `outbox:${caseId}:${envelope.id}:${envelope.sealed.iv}`,
+  outboxes: (caseId?: string) => (caseId ? `outbox:${caseId}:` : "outbox:"),
+  clock: (recordKey: string) => `clock:${recordKey}`,
+  history: (caseId: string, runId: string) => `history:${caseId}:${runId}`,
+  histories: (caseId: string) => `history:${caseId}:`,
+  drafts: (caseId: string) => `drafts:${caseId}`,
+  vault: (caseId: string) => `vault:${caseId}`,
+  workspaces: "workspace:",
+  allDrafts: "drafts:",
+  vaults: "vault:",
+  deviceId: "device-id",
+  pendingTopup: "wallet:pending-topup",
+} as const;
+const workspaceKey = Keys.workspace;
+const recordKey = (entry: StoredRecord) => Keys.record(entry.caseId, entry.collection, entry.record.id);
+const outboxKey = Keys.outbox;
+/** All keys starting with `prefix`: prefix itself up to prefix + the highest code unit. */
+const under = (prefix: string) => IDBKeyRange.bound(prefix, `${prefix}\uffff`);
 
 /** Individual records and their pending envelopes commit in one IndexedDB transaction. */
 class BrowserDatabase {
@@ -54,6 +88,43 @@ class BrowserDatabase {
       const values = store.getAll();
       transaction.oncomplete = () => resolve(keys.result.map((key, index) => [String(key), values.result[index]]));
       transaction.onabort = () => reject(transaction.error);
+    });
+  }
+  /** One value by key, without loading anything else. */
+  async get<T>(key: string): Promise<T | undefined> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const request = db.transaction("data", "readonly").objectStore("data").get(key);
+      request.onsuccess = () => resolve(request.result as T | undefined);
+      request.onerror = () => reject(request.error);
+    });
+  }
+  /** Every value whose key starts with `prefix` (see Keys), in key order. */
+  async range<T>(prefix: string): Promise<T[]> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const request = db.transaction("data", "readonly").objectStore("data").getAll(under(prefix));
+      request.onsuccess = () => resolve(request.result as T[]);
+      request.onerror = () => reject(request.error);
+    });
+  }
+  /** Like `range`, with each value's key, for groups whose values don't carry their own id. */
+  async rangeEntries<T>(prefix: string): Promise<[string, T][]> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction("data", "readonly");
+      const store = transaction.objectStore("data");
+      const keys = store.getAllKeys(under(prefix));
+      const values = store.getAll(under(prefix));
+      transaction.oncomplete = () => resolve(keys.result.map((key, index) => [String(key), values.result[index] as T]));
+      transaction.onabort = () => reject(transaction.error);
+    });
+  }
+  /** Remove everything this browser holds for one case, in one transaction. Nothing on the sync host changes. */
+  purgeCase(caseId: string) {
+    return this.write((store) => {
+      for (const prefix of [Keys.records(caseId), Keys.outboxes(caseId), Keys.clock(Keys.records(caseId)), Keys.histories(caseId)]) store.delete(under(prefix));
+      for (const key of [Keys.workspace(caseId), Keys.drafts(caseId), Keys.vault(caseId)]) store.delete(key);
     });
   }
   clear() { return this.write((store) => { store.clear(); }); }
@@ -88,7 +159,7 @@ class BrowserDatabase {
     return this.write((store) => this.withKey(store, caseId, expectedKey, () => {
       for (const envelope of envelopes) {
         store.put(envelope, outboxKey(caseId, envelope));
-        const key = `record:${caseId}:${envelope.collection}:${envelope.id}`;
+        const key = Keys.record(caseId, envelope.collection, envelope.id);
         const current = store.get(key);
         current.onsuccess = () => {
           const entry = current.result as StoredRecord | undefined;
@@ -103,19 +174,19 @@ class BrowserDatabase {
   async reserveRevision(caseId: string, collection: CollectionName, id: string): Promise<Revision> {
     let revision: Revision | undefined;
     await this.write((store) => {
-      const key = `record:${caseId}:${collection}:${id}`;
+      const key = Keys.record(caseId, collection, id);
       const current = store.get(key);
       current.onsuccess = () => {
         const saved = current.result as StoredRecord | undefined;
-        const clock = store.get(`clock:${key}`);
+        const clock = store.get(Keys.clock(key));
         clock.onsuccess = () => {
-          const device = store.get("device-id");
+          const device = store.get(Keys.deviceId);
           device.onsuccess = () => {
             const deviceId = String(device.result ?? randomId());
             const lamport = Math.max(Number(clock.result ?? 0), saved?.envelope ? envelopeRevision(saved.envelope).lamport : 0) + 1;
             revision = { lamport, deviceId };
-            store.put(lamport, `clock:${key}`);
-            store.put(deviceId, "device-id");
+            store.put(lamport, Keys.clock(key));
+            store.put(deviceId, Keys.deviceId);
           };
         };
       };
@@ -153,8 +224,7 @@ class BrowserDatabase {
       const ws = store.get(workspaceKey(workspace.caseId));
       ws.onsuccess = () => {
         if (!ws.result || ws.result.caseKey !== expected.caseKey || ws.result.syncId !== expected.syncId || ws.result.syncUrl !== expected.syncUrl || Number(ws.result.storageRevision ?? 0) !== (expected.storageRevision ?? 0)) { store.transaction.abort(); return; }
-        const prefix = `outbox:${workspace.caseId}:`;
-        const pending = store.openCursor(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
+        const pending = store.openCursor(under(Keys.outboxes(workspace.caseId)));
         const found: string[] = [];
         pending.onsuccess = () => {
           const cursor = pending.result;
@@ -188,7 +258,7 @@ class BrowserDatabase {
         }
         for (const envelope of outbox) store.put(envelope, outboxKey(workspace.caseId, envelope));
         for (const entry of history) {
-          const key = `history:${workspace.caseId}:${entry.id}`;
+          const key = Keys.history(workspace.caseId, entry.id);
           const existing = store.get(key);
           existing.onsuccess = () => { if (!existing.result) store.put(entry, key); };
         }

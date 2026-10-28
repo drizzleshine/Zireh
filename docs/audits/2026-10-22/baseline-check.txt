@@ -1,0 +1,30 @@
+$ pnpm check:layers && pnpm typecheck && pnpm test
+$ tsx scripts/check-layers.ts
+layers ok (16 packages, 4 apps)
+  L0 @zireh/crypto
+  L0 @zireh/schema
+  L1 @zireh/llm
+  L2 @zireh/decoy
+  L2 @zireh/leakcheck
+  L2 @zireh/redact
+  L2 @zireh/split
+  L3 @zireh/shield
+  L4 @zireh/tor
+  L4 @zireh/wallet
+  L4 @zireh/zcash
+  L5 @zireh/inference
+  L5 @zireh/relay-core
+  L6 @zireh/ledger
+  L7 @zireh/cases
+  L7 @zireh/sync
+$ tsc -p tsconfig.json
+$ vitest run
+
+ RUN  v5.0.5 /Users/kelvx/Dev/projects/hackathons/zireh
+
+
+ Test Files  20 passed (20)
+      Tests  110 passed (110)
+   Start at  08:32:46
+   Duration  1.45s (tests 63%, import 28%, transform 8%, worker 1%)
+

@@ -1,0 +1,17 @@
+[
+  {
+    "id": "X1-stop-before-send-still-sends",
+    "cloudCallsAfterStop": 1,
+    "receipts": 1
+  },
+  {
+    "id": "X2-publish-scan-omits-evidence-title",
+    "scanInputContainsName": false,
+    "namesHidden": true,
+    "exportedEvidenceTitle": "Confidential interview with Ada Obi"
+  },
+  {
+    "id": "X3-old-ciphertext-replay-is-valid",
+    "lastStatus": "draft"
+  }
+]

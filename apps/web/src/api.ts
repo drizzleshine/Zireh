@@ -1,4 +1,4 @@
-import type { DaemonStatus, PrivacyLevel, Pseudonym, Receipt, ResearchEvent, TopupQuote } from "@zireh/schema";
+import type { DaemonStatus, PrivacyLevel, Pseudonym, QuoteStatus, Receipt, ResearchEvent, TopupQuote } from "@zireh/schema";
 import type { Envelope, PullResponse } from "@zireh/sync";
 
 /** Client for the local daemon. Every request carries the header the daemon requires. */
@@ -23,7 +23,7 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch {
-    throw new DaemonError("The Zireh daemon isn't running on this computer. Start it with `pnpm dev`.", 0);
+    throw new DaemonError("Can't reach Zireh's privacy service on this computer. Start it with `pnpm dev`.", 0);
   }
   const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
   if (!res.ok) throw new DaemonError(data.message ?? data.error ?? `HTTP ${res.status}`, res.status, data.error);
@@ -36,6 +36,7 @@ export const api = {
   cancelResearch: (runId: string) => call<{ cancelled: true }>(`/api/research/${runId}/cancel`, {}),
   status: () => call<DaemonStatus>("/api/status"),
   quote: (credits: number) => call<TopupQuote>("/api/wallet/quote", { credits }),
+  quoteStatus: (quoteId: string) => call<QuoteStatus>(`/api/wallet/quote-status?quoteId=${quoteId}`),
   simulatePayment: (quoteId: string) => call<{ ok: true }>("/api/wallet/simulate-payment", { quoteId }),
   redeem: (quote: TopupQuote) => call<{ balance: number }>("/api/wallet/redeem", quote),
   receipts: (caseId?: string) =>
@@ -58,6 +59,8 @@ export interface ResearchInput {
   readonly table: readonly Pseudonym[];
   readonly salt: string;
   readonly caseId?: string;
+  /** Earlier turns of the thread, used on this computer to make a follow-up stand alone. */
+  readonly history?: readonly { question: string; answer: string }[];
 }
 
 /** Run a research question; events arrive as the pipeline progresses. */
@@ -87,9 +90,19 @@ export async function research(input: ResearchInput, onEvent: (e: ResearchEvent)
   }
 }
 
-/** Credits are µUSD. */
-export const formatUsd = (credits: number): string =>
-  credits >= 10_000 ? `$${(credits / 1_000_000).toFixed(2)}` : credits >= 100 ? `$${(credits / 1_000_000).toFixed(4)}` : credits > 0 ? "<$0.0001" : "$0";
+/** Network errors from the relay or its AI, said plainly. Anything else is shown as written. */
+export function plainFailure(message: string | undefined): string {
+  if (!message) return "unknown error";
+  if (/fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket hang up|unreachable|HTTP 50[234]/i.test(message)) return "the AI behind the relay couldn't be reached";
+  return message;
+}
+
+/** Credits are µUSD. Small amounts keep two significant digits instead of collapsing to "<$0.0001". */
+export const formatUsd = (credits: number): string => {
+  if (credits <= 0) return "$0";
+  const usd = credits / 1_000_000;
+  return usd >= 0.01 ? `$${usd.toFixed(2)}` : `$${Number(usd.toPrecision(2)).toFixed(Math.min(8, Math.max(2, 1 - Math.floor(Math.log10(usd))))).replace(/0+$/, "")}`;
+};
 
 
 /** Scan complete publications in daemon-sized batches, carrying forward every detection. */

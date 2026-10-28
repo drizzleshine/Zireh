@@ -39,6 +39,8 @@ export const Evidence = z.object({
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   addedBy: Id,
   addedAt: Iso,
+  /** Who it came from, by codename only ("Source A"). Real identities never enter the case. */
+  source: z.string().trim().min(1).max(60).optional(),
 }).refine((evidence) => evidence.kind !== "image" || /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(evidence.body), "Images must be embedded PNG, JPEG or WebP data; external image URLs are not loaded");
 export type Evidence = z.infer<typeof Evidence>;
 
@@ -102,6 +104,8 @@ export const Link = z.object({
   label: z.string().trim().max(80),
   createdBy: Id,
   createdAt: Iso,
+  /** Set when the team removes the connection; kept so the removal syncs like any other edit. */
+  removedAt: Iso.optional(),
 });
 export type Link = z.infer<typeof Link>;
 
@@ -130,6 +134,26 @@ export const Conclusion = z.object({
 });
 export type Conclusion = z.infer<typeof Conclusion>;
 
+/**
+ * Right of reply: a person or organization a finding is about, and whether they have been
+ * asked to respond before publication. Any member can update it (no single author).
+ */
+export const ReplyStatus = z.enum(["to-contact", "contacted", "responded", "declined", "no-response"]);
+export type ReplyStatus = z.infer<typeof ReplyStatus>;
+export const Reply = z.object({
+  id: Id,
+  caseId: Id,
+  party: z.string().trim().min(1).max(200),
+  findingIds: z.array(Id),
+  status: ReplyStatus,
+  deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  response: z.string().max(10_000),
+  createdBy: Id,
+  createdAt: Iso,
+  updatedAt: Iso.optional(),
+});
+export type Reply = z.infer<typeof Reply>;
+
 /** The case's pseudonym table: one record per case (id = case id), shared so placeholders agree. */
 export const PseudonymTable = z.object({
   id: Id,
@@ -151,6 +175,7 @@ export const Collections = {
   links: Link,
   board: BoardLayout,
   conclusions: Conclusion,
+  replies: Reply,
 } as const;
 export type CollectionName = keyof typeof Collections;
 export type RecordOf<C extends CollectionName> = z.infer<(typeof Collections)[C]>;

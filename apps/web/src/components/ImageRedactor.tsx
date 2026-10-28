@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Button } from "@/components/ui/button";
 
 type Box = { x: number; y: number; w: number; h: number };
 
@@ -52,11 +53,11 @@ export function ImageRedactor({ src, onChange }: { src: string; onChange: (dataU
   }
 
   return (
-    <div className="redactor">
-      <div className="redactor-stage">
+    <div className="grid gap-2">
+      <div className="relative justify-self-start leading-none">
         <canvas
           ref={canvas}
-          className="evidence-image"
+          className="block max-h-[360px] max-w-[min(100%,520px)] cursor-crosshair touch-none rounded-md border"
           aria-label="Image. Drag to mark areas to hide."
           onPointerDown={(e) => {
             (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -79,7 +80,7 @@ export function ImageRedactor({ src, onChange }: { src: string; onChange: (dataU
             return (
               <span
                 key={i}
-                className="redactor-box"
+                className="pointer-events-none absolute border-2 border-destructive bg-destructive/15"
                 style={{
                   left: `${(Math.min(b.x, b.x + b.w) / c.width) * 100}%`,
                   top: `${(Math.min(b.y, b.y + b.h) / c.height) * 100}%`,
@@ -90,16 +91,16 @@ export function ImageRedactor({ src, onChange }: { src: string; onChange: (dataU
             );
           })}
       </div>
-      <div className="redactor-bar">
-        <span className="hint">Drag over faces, plates or signs to hide them.</span>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">Drag over faces, plates or signs to hide them.</span>
         {boxes.length > 0 && (
           <>
-            <button type="button" className="btn small" onClick={() => setBoxes([])}>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setBoxes([])}>
               Clear marks
-            </button>
-            <button type="button" className="btn small primary" onClick={pixelate}>
+            </Button>
+            <Button type="button" size="sm" onClick={pixelate}>
               Hide {boxes.length} area{boxes.length === 1 ? "" : "s"}
-            </button>
+            </Button>
           </>
         )}
       </div>

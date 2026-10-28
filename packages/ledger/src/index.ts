@@ -66,6 +66,7 @@ export class Ledger {
     destination: Receipt["destination"];
     role: Receipt["role"];
     caseId?: string;
+    runId?: string;
     payload: readonly ChatMessage[] | string;
     circuit?: string;
     charged?: number;
@@ -83,6 +84,7 @@ export class Ledger {
       destination: entry.destination,
       role: entry.role,
       ...(entry.caseId ? { caseId: entry.caseId } : {}),
+      ...(entry.runId ? { runId: entry.runId } : {}),
       payloadSha256: sha256Hex(wire),
       payloadPreview: preview,
       ...(entry.circuit ? { circuit: entry.circuit } : {}),

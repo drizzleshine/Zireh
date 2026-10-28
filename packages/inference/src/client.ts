@@ -6,6 +6,7 @@ import {
   RelayInfo,
   SearchPaidResponse,
   SwapRequest,
+  QuoteStatus,
   TopupQuote,
   type ChatMessage,
   type FetchLike,
@@ -166,6 +167,11 @@ export class RelayClient {
 
   quote(credits: number): Promise<TopupQuote> {
     return this.request(this.options.transport.fetchFor(newCircuitTag()), "/v1/topup/quote", TopupQuote, { credits });
+  }
+
+  /** Where a top-up's payment stands: quoted, paid (seen), confirmed, minted or expired. */
+  quoteStatus(quoteId: string): Promise<QuoteStatus> {
+    return this.request(this.options.transport.fetchFor(newCircuitTag()), `/v1/topup/state?quoteId=${encodeURIComponent(quoteId)}`, QuoteStatus);
   }
 
   /** Simulated networks only: ask the relay to mark the quote as paid (demo top-ups). */

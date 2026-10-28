@@ -1,7 +1,7 @@
 import { chatJson, type ChatModel } from "@zireh/llm";
 import { EntityKind, type Pseudonym } from "@zireh/schema";
 import { z } from "zod";
-import { COMMON, detectPatterns, properNounCandidates, type Detection } from "./detect.ts";
+import { COMMON, detectPatterns, detectQuotes, properNounCandidates, type Detection } from "./detect.ts";
 import { applyTable, extendTable } from "./table.ts";
 
 const Entities = z.object({
@@ -123,4 +123,14 @@ export async function redactText(
     table: nextTable,
     added: nextTable.slice(table.length),
   };
+}
+
+/**
+ * Redaction without the on-device model: every pattern, quote and capitalized phrase is hidden.
+ * Stricter than the model (which keeps harmless names), and never guesses.
+ */
+export function redactWithoutModel(text: string, table: readonly Pseudonym[]): RedactResult {
+  const detections: Detection[] = [...detectPatterns(text), ...detectQuotes(text), ...properNounCandidates(text).map((t) => ({ text: t, kind: "other" as const, hint: "a name" }))];
+  const next = extendTable(table, detections);
+  return { text: applyTable(text, next), table: next, added: next.slice(table.length) };
 }

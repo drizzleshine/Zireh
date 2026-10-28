@@ -38,6 +38,7 @@ function sampleCase(): CaseRecords & { ada: string; bo: string } {
     links: [],
     board: {},
     conclusions: [],
+    replies: [],
   };
 }
 

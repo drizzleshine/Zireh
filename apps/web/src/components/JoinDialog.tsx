@@ -1,16 +1,20 @@
 import type { Invite } from "@zireh/cases";
+import { Key as KeyRound } from "@phosphor-icons/react";
 import { useState } from "react";
 import { joinCase } from "../store.ts";
 import { Dialog } from "./Dialog.tsx";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export function JoinDialog({ invite, onClose, onJoined }: { invite: Invite; onClose: () => void; onJoined: (id: string) => void }) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   return (
-    <Dialog title="Join a case" onClose={onClose}>
-      {invite.host && <p className="level-note">Sync host: <code>{invite.host}</code></p>}
+    <Dialog title="Join a case" description="You've been invited to a private case. The key is inside your link; no server ever saw it." onClose={onClose}>
       <form
+        className="grid gap-4"
         onSubmit={async (e) => {
           e.preventDefault();
           setBusy(true);
@@ -23,21 +27,23 @@ export function JoinDialog({ invite, onClose, onJoined }: { invite: Invite; onCl
           }
         }}
       >
-        <p className="doc" style={{ fontSize: "var(--s-15)" }}>
-          You were invited to an encrypted case. The key is in the link you opened; it was never sent to a server.
-        </p>
-        <div className="field">
-          <label htmlFor="join-name">Your name in this case</label>
-          <input id="join-name" className="input" required maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder="A pseudonym works" />
+        {invite.host && (
+          <p className="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            <KeyRound className="size-3.5" /> Sync host <code className="truncate">{invite.host}</code>
+          </p>
+        )}
+        <div className="grid gap-1.5">
+          <Label htmlFor="join-name">Your name in this case</Label>
+          <Input id="join-name" required autoFocus maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder="A pseudonym works" />
         </div>
-        {error && <p className="error">{error}</p>}
-        <div className="dialog-foot">
-          <button type="button" className="btn" onClick={onClose}>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="ghost" onClick={onClose}>
             Not now
-          </button>
-          <button type="submit" className="btn primary" disabled={busy}>
+          </Button>
+          <Button type="submit" disabled={busy}>
             {busy ? "Opening…" : "Join case"}
-          </button>
+          </Button>
         </div>
       </form>
     </Dialog>

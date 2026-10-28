@@ -3,10 +3,12 @@ import { caseToken, inviteFragment, newCase, newMember, type CaseRecords, type I
 import { MAX_BACKUP_BYTES, canonicalJson, decryptBackup, encryptBackup, fromBase64Url, generateCaseKey, generateMemberKeys, memberIdForKey, signValue, verifyValue, type MemberKeys, randomId } from "@zireh/crypto";
 import { InviteSyncHost, SyncHost, Collections, type Case, type CollectionName, type Member, type PrivacyLevel, type Pseudonym, type RecordOf } from "@zireh/schema";
 import { compareRevisions, envelopeRevision, LEGACY_REVISION, recordAuthor, rekeyRecord, assertSyncable, takeSyncBatch, openRecord, sealRecord, type RecordSigner, type Envelope } from "@zireh/sync";
-import { get } from "idb-keyval";
-import { database, type StoredRecord, type WorkspaceData } from "./persistence.ts";
+import { delMany, get } from "idb-keyval";
+import { database, Keys, type StoredRecord, type WorkspaceData } from "./persistence.ts";
 import { useRef, useSyncExternalStore } from "react";
 import { api } from "./api.ts";
+import { clearCaseDrafts } from "./drafts.ts";
+import { forgetIdentities, identitiesReady } from "./sources.ts";
 
 /**
  * Local-first case storage. Records live in this browser (IndexedDB) and sync to the team
@@ -54,12 +56,10 @@ let localChanges = Promise.resolve();
 const channel = typeof window !== "undefined" && typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("zireh-records") : undefined;
 
 async function refresh() {
-  const entries = await database.entries();
-  const workspaces = entries.filter(([key]) => key.startsWith("workspace:")).map(([, value]) => {
-    const saved = value as WorkspaceData;
-    return { ...saved, outbox: entries.filter(([key]) => key.startsWith(`outbox:${saved.caseId}:`)).map(([, envelope]) => envelope as Envelope) };
-  });
-  const records = entries.filter(([key]) => key.startsWith("record:")).map(([, value]) => value as StoredRecord);
+  await identitiesReady; // "loaded" must mean source names are known, so they're always hidden
+  // Only workspaces, outboxes and records: research history and drafts are loaded where they're used.
+  const [saved, records] = await Promise.all([database.range<WorkspaceData>(Keys.workspaces), database.range<StoredRecord>(Keys.records())]);
+  const workspaces = await Promise.all(saved.map(async (w) => ({ ...w, outbox: await database.range<Envelope>(Keys.outboxes(w.caseId)) })));
   const cases: Record<string, Records> = {};
   for (const entry of records) if (entry.collection === "cases") cases[entry.caseId] = emptyRecords(entry.record as Case);
   for (const entry of records) if (cases[entry.caseId]) {
@@ -85,6 +85,8 @@ export async function load() {
     if (rec) for (const [collection, record] of recordPairs({ ...emptyRecords(rec.case), ...rec })) records.push({ caseId: w.caseId, collection, record });
   }
   await change(() => database.migrate(workspaces, records), false);
+  // The copies in the old store are no longer read; once moved, don't leave them lying around.
+  if (workspaces.length) await delMany(["workspaces", ...workspaces.map((w) => `case:${w.caseId}`)]).catch(() => {});
 }
 
 const workspace = (caseId: string) => {
@@ -105,6 +107,7 @@ const COLLECTION_FIELD: Record<CollectionName, keyof Records> = {
   links: "links",
   board: "board",
   conclusions: "conclusions",
+  replies: "replies",
 };
 
 const emptyRecords = (c: Case): Records => ({
@@ -119,6 +122,7 @@ const emptyRecords = (c: Case): Records => ({
   links: [],
   board: {},
   conclusions: [],
+  replies: [],
 });
 
 /** Merge a pseudonym table from a teammate: by original value; colliding placeholders are renumbered. */
@@ -161,7 +165,7 @@ function authorizedRecord(entry: NonNullable<Awaited<ReturnType<typeof openRecor
 
 async function signerFor(caseId: string, collection: CollectionName, id: string, keys = workspace(caseId).memberKeys): Promise<RecordSigner | undefined> {
   if (!keys) return undefined;
-  const entry = (await database.entries()).find(([key]) => key === `record:${caseId}:${collection}:${id}`)?.[1] as StoredRecord | undefined;
+  const entry = await database.get<StoredRecord>(Keys.record(caseId, collection, id));
   const prior = entry?.envelope ? (await openRecord(workspace(caseId).caseKey, entry.envelope))?.auth : undefined;
   return { keys, ownerId: state.cases[caseId]?.case.createdBy ?? keys.memberId, ...(prior ? { prior } : {}) };
 }
@@ -343,6 +347,7 @@ function recordPairs(rec: Records): [CollectionName, { id: string }][] {
     ["comments", rec.comments],
     ["links", rec.links],
     ["conclusions", rec.conclusions],
+    ["replies", rec.replies],
   ];
   for (const [collection, items] of lists) for (const item of items) out.push([collection, item]);
   if (rec.pseudonyms.length) out.push(["pseudonyms", { id: caseId, caseId, entries: rec.pseudonyms } as { id: string }]);
@@ -378,7 +383,7 @@ async function repairHost(caseId: string) {
       return;
     }
   }
-  const entries = (await database.entries()).filter(([key]) => key.startsWith(`record:${caseId}:`)).map(([, value]) => value as StoredRecord);
+  const entries = await database.range<StoredRecord>(Keys.records(caseId));
   for (const entry of entries) {
     const key = `${entry.collection}:${entry.record.id}`;
     const local = entry.envelope ? envelopeRevision(entry.envelope) : LEGACY_REVISION;
@@ -411,13 +416,21 @@ export function startSyncLoop(intervalMs = 8000) {
 export const getSnapshot = () => state;
 
 
+/**
+ * Forget a case on this device: records, keys, outbox, research history, drafts and source
+ * identities. Teammates and the sync host keep their copies; an invite or a backup brings it back.
+ */
+export async function removeCaseFromBrowser(caseId: string) {
+  await change(() => database.purgeCase(caseId));
+  clearCaseDrafts(caseId);
+  forgetIdentities(caseId);
+}
+
 /** Case keys and complete records leave the browser only inside this passphrase-encrypted file. */
 export async function backupCase(caseId: string, passphrase: string): Promise<string> {
   await localChanges;
   const w = workspace(caseId);
-  const entries = await database.entries();
-  const records = entries.filter(([key]) => key.startsWith(`record:${caseId}:`)).map(([, value]) => value as StoredRecord);
-  const history = entries.filter(([key]) => key.startsWith(`history:${caseId}:`)).map(([, value]) => value as StoredResearch);
+  const [records, history] = await Promise.all([database.range<StoredRecord>(Keys.records(caseId)), database.range<StoredResearch>(Keys.histories(caseId))]);
   return JSON.stringify(await encryptBackup({ v: 1, workspace: w, records, history }, passphrase));
 }
 
@@ -469,7 +482,7 @@ export async function removeMember(caseId: string, memberId: string): Promise<vo
   if (!rec.members.some((member) => member.id === memberId && !member.removedAt)) throw new Error("Unknown active member");
   if (w.outbox.length || w.syncError || w.needsInvite) throw new Error("Sync this case successfully before rotating its key");
   const key = generateCaseKey(), syncId = randomId(), epoch = (w.keyEpoch ?? 0) + 1;
-  const entries = (await database.entries()).filter(([key]) => key.startsWith(`record:${caseId}:`)).map(([, value]) => value as StoredRecord);
+  const entries = await database.range<StoredRecord>(Keys.records(caseId));
   const noticeRecord = { ...rec.case, keyEpoch: epoch, nextSyncId: syncId };
   const notice = await sealRecord(w.caseKey, "cases", noticeRecord, await database.reserveRevision(caseId, "cases", caseId), await signerFor(caseId, "cases", caseId));
   const records: StoredRecord[] = [];
@@ -516,7 +529,7 @@ async function acceptRotatedInvite(invite: Invite): Promise<void> {
     if (!opened || !authorizedRecord(opened, head.createdBy, !!(w.requiresSignatures || invite.requiresSignatures), [...incoming.values()].filter((entry) => entry.collection === "members").map((entry) => entry.record as Member))) throw new Error("Invalid authorship in rotated case");
   }
   const outbox: Envelope[] = [];
-  const local = (await database.entries()).filter(([key]) => key.startsWith(`record:${invite.caseId}:`)).map(([, value]) => value as StoredRecord);
+  const local = await database.range<StoredRecord>(Keys.records(invite.caseId));
   for (const entry of local) {
     if (entry.collection === "cases" || entry.collection === "members") continue;
     const key = `${entry.collection}:${entry.record.id}`;

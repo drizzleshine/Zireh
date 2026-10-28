@@ -28,3 +28,19 @@ describe("simulated payment admission", () => {
     expect(() => loadConfig({ TAVILY_API_KEY: "k" })).toThrow("RELAY_DEMO=1");
   });
 });
+
+describe("real payments", () => {
+  const service = { ZECCHECKOUT_URL: "http://zeccheckout:8080", ZECCHECKOUT_API_KEY: "k".repeat(24) };
+
+  it("switches on with a ZecCheckout URL and key, on testnet unless told otherwise", () => {
+    expect(loadConfig({}).zecCheckout).toBeUndefined();
+    expect(loadConfig(service).zecCheckout).toEqual({ url: "http://zeccheckout:8080", apiKey: "k".repeat(24), network: "testnet" });
+    expect(() => loadConfig({ ZECCHECKOUT_URL: "http://zeccheckout:8080" })).toThrow("ZECCHECKOUT_API_KEY");
+    expect(() => loadConfig({ ...service, ZCASH_NETWORK: "regtest" })).toThrow("testnet or mainnet");
+  });
+
+  it("still needs a capped demo for paid providers on testnet, but not on mainnet", () => {
+    expect(() => loadConfig({ ...service, NEBIUS_API_KEY: "k" })).toThrow("RELAY_DEMO=1");
+    expect(loadConfig({ ...service, ZCASH_NETWORK: "mainnet", NEBIUS_API_KEY: "k" }).demo).toBeUndefined();
+  });
+});

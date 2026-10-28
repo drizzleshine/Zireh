@@ -5,12 +5,17 @@ import type { QuoteState, TopupQuote } from "@zireh/schema";
  * Relay-side payment intake. A quote gives the client a fresh shielded address and an
  * amount; the watcher reports when that address has received it. Implementations:
  *  - `simulatedWatcher`: no chain; payments are marked by hand. Labeled "simulated".
- *  - a lightwalletd/viewing-key watcher (planned; see context/decisions.md).
+ *  - `zecCheckoutWatcher`: real testnet/mainnet payments, seen through a ZecCheckout sidecar
+ *    that holds only a viewing key (see zeccheckout.ts).
  */
 export interface PaymentWatcher {
   readonly network: TopupQuote["network"];
-  quote(credits: number): TopupQuote;
+  quote(credits: number): TopupQuote | Promise<TopupQuote>;
+  /** Pull the latest payment status for a quote before `state` is read. Absent when state is always current. */
+  refresh?(quoteId: string): Promise<void>;
   state(quoteId: string): QuoteState;
+  /** ZEC received so far, when the watcher knows it (shows partial payments). */
+  received?(quoteId: string): string | undefined;
   /** The quote as issued (credits are what the relay may mint for it). Throws if unknown. */
   lookup(quoteId: string): TopupQuote;
   /** Called once coins are issued, so a quote can never mint twice. */
@@ -24,7 +29,7 @@ export interface RateSource {
 
 export const fixedRate = (usdPerZec: number): RateSource => ({ usdPerZec: () => usdPerZec });
 
-const QUOTE_TTL_MS = 15 * 60 * 1000;
+export const QUOTE_TTL_MS = 15 * 60 * 1000;
 
 /** credits are µUSD; ZEC has 8 decimals (zatoshi). Rounds up so the relay is never short. */
 export function creditsToZec(credits: number, rate: RateSource): string {
@@ -35,6 +40,9 @@ export function creditsToZec(credits: number, rate: RateSource): string {
 export interface QuoteRecord {
   quote: TopupQuote;
   state: QuoteState;
+  /** The payment service's own id for this quote, when one issued the address. */
+  invoiceId?: string;
+  received?: string;
 }
 
 export interface QuoteStore {
@@ -56,6 +64,7 @@ export function memoryQuoteStore(): QuoteStore {
 }
 
 export interface SimulatedWatcher extends PaymentWatcher {
+  quote(credits: number): TopupQuote;
   /** Demo only: pretend the shielded payment for this quote arrived and confirmed. */
   simulatePayment(quoteId: string): void;
 }
@@ -91,14 +100,18 @@ export function simulatedWatcher(rate: RateSource, now: () => number = Date.now,
       rec.state = "confirmed";
       quotes.put(quoteId, rec);
     },
-    markMinted(quoteId, commit) {
-      quotes.atomically(() => {
-        const rec = get(quoteId);
-        if (rec.state !== "confirmed") throw new Error(`quote is ${rec.state}, not confirmed`);
-        rec.state = "minted";
-        quotes.put(quoteId, rec);
-        commit?.();
-      });
-    },
+    markMinted: (quoteId, commit) => settleMint(quotes, quoteId, get, commit),
   };
 }
+
+/** Confirmed → minted exactly once, committed together with the minted response. */
+export function settleMint(quotes: QuoteStore, quoteId: string, get: (quoteId: string) => QuoteRecord, commit?: () => void): void {
+  quotes.atomically(() => {
+    const rec = get(quoteId);
+    if (rec.state !== "confirmed") throw new Error(`quote is ${rec.state}, not confirmed`);
+    quotes.put(quoteId, { ...rec, state: "minted" });
+    commit?.();
+  });
+}
+
+export { zecCheckoutWatcher, type ZecCheckoutOptions } from "./zeccheckout.ts";

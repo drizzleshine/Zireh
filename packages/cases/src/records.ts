@@ -1,5 +1,5 @@
 import { randomId, randomSalt, sha256Hex } from "@zireh/crypto";
-import type { Author, Case, Comment, Conclusion, Evidence, Finding, Link, Member, Observation, Outcome, PrivacyLevel, Review } from "@zireh/schema";
+import type { Author, Case, Comment, Conclusion, Evidence, Finding, Link, Member, Observation, Outcome, PrivacyLevel, Reply, Review } from "@zireh/schema";
 
 /** Constructors for collaboration records. They fill ids, hashes and timestamps. */
 
@@ -48,6 +48,10 @@ export function newObservation(caseId: string, author: Author, input: { text: st
 
 export function newFinding(caseId: string, createdBy: string, input: { statement: string; observationIds: string[]; uncertainty: string }): Finding {
   return { id: randomId(), caseId, createdBy, createdAt: now(), ...input, statement: input.statement.trim() };
+}
+
+export function newReply(caseId: string, createdBy: string, input: { party: string; findingIds: string[]; deadline?: string }): Reply {
+  return { id: randomId(), caseId, createdBy, createdAt: now(), status: "to-contact", response: "", ...input, party: input.party.trim() };
 }
 
 export function newReview(caseId: string, memberId: string, input: { findingId: string; decision: Review["decision"]; reason: string }): Review {

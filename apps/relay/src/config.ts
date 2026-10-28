@@ -19,6 +19,8 @@ export interface RelayConfig {
   readonly tavilyApiKey?: string;
   readonly searchPrice: number;
   readonly usdPerZec: number;
+  /** Real payments through a ZecCheckout sidecar. Absent: payments are simulated. */
+  readonly zecCheckout?: { readonly url: string; readonly apiKey: string; readonly network: "testnet" | "mainnet" };
 }
 
 /** µUSD per 1M tokens: provider list price plus a 20% relay margin. */
@@ -42,14 +44,16 @@ function parseModels(spec: string | undefined): readonly ModelPrice[] {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): RelayConfig {
   const apiKey = env.NEBIUS_API_KEY?.trim();
   const demo = env.RELAY_DEMO === "1";
-  if ((apiKey || env.TAVILY_API_KEY?.trim()) && !demo) throw new Error("Simulated payments cannot fund paid providers. Set RELAY_DEMO=1 to explicitly enable a capped demo.");
+  const zecCheckout = zecCheckoutFrom(env);
+  // Simulated and testnet coins are free, so anything they buy from a paid provider is ours to pay.
+  if ((apiKey || env.TAVILY_API_KEY?.trim()) && !demo && zecCheckout?.network !== "mainnet") throw new Error("Simulated or testnet payments cannot fund paid providers. Set RELAY_DEMO=1 to explicitly enable a capped demo.");
   const limit = (name: string, fallback: number) => {
     const value = Number(env[name] ?? fallback);
     if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${name} must be a positive safe integer`);
     return value;
   };
   return {
-    port: Number(env.RELAY_PORT ?? 8787),
+    port: Number(env.RELAY_PORT ?? env.PORT ?? 8787),
     ...(demo ? { demo: { quoteLimit: limit("RELAY_DEMO_QUOTE_LIMIT", 5_000_000), dailyLimit: limit("RELAY_DEMO_DAILY_LIMIT", 20_000_000) } } : {}),
     dataDir: env.RELAY_DATA_DIR ?? ".zireh/relay",
     upstream: apiKey
@@ -59,5 +63,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RelayConfig {
     ...(env.TAVILY_API_KEY?.trim() ? { tavilyApiKey: env.TAVILY_API_KEY.trim() } : {}),
     searchPrice: Number(env.RELAY_SEARCH_PRICE ?? 9600), // Tavily basic ≈ $0.008 + margin
     usdPerZec: Number(env.USD_PER_ZEC ?? 50),
+    ...(zecCheckout ? { zecCheckout } : {}),
   };
+}
+
+/** ZECCHECKOUT_URL + ZECCHECKOUT_API_KEY switch on real payments; ZCASH_NETWORK picks the chain (testnet unless set). */
+function zecCheckoutFrom(env: NodeJS.ProcessEnv): RelayConfig["zecCheckout"] {
+  const url = env.ZECCHECKOUT_URL?.trim();
+  if (!url) return undefined;
+  const apiKey = env.ZECCHECKOUT_API_KEY?.trim();
+  if (!apiKey) throw new Error("ZECCHECKOUT_URL is set but ZECCHECKOUT_API_KEY is not");
+  const network = env.ZCASH_NETWORK ?? "testnet";
+  if (network !== "testnet" && network !== "mainnet") throw new Error("ZCASH_NETWORK must be testnet or mainnet");
+  return { url, apiKey, network };
 }

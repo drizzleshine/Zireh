@@ -10,6 +10,7 @@ type Replies = {
   decoys?: string[];
   combined?: string;
   generalized?: string;
+  standalone?: string;
 };
 
 /** A local model that answers each stage by recognizing its system prompt. */
@@ -17,6 +18,7 @@ function fakeLocal(r: Replies) {
   return scriptedModel((messages: readonly ChatMessage[]) => {
     const sys = messages[0]!.content;
     const user = messages[1]!.content;
+    if (sys.includes("rewrite a follow-up")) return r.standalone ?? user;
     if (sys.includes("general kind of thing")) return JSON.stringify({ hints: {} });
     if (sys.includes("say what it names")) return JSON.stringify({ items: [] });
     if (sys.includes("identifying details")) return JSON.stringify(r.entities ?? { entities: [] });
@@ -129,4 +131,38 @@ it("uses distinct cover questions across the whole split plan", async () => {
   const plan = await compile(fakeLocal({ entities, pieces: ["What risks do port reporters face?", "What press laws apply in [PLACE_1]?"], decoys: covers }), { task, level: "paranoid", table: [], salt });
   const decoys = plan.pieces.filter((piece) => piece.role === "decoy").map((piece) => piece.question.toLowerCase());
   expect(new Set(decoys).size).toBe(6);
+});
+
+describe("follow-ups in a thread", () => {
+  const history = [{ question: "Who runs Harbor Line Freight?", answer: "Public filings list a single director." }];
+
+  it("sends the standalone rewrite, never the conversation", async () => {
+    const local = fakeLocal({ standalone: "Who owns the parent company of a regional freight firm?", leak: () => 0 });
+    const plan = await compile(local, { task: "And who owns their parent?", history, level: "standard", table: [], salt: "s" });
+    const outbound = JSON.stringify(plan.pieces.map((p) => p.messages));
+    expect(outbound).toContain("parent company of a regional freight firm");
+    expect(outbound).not.toContain("single director");
+    expect(outbound).not.toContain("And who owns their parent?");
+    expect(plan.task).toBe("And who owns their parent?");
+    expect(plan.trace[0]!.stage).toBe("standalone");
+  });
+
+  it("without history, skips the rewrite", async () => {
+    const plan = await compile(fakeLocal({ leak: () => 0 }), { task: "Who regulates port inspections?", level: "standard", table: [], salt: "s" });
+    expect(plan.trace.some((t) => t.stage === "standalone")).toBe(false);
+  });
+});
+
+describe("the step trace tells the truth", () => {
+  it("without on-device AI, claims no leak score and counts only values in this question", async () => {
+    const table = [{ original: "Old Name", placeholder: "[PERSON_1]", kind: "person" as const, hint: "a person" }];
+    const plan = await compile(undefined, { task: "Is Ada Obi safe?", level: "standard", table, salt: "s" });
+    const redact = plan.trace.find((s) => s.stage === "redact")!;
+    const leak = plan.trace.find((s) => s.stage === "leakcheck")!;
+    expect(redact.title).toBe("Hid 1 value");
+    expect(leak.title).toBe("No hidden value left in the text");
+    expect(leak.detail).toMatch(/exact match only/);
+    expect(plan.pieces.every((p) => p.leakScore === undefined)).toBe(true);
+    expect(plan.trace.find((s) => s.stage === "route")!.title).toBe("Will go to the cloud model");
+  });
 });

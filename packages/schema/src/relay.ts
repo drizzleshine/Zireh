@@ -10,6 +10,8 @@ export const RelayInfo = z.object({
   searchPrice: z.number().int().positive(), // credits per search
   searchEnabled: z.boolean(),
   network: z.enum(["testnet", "mainnet", "simulated"]),
+  /** Whether the AI behind the relay answered its last health check. Absent from older relays. */
+  upstreamOk: z.boolean().optional(),
 });
 export type RelayInfo = z.infer<typeof RelayInfo>;
 
@@ -19,6 +21,7 @@ export const TopupQuote = z.object({
   credits: z.number().int().positive(),
   zec: z.string(), // decimal string, e.g. "0.12000000"
   address: z.string(), // fresh shielded (unified) address
+  paymentUri: z.string().optional(), // ZIP 321 `zcash:` link with the amount filled in
   expiresAt: z.string(),
   network: z.enum(["testnet", "mainnet", "simulated"]),
 });
@@ -26,6 +29,9 @@ export type TopupQuote = z.infer<typeof TopupQuote>;
 
 export const QuoteState = z.enum(["quoted", "paid", "confirmed", "minted", "expired"]);
 export type QuoteState = z.infer<typeof QuoteState>;
+/** `received` (ZEC) is set once part or all of the payment has been seen. */
+export const QuoteStatus = z.object({ state: QuoteState, received: z.string().optional() });
+export type QuoteStatus = z.infer<typeof QuoteStatus>;
 
 export const MintRequest = z.object({ quoteId: z.string(), outputs: z.array(BlindedMessage).min(1).max(64) });
 export const MintResponse = z.object({ signatures: z.array(BlindSignature) });

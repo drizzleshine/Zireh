@@ -220,6 +220,7 @@ describe("member removal and case-key rotation", () => {
     expect(store.getSnapshot().cases[id]!.evidence).toEqual([evidence]);
     await database.clear();
     await set("workspaces", [{ ...old, memberId: removed.id, memberKeys: removedKeys }]);
+    await set(`case:${id}`, before); // load() deletes legacy copies once they're migrated
     await store.load();
     await expect(store.joinCase(invite, "Bo")).rejects.toThrow("does not retain your membership");
     expect(store.getSnapshot().workspaces[0]!.caseKey).toBe(old.caseKey);

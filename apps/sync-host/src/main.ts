@@ -4,11 +4,13 @@ import { dirname, join } from "node:path";
 import { exposeAsOnion } from "@zireh/tor";
 import { createSyncHost, openHostDb } from "./host.ts";
 
-const port = Number(process.env.SYNC_PORT ?? 8788);
+const port = Number(process.env.SYNC_PORT ?? process.env.PORT ?? 8788);
+// Local by default. A hosted container sets SYNC_HOST_BIND=0.0.0.0 so its platform can route to it.
+const hostname = process.env.SYNC_HOST_BIND ?? "127.0.0.1";
 const dbPath = process.env.SYNC_DB ?? ".zireh/sync/sync.db";
 
-serve({ fetch: createSyncHost(openHostDb(dbPath)), port, hostname: "127.0.0.1" }, ({ port }) => {
-  console.log(`sync host listening on 127.0.0.1:${port} (stores ciphertext only)`);
+serve({ fetch: createSyncHost(openHostDb(dbPath)), port, hostname }, ({ port }) => {
+  console.log(`sync host listening on ${hostname}:${port} (stores ciphertext only)`);
 });
 
 // SYNC_ONION=1 publishes the sync host as an onion service; URL written next to the database.

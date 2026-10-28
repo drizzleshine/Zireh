@@ -1,77 +1,96 @@
 import { evidenceContext } from "../evidence.ts";
-import { reconcileResearch, researchHistory, saveResearch, type Run, type PieceState, type StoredResearch } from "../research-history.ts";
+import { answerOf, onHistoryAdded, reconcileResearch, researchHistory, saveResearch, threadsOf, type Run, type StoredResearch, type Thread } from "../research-history.ts";
 import { restore, extendTable } from "@zireh/redact";
 import { newObservation } from "@zireh/cases";
-import type { DaemonStatus, PrivacyLevel, Pseudonym } from "@zireh/schema";
-import { Fragment, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { api, formatUsd, research } from "../api.ts";
+import type { DaemonStatus, PrivacyLevel } from "@zireh/schema";
+import { Warning as AlertTriangle, ArrowUp, Plus, SlidersHorizontal as Settings2, Square, X, Sparkle as Sparkles, FileText, CircleNotch as Loader2 } from "@phosphor-icons/react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { api, research } from "../api.ts";
+import { useIdentities, withIdentities, withoutIdentities } from "../sources.ts";
 import { myMemberId, save, savePseudonyms, editPseudonym, useStore } from "../store.ts";
-import { LEVEL_COPY } from "./levels.ts";
+import { useDraft } from "../drafts.ts";
 import { SearchBox } from "./SearchBox.tsx";
+import { SendPreview } from "./SendPreview.tsx";
+import { Pane, WITH_SIDE } from "./Pane.tsx";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
+import { PageBar } from "./SectionTitle.tsx";
+import { LevelPicker } from "./research/LevelPicker.tsx";
+import { ThreadList } from "./research/ThreadList.tsx";
+import { Turn } from "./research/Turn.tsx";
+import { readinessNote } from "./research/readiness.ts";
+import { setSlot, useSlot, type RunSlot } from "./research/slot.ts";
 
 interface Props {
   caseId: string;
   status: DaemonStatus | undefined;
   onBalanceChange: () => void;
   onTopUp: () => void;
+  onSettings: () => void;
 }
 
-/**
- * The latest run per case lives outside the component, so it survives tab switches and keeps
- * receiving events while another tab is open.
- */
-interface RunSlot {
-  run?: Run;
-  runId?: string;
-  running: boolean;
-  historyError?: string;
-  abort?: AbortController;
-  draft?: { task: string; level: PrivacyLevel; contextIds: string[]; reviewBeforeSend?: boolean };
-}
-const slots = new Map<string, RunSlot>();
-const slotListeners = new Set<() => void>();
-const EMPTY: RunSlot = Object.freeze({ running: false }); // stable: snapshots must not change identity
-const getSlot = (caseId: string): RunSlot => slots.get(caseId) ?? EMPTY;
-function setSlot(caseId: string, update: (s: RunSlot) => RunSlot) {
-  const previous = getSlot(caseId);
-  const next = update(previous);
-  slots.set(caseId, next);
-  for (const l of slotListeners) l();
-  if (next.run && next.runId && (next.run !== previous.run || next.runId !== previous.runId)) {
-    void saveResearch(caseId, next.runId, next.run).catch((error: Error) => {
-      slots.set(caseId, { ...getSlot(caseId), historyError: `Could not save research history: ${error.message}` });
-      for (const listener of slotListeners) listener();
-    });
-  }
-}
-function useSlot(caseId: string): RunSlot {
-  return useSyncExternalStore(
-    (l) => {
-      slotListeners.add(l);
-      return () => {
-        slotListeners.delete(l);
-      };
-    },
-    () => getSlot(caseId),
-  );
+/** Open a new question in Research with this evidence already attached. */
+export function askAbout(caseId: string, evidenceId: string, level: PrivacyLevel) {
+  setSlot(caseId, (s) => ({
+    ...s,
+    ...(s.running ? {} : { thread: "new" }),
+    draft: { task: s.draft?.task ?? "", level: s.draft?.level ?? level, contextIds: [...new Set([...(s.draft?.contextIds ?? []), evidenceId])], ...(s.draft?.reviewBeforeSend !== undefined ? { reviewBeforeSend: s.draft.reviewBeforeSend } : {}) },
+  }));
 }
 
-export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Props) {
+export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp, onSettings }: Props) {
   const rec = useStore((s) => s.cases[caseId])!;
-  const { run, runId, running, abort, draft, historyError } = useSlot(caseId);
-  const task = draft?.task ?? "";
+  const { run, runId, running, abort, draft, historyError, thread: openThread } = useSlot(caseId);
+  // The question being typed survives reloads; the in-memory slot wins while this page is open.
+  const [savedQuestion, saveQuestion, clearQuestion] = useDraft(caseId, "research.question", "");
+  const task = draft?.task ?? savedQuestion;
   const level = draft?.level ?? rec.case.privacy;
   const contextIds = draft?.contextIds ?? [];
   const context = evidenceContext(rec.evidence, contextIds);
   const reviewBeforeSend = draft?.reviewBeforeSend ?? level === "paranoid";
   const [history, setHistory] = useState<StoredResearch[]>([]);
-  const [pastId, setPastId] = useState<string>();
+  const [expanded, setExpanded] = useState<string>();
+  // Threads whose notice was dismissed ("new" is the unsaved new thread). Kept in this browser.
+  const noticeStore = `zireh:research-notice-dismissed:${caseId}`;
+  const [dismissed, setDismissedState] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(noticeStore) ?? "[]") as string[];
+    } catch {
+      return [];
+    }
+  });
+  const setDismissed = (ids: string[]) => {
+    setDismissedState(ids);
+    try {
+      localStorage.setItem(noticeStore, JSON.stringify(ids.slice(-200)));
+    } catch {
+      /* remembered until reload */
+    }
+  };
   const [phrase, setPhrase] = useState("");
   const [phraseError, setPhraseError] = useState<string>();
   const setDraft = (patch: Partial<NonNullable<RunSlot["draft"]>>) =>
     setSlot(caseId, (s) => ({ ...s, draft: { task, level, contextIds, ...s.draft, ...patch } }));
-  const setTask = (t: string) => setDraft({ task: t });
+  const setTask = (t: string) => {
+    setDraft({ task: t });
+    saveQuestion(t);
+  };
   const setLevel = (l: PrivacyLevel) => setDraft({ level: l, reviewBeforeSend: l === "paranoid" });
+  // Without on-device AI only Standard can run; the other levels promise work only the model can do.
+  const noLocalAi = !!status && !status.localModel.ok;
+  const blocked = (l: PrivacyLevel) => noLocalAi && l !== "standard";
+  useEffect(() => {
+    if (blocked(level)) setLevel("standard");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noLocalAi, level]);
   const setContextIds = (fn: (ids: string[]) => string[]) => setDraft({ contextIds: fn(contextIds) });
   const setRun = (next: Run | undefined | ((r: Run | undefined) => Run | undefined)) =>
     setSlot(caseId, (s) => {
@@ -86,7 +105,8 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
     void researchHistory(caseId).then((records) => { if (active) setHistory(records); });
     refresh();
     const timer = setInterval(refresh, 8000);
-    return () => { active = false; clearInterval(timer); };
+    const off = onHistoryAdded((id) => { if (id === caseId) void researchHistory(caseId).then((records) => { if (active) setHistory(records); }); });
+    return () => { active = false; clearInterval(timer); off(); };
   }, [caseId, run?.done, run?.cancelled, status?.pendingCalls]);
 
   useEffect(() => {
@@ -95,12 +115,25 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
     void api.cancelResearch(runId).catch(() => {});
   }, [running, runId, run, rec.pseudonyms]);
 
-  const ready = status?.localModel.ok && (level === "local" || (status.relay.ok && (status.transport === "direct" || status.tor.ready)));
+  // On-device AI is an extra: only Local only needs it. Everything else needs the relay.
+  const ready = status && (level === "local" ? status.localModel.ok : status.relay.ok && status.relay.upstreamOk !== false && (status.transport === "direct" || status.tor.ready));
 
   async function start() {
-    const current: Run = { evidenceIds: context.entries.map((entry) => entry.id), sourceTable: JSON.stringify(rec.pseudonyms), task, level, steps: [], table: [], pieces: [], blocked: [] };
+    const threadId = thread?.id ?? crypto.randomUUID().replace(/-/g, "");
+    if (!thread && dismissed.includes("new")) setDismissed([...dismissed.filter((id) => id !== "new"), threadId]);
+    // Earlier answers in this thread stay on this computer; they only help rewrite the follow-up.
+    const turns = (thread?.turns ?? [])
+      .flatMap((t) => {
+        const answer = answerOf(t.run, (text) => restore(text, t.run.table));
+        return answer ? [{ question: t.run.task, answer: answer.slice(0, 8000) }] : [];
+      })
+      .slice(-4);
+    // A level this device can't run never goes out; it falls back to Standard.
+    const sendLevel: PrivacyLevel = blocked(level) ? "standard" : level;
+    const current: Run = { threadId, askedAt: new Date().toISOString(), evidenceIds: context.entries.map((entry) => entry.id), sourceTable: JSON.stringify(rec.pseudonyms), task, level: sendLevel, steps: [], table: [], pieces: [], blocked: [] };
     const controller = new AbortController();
-    setSlot(caseId, ({ runId: _previous, ...s }) => ({ ...s, run: current, running: true, abort: controller }));
+    clearQuestion();
+    setSlot(caseId, ({ runId: _previous, ...s }) => ({ ...s, run: current, running: true, abort: controller, thread: threadId, draft: { task: "", level, contextIds: [], ...(s.draft?.reviewBeforeSend !== undefined ? { reviewBeforeSend: s.draft.reviewBeforeSend } : {}) } }));
     const update = (fn: (r: Run) => void) =>
       setRun((r) => {
         if (!r) return r;
@@ -112,12 +145,13 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
       await research(
         {
           task,
-          level,
-          reviewBeforeSend,
-          table: rec.pseudonyms,
+          level: sendLevel,
+          reviewBeforeSend: reviewBeforeSend && sendLevel !== "local",
+          table: withIdentities(caseId, rec.pseudonyms),
           salt: rec.case.salt,
           caseId,
           context: context.entries.map((entry) => entry.text),
+          ...(turns.length ? { history: turns } : {}),
         },
         (e) => {
           if (e.type === "started") setSlot(caseId, (s) => ({ ...s, runId: e.runId }));
@@ -141,7 +175,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
               r.done = e;
               r.table = e.table;
             });
-            void savePseudonyms(caseId, e.table);
+            void savePseudonyms(caseId, withoutIdentities(caseId, e.table));
             onBalanceChange();
           } else if (e.type === "error") update((r) => (r.error = e.message));
         },
@@ -177,293 +211,256 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp }: Prop
     catch (error) { setRun((run) => run ? { ...run, approved: false, error: (error as Error).message } : run); }
   }
 
-  async function saveAsObservation() {
-    if (!run?.done) return;
-    const me = myMemberId(caseId);
-    const sourceRun = runId ?? crypto.randomUUID().replace(/-/g, "");
-    await save(caseId, "observations", newObservation(caseId, { kind: "ai", runId: sourceRun, requestedBy: me }, { text: `Q: ${run.task}\n\n${run.done.outcome.answer}`, evidenceIds: run.evidenceIds ?? [] }));
-    setRun({ ...run, saved: true });
+  /** Save one answer to Findings as a draft observation that cites the evidence asked about. */
+  async function saveTurn(record: StoredResearch) {
+    const answer = answerOf(record.run, (text) => restore(text, record.run.table));
+    if (!answer) return;
+    try {
+      await save(caseId, "observations", newObservation(caseId, { kind: "ai", runId: record.id, requestedBy: myMemberId(caseId) }, { text: `Q: ${record.run.task}\n\n${answer}`, evidenceIds: record.run.evidenceIds ?? [] }));
+      if (record.id === runId) setRun((r) => (r ? { ...r, saved: true } : r));
+      else await saveResearch(caseId, record.id, { ...record.run, saved: true });
+      setHistory(await researchHistory(caseId));
+      toast.success("Saved to Findings", { description: "It's a draft observation there, citing the evidence you asked about." });
+    } catch (error) {
+      toast.error("Couldn't save", { description: (error as Error).message });
+    }
   }
 
-  const past = history.find((record) => record.id === pastId) ?? (!run ? history[0] : undefined);
-  const savePast = async () => {
-    if (!past) return;
-    const answer = past.run.done?.outcome.answer ?? past.run.recoveredAnswers?.filter((answer) => !answer.answerExpired).map((answer) => restore(answer.content, past.run.table)).join("\n\n");
-    if (!answer) return;
-    await save(caseId, "observations", newObservation(caseId, { kind: "ai", runId: past.id, requestedBy: myMemberId(caseId) }, { text: `Q: ${past.run.task}\n\n${answer}`, evidenceIds: past.run.evidenceIds ?? [] }));
-    await saveResearch(caseId, past.id, { ...past.run, saved: true });
-    setHistory(await researchHistory(caseId));
+  // The live question joins the saved ones so the open thread shows it as it happens.
+  const records = useMemo(() => {
+    const list = history.filter((r) => r.id !== runId);
+    if (run) list.push({ id: runId ?? "pending", caseId, updatedAt: new Date().toISOString(), run });
+    return list;
+  }, [history, run, runId, caseId]);
+  const threads = useMemo(() => threadsOf(records), [records]);
+  const thread: Thread | undefined = openThread === "new" ? undefined : (threads.find((t) => t.id === openThread) ?? (openThread ? undefined : threads[0]));
+  const openThreadId = (id: string) => setSlot(caseId, (s) => ({ ...s, thread: id }));
+  const followUp = !!thread?.turns.length;
+  const newThread = () => {
+    if (dismissed.includes("new")) setDismissed(dismissed.filter((id) => id !== "new"));
+    setSlot(caseId, (s) => ({ ...s, thread: "new" }));
+  };
+  const notice = noLocalAi ? (followUp ? "On-device AI is off, so follow-ups aren't rewritten to stand alone. Names are still hidden." : "On-device AI is off: every name-like word is hidden by rule, and only Standard is available.") : undefined;
+  const noticeKey = thread?.id ?? "new";
+
+  const textEvidence = rec.evidence.filter((e) => e.kind !== "image");
+  // What this device already knows it will hide from the question; the model may find more.
+  const identities = useIdentities(caseId);
+  const table = useMemo(() => withIdentities(caseId, rec.pseudonyms), [caseId, rec.pseudonyms, identities]);
+  const contextTexts = useMemo(() => context.entries.map((entry) => entry.text), [context.entries.map((entry) => entry.id).join()]);
+  const canAsk = !!task.trim() && !!ready && !running;
+  const cancel = async () => {
+    setRun((r) => (r ? { ...r, cancelling: true } : r));
+    if (!runId) return void abort?.abort();
+    try {
+      await api.cancelResearch(runId);
+    } catch (err) {
+      setRun((r) => (r ? { ...r, cancelling: false, error: (err as Error).message } : r));
+    }
   };
 
   return (
-    <section className="panel" aria-label="Research">
-      <div className="composer">
-        <div className="field">
-          <label htmlFor="task">Ask a question about this case</label>
-          <textarea
-            id="task"
-            className="textarea"
-            value={task}
-            maxLength={4000}
-            onChange={(e) => setTask(e.target.value)}
-            placeholder="Write it the way you'd say it, names and all. Zireh hides them before anything leaves this computer."
-          />
-        </div>
-        {rec.evidence.length > 0 && (
-          <div className="context-pick" role="group" aria-label="Evidence to include">
-            <span className="level-note">Include evidence:</span>
-            {rec.evidence
-              .filter((e) => e.kind !== "image")
-              .map((e) => (
-                <button key={e.id} className="chip" aria-pressed={contextIds.includes(e.id)} onClick={() => setContextIds((ids) => (ids.includes(e.id) ? ids.filter((x) => x !== e.id) : [...ids, e.id]))}>
-                  {e.title}
-                </button>
-              ))}
-          </div>
+    <section className="page pb-4" aria-label="Research">
+      <PageBar hint="Ask about your case. Each question goes out on its own, so the AI never sees the conversation.">
+        {thread && (
+          <Button size="sm" onClick={newThread}>
+            <Plus /> New thread
+          </Button>
         )}
-        {context.entries.filter((entry) => entry.truncated).map((entry) => <p className="notice" key={entry.id}>{entry.title}: research will use the first {entry.used.toLocaleString()} of {entry.total.toLocaleString()} characters. The complete source remains in Evidence.</p>)}
-        {context.omitted > 0 && <p className="notice">Only the first 20 selected sources will be included. {context.omitted} source(s) will be omitted.</p>}
-        {level !== "local" && <label className="level-note"><input type="checkbox" checked={reviewBeforeSend} onChange={(event) => setDraft({ reviewBeforeSend: event.target.checked })} disabled={running} /> Review prepared requests before sending</label>}
-        <details className="field">
-          <summary>Always hide phrases</summary>
-          <label htmlFor="hide-phrase">Phrase to keep on this computer</label>
-          <input id="hide-phrase" className="input" maxLength={500} value={phrase} onChange={(event) => setPhrase(event.target.value)} />
-          <button className="btn small" disabled={phrase.trim().length < 2 || !!run?.cancelling} onClick={() => void changeHideRule(phrase)}>Always hide this phrase</button>
-          {rec.pseudonyms.filter((entry) => entry.manual).map((entry) => <div className="row" key={entry.original}>{entry.original} <button className="btn small" onClick={() => void changeHideRule(entry.original, true)}>Remove saved hide rule</button></div>)}
-          <p className="hint">Changing a rule cancels preparation. Prepare again to review the updated requests. Automatic detection still applies when a saved rule is removed.</p>
-          {phraseError && <p className="error">{phraseError}</p>}
-        </details>
-        <div className="composer-foot">
-          <div className="levels" role="group" aria-label="Privacy level">
-            {(Object.keys(LEVEL_COPY) as PrivacyLevel[]).map((l) => (
-              <button key={l} aria-pressed={level === l} onClick={() => setLevel(l)}>
-                {LEVEL_COPY[l].name}
-              </button>
-            ))}
-          </div>
-          <span className="level-note">{LEVEL_COPY[level].note}</span>
-          <span className="spacer" />
-          {running ? (
-            <button className="btn" disabled={run?.cancelling} onClick={async () => {
-              setRun((r) => r ? { ...r, cancelling: true } : r);
-              if (!runId) { abort?.abort(); return; }
-              try { await api.cancelResearch(runId); }
-              catch (err) { setRun((r) => r ? { ...r, cancelling: false, error: (err as Error).message } : r); }
-            }}>
-              {run?.cancelling ? "Stopping new requests…" : "Stop"}
-            </button>
-          ) : (
-            <button className="btn primary" disabled={!task.trim() || !ready} onClick={start}>
-              {reviewBeforeSend && level !== "local" ? "Prepare requests" : "Ask privately"}
-            </button>
-          )}
-        </div>
-        {!ready && status && <p className="level-note">{readinessNote(status, level)}</p>}
-      </div>
-
+      </PageBar>
       {status?.relay.ok && status.relay.search && <SearchBox caseId={caseId} />}
 
-      {running && run?.prepared && !run.approved && !run.cancelled && <div className="notice" role="status">
-        Prepared on this computer. Review every request and hidden value below. Maximum cost {formatUsd(run.prepared.estimatedCost)}.
-        <button className="btn primary" disabled={run.cancelling} onClick={() => void sendPrepared()}>Send reviewed requests</button>
-      </div>}
-      {historyError && <p className="error" role="alert">{historyError}</p>}
-      {run && <RunView run={run} running={running} onSave={saveAsObservation} onTopUp={onTopUp} />}
-      {history.length > 0 && <details className="field"><summary>Research history ({history.length})</summary>
-        {history.filter((record) => record.id !== runId).map((record) => <button className="btn quiet" key={record.id} onClick={() => setPastId(record.id)}>{record.run.task.slice(0, 100)} · {new Date(record.updatedAt).toLocaleString()}</button>)}
-      </details>}
-      {past && past.id !== runId && <section aria-label="Saved research"><h2>Saved research</h2><RunView run={past.run} running={false} onSave={savePast} onTopUp={onTopUp} /></section>}
-    </section>
-  );
-}
+      <div className={WITH_SIDE}>
+        <ThreadList threads={threads} openId={thread?.id} liveId={running ? run?.threadId : undefined} onOpen={openThreadId} />
 
-function readinessNote(status: DaemonStatus, level: PrivacyLevel): string {
-  if (!status.localModel.ok) return `The local model (${status.localModel.id}) isn't available. Start Ollama and pull it first.`;
-  if (level === "local") return "";
-  if (!status.relay.ok) return "The relay can't be reached. Local only still works.";
-  if (status.transport === "tor" && !status.tor.ready) return `Connecting to Tor (${status.tor.progress}%). Requests wait until it's ready.`;
-  return "";
-}
-
-function RunView({ run, running, onSave, onTopUp }: { run: Run; running: boolean; onSave: () => void; onTopUp: () => void }) {
-  const real = run.pieces.filter((p) => p.role === "real").length;
-  const decoys = run.pieces.length - real;
-  const broke = run.error?.toLowerCase().includes("need") || run.error?.toLowerCase().includes("insufficient");
-  return (
-    <>
-      <div className="compare">
-        <section className="column device" aria-label="On this computer">
-          <h2>
-            What you asked <span className="tag">stays on this computer</span>
-          </h2>
-          <p className="doc">
-            <Redacted text={run.task} table={run.table} />
+        {/* The open thread in its own frame, like the reading pane in Evidence and Findings. */}
+        <Pane bodyClassName="grid gap-6 p-4 md:p-6">
+          <p className="text-center text-xs text-muted-foreground">
+            {new Date(thread ? (thread.turns[0]!.run.askedAt ?? thread.turns[0]!.updatedAt) : Date.now()).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </p>
-          {run.table.length > 0 && (
-            <div className="hidden-list">
-              {run.table.map((p) => (
-                <div className="row" key={p.placeholder}>
-                  <span className="ph">{p.original}</span>
-                  <span className="as">sent as “{p.hint ?? p.placeholder}”</span>
-                </div>
+          {historyError && <p className="text-sm text-destructive" role="alert">{historyError}</p>}
+          {/* Every thread opens with the same greeting, in the answer style. It is part of the view, not stored or sent. */}
+          <div className="panel surface max-w-[85%]">
+            <p className="font-serif text-[17px] leading-relaxed">Hello, what can I help with?</p>
+          </div>
+          {thread ? (
+            <ol className="grid gap-8" aria-label="Questions in this thread">
+              {thread.turns.map((record) => (
+                <Turn
+                  key={record.id}
+                  record={record}
+                  live={!!run && record.run === run}
+                  running={running && record.run === run}
+                  detail={expanded === record.id || (running && record.run === run && !!run.prepared && !run.approved)}
+                  onDetail={() => setExpanded((id) => (id === record.id ? undefined : record.id))}
+                  onSave={() => void saveTurn(record)}
+                  onSend={() => void sendPrepared()}
+                  onCancel={() => void cancel()}
+                  onTopUp={onTopUp}
+                  onRetry={() => setTask(record.run.task)}
+                />
               ))}
-            </div>
-          )}
-        </section>
-        <section className="column provider" aria-label="Requests for the provider">
-          <h2>
-            {run.pieces.some((piece) => piece.status !== "planned") ? "Requests sent to the provider" : "Prepared for the provider"}{" "}
-            <span className="tag">{run.level === "local" ? "nothing" : run.pieces.length ? `${run.pieces.length} unrelated requests` : running ? "preparing…" : ""}</span>
-          </h2>
-          {run.level === "local" && run.done && <p className="provider-note">Answered by the model on this computer. Nothing was sent.</p>}
-          <div className="envelopes">
-            {run.pieces.map((p, i) => (
-              <Envelope key={p.id} piece={p} index={i} />
+            </ol>
+          ) : null}
+
+      {/* The question box stays in reach at the bottom of the screen, however long the thread gets. */}
+      <form
+        className="sticky bottom-4 z-10 min-w-0 rounded-2xl border bg-card shadow-[0_12px_32px_-16px_rgb(0_0_0/0.45)] transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/20"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canAsk) void start();
+        }}
+      >
+        <Label htmlFor="task" className="sr-only">
+          Ask a question about this case
+        </Label>
+        <Textarea
+          id="task"
+          value={task}
+          maxLength={4000}
+          onChange={(e) => setTask(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && canAsk) {
+              e.preventDefault();
+              void start();
+            }
+          }}
+          placeholder={followUp ? "Ask a follow-up…" : "Ask a question about your case…"}
+          className="min-h-24 resize-none border-0 bg-transparent px-4 pt-4 md:px-6 md:pt-6 font-serif text-[17px] leading-relaxed shadow-none focus-visible:ring-0 md:text-[17px] dark:bg-transparent"
+        />
+
+        {context.entries.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 px-4 pb-3 text-xs md:px-6">
+            {context.entries.map((entry) => (
+              <Badge key={entry.id} variant="secondary" className="gap-1 pr-1 font-normal">
+                <FileText className="size-3" />
+                <span className="max-w-48 truncate">{entry.title}</span>
+                <button type="button" className="rounded-sm p-0.5 hover:bg-background" aria-label={`Remove ${entry.title}`} onClick={() => setContextIds((ids) => ids.filter((x) => x !== entry.id))}>
+                  <X className="size-3" />
+                </button>
+              </Badge>
             ))}
           </div>
-          {run.blocked.map((b) => (
-            <div className="blocked" key={b.question}>
-              <strong>Not sent: leak check scored {b.score}</strong>
-              <p className="doc">{b.question}</p>
-              <p>{b.inferences.join("; ")}</p>
-            </div>
-          ))}
-          {decoys > 0 && <p className="provider-note">The plan contains {real} real questions and {decoys} decoys. Each submitted request uses its own Tor isolation identity and coins.</p>}
-        </section>
-      </div>
+        )}
+        {level !== "local" && <SendPreview caseId={caseId} task={task} context={contextTexts} table={table} localAi={!noLocalAi} />}
+        {context.entries.filter((entry) => entry.truncated).map((entry) => (
+          <p className="px-4 pb-2 text-xs text-muted-foreground md:px-6" key={entry.id}>
+            {entry.title}: research uses the first {entry.used.toLocaleString()} of {entry.total.toLocaleString()} characters. The whole source stays in Evidence.
+          </p>
+        ))}
+        {context.omitted > 0 && <p className="px-4 pb-2 text-xs text-muted-foreground md:px-6">Only the first 20 selected sources are included; {context.omitted} left out.</p>}
 
-      {run.steps.length > 0 && (
-        <ol className="pipeline" aria-label="What happened">
-          {run.steps.map(({ step, atMs }, i) => (
-            <li key={i} className="done">
-              <div>
-                <div className="title">{step.title}</div>
-                <div className="detail">{step.detail}</div>
-              </div>
-              <span className="time">{(atMs / 1000).toFixed(1)} s</span>
-            </li>
-          ))}
-        </ol>
-      )}
-
-      {run.cancelled && <div className="notice" role="status">
-        Stopped. {run.cancelled.sent} request(s) were already sent; {run.cancelled.settled} settled. Cost {formatUsd(run.cancelled.spent)}.
-        {run.cancelled.answers.map((a) => <p className="doc" key={a.id}>{a.answer}</p>)}
-      </div>}
-      {run.error && (
-        <div className="error">
-          {run.error}
-          {broke && (
-            <>
-              {" "}
-              <button className="btn small" onClick={onTopUp}>
-                Top up
-              </button>
-            </>
-          )}
-        </div>
-      )}
-
-      {run.recoveredAnswers && <article className="answer" aria-label="Recovered answers">
-        <p className="notice">The browser did not receive a final synthesis. These individual answers were recovered from the daemon.</p>
-        {run.recoveredAnswers.map((answer) => <div key={answer.requestId}><p className="doc">{answer.answerExpired ? "Answer text expired at the relay; its payment was settled." : restore(answer.content, run.table)}</p></div>)}
-        <div className="answer-foot"><span>Settled cost {formatUsd(run.recoveredSpent ?? 0)}</span>{!run.saved && <button className="btn small" onClick={onSave}>Save recovered answer as observation</button>}</div>
-      </article>}
-      {run.done && (
-        <article className="answer" aria-label="Answer">
-          <div className="doc">
-            <Cited text={run.done.outcome.answer} invalid={run.done.outcome.citations.invalidCitations} />
-          </div>
-          {run.done.outcome.citations.invalidCitations.length > 0 && (
-            <p className="notice">
-              Citations {run.done.outcome.citations.invalidCitations.join(", ")} don't match any answer that came back. Treat those claims as
-              unsupported.
-            </p>
-          )}
-          <div className="answer-foot">
-            <span>Cost {formatUsd(run.done.spent)}</span>
-            <span>Took {(run.done.ms / 1000).toFixed(1)} s</span>
-            <span className="spacer" />
-            {run.saved ? (
-              <span>Saved to findings as a draft</span>
-            ) : (
-              <button className="btn small" onClick={onSave}>
-                Save as observation
+        {!ready && status && readinessNote(status, level) ? (
+          <p className="flex items-center gap-2 px-4 pb-4 text-xs text-muted-foreground md:px-6">
+            <AlertTriangle className="size-3.5 text-decoy" /> {readinessNote(status, level)}
+            {level === "local" && (
+              <button type="button" onClick={onSettings} className="ml-auto font-medium text-foreground underline-offset-4 hover:underline">
+                Set it up
               </button>
             )}
+          </p>
+        ) : notice && !dismissed.includes(noticeKey) ? (
+          <div className="mx-4 mb-4 flex items-start gap-2 rounded-lg bg-muted/60 py-2 pr-1 pl-3 text-xs text-muted-foreground md:mx-6" role="note">
+            {noLocalAi ? <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-decoy" /> : <Sparkles className="mt-0.5 size-3.5 shrink-0 text-protected" weight="duotone" />}
+            <span className="flex-1 pt-px">{notice}</span>
+            {noLocalAi && (
+              <button type="button" onClick={onSettings} className="shrink-0 pt-px font-medium text-foreground underline-offset-4 hover:underline">
+                Turn it on
+              </button>
+            )}
+            <button type="button" onClick={() => setDismissed([...dismissed, noticeKey])} className="hit -my-0.5 shrink-0 rounded p-0.5 hover:bg-background hover:text-foreground" aria-label="Dismiss for this thread">
+              <X className="size-3.5" />
+            </button>
           </div>
-        </article>
-      )}
-    </>
-  );
-}
+        ) : null}
+        <div className="footer">
+          {textEvidence.length > 0 && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button type="button" variant="ghost" size="sm" className="text-muted-foreground">
+                  <Plus /> Evidence{contextIds.length ? ` (${contextIds.length})` : ""}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-80 p-0">
+                <Command>
+                  <CommandInput placeholder="Find evidence…" />
+                  <CommandList>
+                    <CommandEmpty>No matching evidence.</CommandEmpty>
+                    <CommandGroup heading="Add to your question">
+                      {textEvidence.map((e) => (
+                        <CommandItem key={e.id} value={`${e.title} ${e.id}`} onSelect={() => setContextIds((ids) => (ids.includes(e.id) ? ids.filter((x) => x !== e.id) : [...ids, e.id]))}>
+                          <Checkbox checked={contextIds.includes(e.id)} className="pointer-events-none" />
+                          <span className="truncate">{e.title}</span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          )}
 
-function Envelope({ piece, index }: { piece: PieceState; index: number }) {
-  return (
-    <div className={`envelope ${piece.role} ${piece.status === "failed" ? "failed" : ""}`} style={{ ["--i" as string]: index }}>
-      {(() => {
-        const m = /^Session ([0-9a-f]{64})\n\n([\s\S]*)$/.exec(piece.wire);
-        return m ? (
-          <>
-            <span className="salt" title="A random per-case prefix. It keeps this case's cached prompts separate from everyone else's.">
-              case salt {m[1]!.slice(0, 10)}…
-            </span>
-            <p className="wire">{m[2]}</p>
-          </>
-        ) : (
-          <p className="wire">{piece.wire}</p>
-        );
-      })()}
-      {piece.messages && <details><summary>All request messages</summary><pre className="wire">{piece.messages.map((message) => `${message.role}: ${message.content}`).join("\n\n")}</pre></details>}
-      <div className="meta">
-        <span className={`role ${piece.role}`}>{piece.role === "real" ? "Real question" : "Decoy, answer discarded"}</span>
-        {piece.circuit && <span>circuit {piece.circuit.slice(2, 8)}</span>}
-        <span className={piece.status === "sent" ? "status-sent" : undefined}>
-          {piece.status === "planned" ? "queued" : piece.status === "sent" ? "sending…" : piece.status === "answered" ? `${((piece.ms ?? 0) / 1000).toFixed(1)} s` : `failed: ${piece.error}`}
-        </span>
-        {piece.charged !== undefined && <span>{formatUsd(piece.charged)}</span>}
-        {piece.leakScore !== undefined && <span>leak score {piece.leakScore}</span>}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="ghost" size="sm" className="text-muted-foreground">
+                <Settings2 /> Options{rec.pseudonyms.some((p) => p.manual) ? ` · ${rec.pseudonyms.filter((p) => p.manual).length} rules` : ""}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="grid w-[min(24rem,calc(100vw-2rem))] gap-4">
+              {level !== "local" && (
+                <label className="flex items-start gap-2.5 text-sm">
+                  <Checkbox checked={reviewBeforeSend} onCheckedChange={(v) => setDraft({ reviewBeforeSend: v === true })} disabled={running} className="mt-0.5" />
+                  <span>
+                    <span className="font-medium">Review requests before sending</span>
+                    <span className="block text-xs text-muted-foreground">See exactly what will be sent and the most it can cost, before it goes.</span>
+                  </span>
+                </label>
+              )}
+              <div className="grid gap-2">
+                <Label htmlFor="hide-phrase">Always hide a phrase</Label>
+                <div className="flex gap-2">
+                  <Input id="hide-phrase" maxLength={500} value={phrase} onChange={(event) => setPhrase(event.target.value)} placeholder="a codename, an address, a street…" className="h-8" />
+                  <Button type="button" size="sm" disabled={phrase.trim().length < 2 || !!run?.cancelling} onClick={() => void changeHideRule(phrase)}>
+                    Add
+                  </Button>
+                </div>
+                {rec.pseudonyms.filter((entry) => entry.manual).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {rec.pseudonyms
+                      .filter((entry) => entry.manual)
+                      .map((entry) => (
+                        <Badge key={entry.original} variant="outline" className="gap-1 pr-1 font-normal">
+                          {entry.original}
+                          <button type="button" className="rounded-sm p-0.5 hover:bg-muted" aria-label={`Stop always hiding ${entry.original}`} onClick={() => void changeHideRule(entry.original, true)}>
+                            <X className="size-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">These apply to your whole team.</p>
+                {phraseError && <p className="text-xs text-destructive">{phraseError}</p>}
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <LevelPicker level={level} blocked={blocked} onChange={setLevel} onSettings={noLocalAi ? onSettings : undefined} />
+          {running ? (
+            <Button type="button" variant="outline" size="sm" disabled={run?.cancelling} onClick={() => void cancel()}>
+              {run?.cancelling ? <Loader2 className="animate-spin" /> : <Square className="fill-current" />}
+              {run?.cancelling ? "Stopping…" : "Stop"}
+            </Button>
+          ) : (
+            <Button type="submit" size="sm" disabled={!canAsk}>
+              <ArrowUp />
+              {reviewBeforeSend && level !== "local" ? "Prepare" : "Ask"}
+              <Kbd className="ml-1 hidden bg-primary-foreground/15 text-primary-foreground sm:inline-flex">⌘↵</Kbd>
+            </Button>
+          )}
+        </div>
+      </form>
+        </Pane>
       </div>
-    </div>
-  );
-}
-
-/** The question with every hidden value covered by an ink bar, drawn one after another. */
-function Redacted({ text, table }: { text: string; table: readonly Pseudonym[] }) {
-  const parts = useMemo(() => {
-    if (!table.length) return [text];
-    const escaped = [...table].sort((a, b) => b.original.length - a.original.length).map((p) => p.original.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    return text.split(new RegExp(`(${escaped.join("|")})`, "gi"));
-  }, [text, table]);
-  const originals = new Set(table.map((p) => p.original.toLowerCase()));
-  let n = 0;
-  return (
-    <>
-      {parts.map((part, i) =>
-        originals.has(part.toLowerCase()) ? (
-          <span key={i} className="redacted" style={{ ["--i" as string]: n++ }} title="Hidden before sending">
-            {part}
-          </span>
-        ) : (
-          <Fragment key={i}>{part}</Fragment>
-        ),
-      )}
-    </>
-  );
-}
-
-function Cited({ text, invalid }: { text: string; invalid: string[] }) {
-  return (
-    <>
-      {text.split(/(\[A\d+\])/g).map((part, i) => {
-        const m = /^\[(A\d+)\]$/.exec(part);
-        if (!m) return <Fragment key={i}>{part}</Fragment>;
-        return (
-          <span key={i} className={`cite ${invalid.includes(m[1]!) ? "bad" : ""}`}>
-            {m[1]}
-          </span>
-        );
-      })}
-    </>
+    </section>
   );
 }

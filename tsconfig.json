@@ -1,4 +1,19 @@
 {
   "extends": "./tsconfig.base.json",
-  "include": ["packages/*/src", "packages/*/test", "apps/*/src", "apps/*/test", "apps/*/vite.config.ts", "scripts"]
+  "include": [
+    "packages/*/src",
+    "packages/*/test",
+    "apps/*/src",
+    "apps/*/test",
+    "apps/*/vite.config.ts",
+    "scripts",
+    "vitest.config.ts"
+  ],
+  "compilerOptions": {
+    "paths": {
+      "@/*": [
+        "./apps/web/src/*"
+      ]
+    }
+  }
 }

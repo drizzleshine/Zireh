@@ -1,8 +1,8 @@
 import { randomId, shuffle } from "@zireh/crypto";
-import { makeDecoys, tooSimilar } from "@zireh/decoy";
+import { makeDecoys, stockDecoys, tooSimilar } from "@zireh/decoy";
 import { checkLeak, generalize, passes, type LeakReport } from "@zireh/leakcheck";
 import { abortableModel, type ChatModel } from "@zireh/llm";
-import { applyTable, findLeaks, redactText, restore, withHints } from "@zireh/redact";
+import { applyTable, findLeaks, redactText, redactWithoutModel, restore, withHints } from "@zireh/redact";
 import { LEVELS, type ChatMessage, type OutboundPiece, type PrivacyLevel, type Pseudonym, type TraceStep } from "@zireh/schema";
 import { reassemble, splitTask, type Reassembled } from "@zireh/split";
 
@@ -12,12 +12,25 @@ If you don't know something, say so plainly instead of guessing; never invent fa
 people, companies or events. Values in brackets like [PERSON_1] are hidden on purpose: keep them
 exactly as written and never guess them.`;
 
+const STANDALONE_PROMPT = `You rewrite a follow-up question so it can be understood on its own, by someone who never saw the conversation.
+Replace words that point back ("they", "that company", "the second one", "what about") with what they refer to.
+Keep the person's intent, wording and language. Do not answer it and do not add anything new.
+Reply with the rewritten question only.`;
+
 const LOCAL_PROMPT = `You are a careful research assistant working only from what the user gives you.
 Use the user's notes and evidence. If they don't contain the answer, say what is missing instead of
 guessing; never invent facts about specific people, companies or events. Answer concisely.`;
 
+/** One earlier question and answer in the same thread. */
+export interface Turn {
+  readonly question: string;
+  readonly answer: string;
+}
+
 export interface ShieldInput {
   readonly task: string;
+  /** Earlier turns of the thread. Used on this device to make a follow-up stand alone; never sent. */
+  readonly history?: readonly Turn[];
   readonly context?: readonly string[]; // selected evidence text, plaintext
   readonly level: PrivacyLevel;
   readonly table: readonly Pseudonym[];
@@ -68,9 +81,17 @@ export interface CompileHooks {
   readonly onRedacted?: (table: readonly Pseudonym[]) => void;
 }
 
-export async function compile(local: ChatModel, input: ShieldInput, hooks: CompileHooks = {}): Promise<Plan> {
+/** Thrown when a level needs the on-device model and none is connected. */
+export class NeedsLocalModel extends Error {}
+
+/**
+ * `local` is the on-device model, or undefined when none is connected. Without it nothing is
+ * guessed: hiding is by pattern (see redactWithoutModel), the task goes out as one question with no
+ * rewrite, the leak check is the exact-match one, and decoys come from a fixed list.
+ */
+export async function compile(local: ChatModel | undefined, input: ShieldInput, hooks: CompileHooks = {}): Promise<Plan> {
   hooks.signal?.throwIfAborted();
-  local = abortableModel(local, hooks.signal);
+  local = local && abortableModel(local, hooks.signal);
   const onStep = hooks.onStep;
   const policy = LEVELS[input.level];
   const trace: TraceStep[] = [];
@@ -80,25 +101,49 @@ export async function compile(local: ChatModel, input: ShieldInput, hooks: Compi
   };
   const maxTokens = input.maxTokens ?? DEFAULT_MAX_TOKENS;
 
+  // 0. standalone — a follow-up is rewritten here, on this device, into a question that makes
+  // sense alone. Only that goes on: the provider never sees the conversation, so questions from
+  // one thread look as unrelated as questions from different people.
+  let task = input.task;
+  if (local && input.history?.length) {
+    const transcript = input.history.slice(-4).map((t) => `Q: ${t.question}\nA: ${t.answer.slice(0, 1500)}`).join("\n\n");
+    const { content } = await local.chat(
+      [
+        { role: "system", content: STANDALONE_PROMPT },
+        { role: "user", content: `Conversation so far:\n${transcript}\n\nFollow-up: ${input.task}` },
+      ],
+      { maxTokens: 300, temperature: 0 },
+    );
+    const rewritten = content.trim().replace(/^["“']|["”']$/g, "").trim().slice(0, 4000);
+    if (rewritten.length >= 3) task = rewritten;
+    step({ stage: "standalone", title: "Made the follow-up stand alone", detail: "Rewritten on this device, so the provider gets a fresh question, not the conversation.", before: input.task, after: task });
+  }
+
   // 1. redact — task and context share one table so placeholders agree everywhere.
   const contextText = (input.context ?? []).join("\n\n");
-  const combined = contextText ? `${contextText}\n\nTask: ${input.task}` : input.task;
-  const red = await redactText(local, combined, input.table);
-  const redactedTask = applyTable(input.task, red.table);
+  const combined = contextText ? `${contextText}\n\nTask: ${task}` : task;
+  // Without the model only Standard can run: Local only needs it to answer, and Private and
+  // Paranoid promise splitting and rewriting that pattern matching can't do.
+  if (!local && input.level !== "standard") throw new NeedsLocalModel(`${input.level[0]!.toUpperCase()}${input.level.slice(1)} needs on-device AI. Turn it on in Settings, or use Standard.`);
+  const red = local ? await redactText(local, combined, input.table) : redactWithoutModel(combined, input.table);
+  const redactedTask = applyTable(task, red.table);
   const described = withHints(red.text, red.table);
   hooks.onRedacted?.(red.table);
+  // Count what this question actually contained, not everything the case has ever hidden.
+  const hiddenHere = findLeaks(combined, red.table).length;
   step({
     stage: "redact",
-    title: `Hid ${red.table.length} value${red.table.length === 1 ? "" : "s"}`,
+    title: hiddenHere ? `Hid ${hiddenHere} value${hiddenHere === 1 ? "" : "s"}` : "Nothing to hide found",
     detail: red.added.length
       ? `New this time: ${red.added.map((p) => `${p.original} → ${p.hint ?? p.placeholder}`).join(", ")}` // trace stays on this device
       : "No new identifying values found.",
+    ...(local ? {} : { detail: `${red.added.length ? `New this time: ${red.added.map((p) => `${p.original} → ${p.hint ?? p.placeholder}`).join(", ")}. ` : ""}No on-device AI, so every name-like phrase was hidden.` }),
     before: combined,
     after: described,
   });
 
   // 2. route — the local level never leaves the device.
-  if (!policy.cloud) {
+  if (!policy.cloud && local) {
     const { content } = await local.chat(
       [
         { role: "system", content: LOCAL_PROMPT },
@@ -109,16 +154,16 @@ export async function compile(local: ChatModel, input: ShieldInput, hooks: Compi
     step({ stage: "route", title: "Answered on this device", detail: "Local only: nothing was sent." });
     return { level: input.level, task: input.task, redactedTask, table: red.table, pieces: [], blocked: [], localAnswer: content, trace };
   }
-  step({ stage: "route", title: "Sending to the cloud model", detail: `Privacy level: ${input.level}.` });
+  step({ stage: "route", title: "Will go to the cloud model", detail: `Privacy level: ${input.level}. Nothing has been sent yet.` });
 
   // 3. split
   // Placeholders become vague descriptions in code ("a large city in Nigeria"), so the provider
   // gets an answerable question without the hidden values. Then the local model rewrites or splits.
   // The model may reintroduce a hidden value while rewriting; scrub every question in code.
-  const questions = (await splitTask(local, described, policy.split ? undefined : 1)).map((q) => withHints(applyTable(q, red.table), red.table));
+  const questions = (local ? await splitTask(local, described, policy.split ? undefined : 1) : [described]).map((q) => withHints(applyTable(q, red.table), red.table));
   step({
     stage: "split",
-    title: policy.split ? `Split into ${questions.length} independent question${questions.length === 1 ? "" : "s"}` : "Rewritten as one general question",
+    title: !local ? "Kept as one question (no on-device AI to rewrite it)" : policy.split ? `Split into ${questions.length} independent question${questions.length === 1 ? "" : "s"}` : "Rewritten as one general question",
     detail: questions.map((q, i) => `${i + 1}. ${q}`).join("\n"),
   });
 
@@ -127,21 +172,27 @@ export async function compile(local: ChatModel, input: ShieldInput, hooks: Compi
   const blocked: BlockedPiece[] = [];
   for (const q of questions) {
     let text = q;
-    let report = await checkLeak(local, text, red.table);
-    if (!passes(report, policy.leakThreshold) && report.leakedOriginals.length === 0) {
+    let report: LeakReport = local ? await checkLeak(local, text, red.table) : { score: 0, inferences: [], leakedOriginals: findLeaks(text, red.table) };
+    if (!local) report = report.leakedOriginals.length ? { ...report, score: 10, inferences: ["A hidden value is still in the text."] } : report;
+    if (local && !passes(report, policy.leakThreshold) && report.leakedOriginals.length === 0) {
       text = applyTable(await generalize(local, text, report), red.table);
       report = await checkLeak(local, text, red.table);
     }
     if (passes(report, policy.leakThreshold)) approved.push({ question: text, score: report.score });
     else blocked.push({ question: text, report });
   }
+  // Without the model there is no inference check, only an exact match for hidden values; say so.
   step({
     stage: "leakcheck",
-    title: blocked.length ? `Blocked ${blocked.length} of ${questions.length}` : "All pieces passed",
-    detail: [
-      ...approved.map((a) => `Leak score ${a.score} ≤ ${policy.leakThreshold}: ${a.question}`),
-      ...blocked.map((b) => `Blocked (score ${b.report.score}): ${b.report.inferences.join("; ")}`),
-    ].join("\n"),
+    title: blocked.length ? `Blocked ${blocked.length} of ${questions.length}` : local ? "All pieces passed the leak check" : "No hidden value left in the text",
+    detail: local
+      ? [
+          ...approved.map((a) => `Leak score ${a.score} ≤ ${policy.leakThreshold}: ${a.question}`),
+          ...blocked.map((b) => `Blocked (score ${b.report.score}): ${b.report.inferences.join("; ")}`),
+        ].join("\n")
+      : blocked.length
+        ? "A hidden value was still in the text, so it was not sent."
+        : "Checked by exact match only. Without on-device AI, nothing judged what the provider could infer.",
   });
 
   // 5. decoy + 6. order
@@ -149,8 +200,9 @@ export async function compile(local: ChatModel, input: ShieldInput, hooks: Compi
   const pieces: OutboundPiece[] = [];
   const covers: string[] = [];
   for (const a of approved) {
-    pieces.push({ id: randomId(), role: "real", question: a.question, messages: buildMessages(a.question, salt), maxTokens, leakScore: a.score });
-    for (const d of await makeDecoys(local, a.question, policy.decoys, (text) => findLeaks(text, red.table).length === 0 && approved.every((real) => !tooSimilar(text, real.question)) && covers.every((cover) => cover.toLowerCase() !== text.toLowerCase() && !tooSimilar(cover, text)))) {
+    pieces.push({ id: randomId(), role: "real", question: a.question, messages: buildMessages(a.question, salt), maxTokens, ...(local ? { leakScore: a.score } : {}) });
+    const accept = (text: string) => findLeaks(text, red.table).length === 0 && approved.every((real) => !tooSimilar(text, real.question)) && covers.every((cover) => cover.toLowerCase() !== text.toLowerCase() && !tooSimilar(cover, text));
+    for (const d of local ? await makeDecoys(local, a.question, policy.decoys, accept) : stockDecoys(a.question, policy.decoys, accept)) {
       covers.push(d);
       pieces.push({ id: randomId(), role: "decoy", question: d, messages: buildMessages(d, salt), maxTokens });
     }
@@ -167,11 +219,11 @@ export async function compile(local: ChatModel, input: ShieldInput, hooks: Compi
   step({
     stage: "decoy",
     title: decoyCount ? `Added ${decoyCount} decoy${decoyCount === 1 ? "" : "s"}` : "No decoys",
-    detail: decoyCount ? `${approved.length} real and ${decoyCount} decoy requests, shuffled. Each goes on its own Tor circuit.` : "This level sends no cover traffic.",
+    detail: decoyCount ? `${approved.length} real and ${decoyCount} decoy requests, shuffled. Each will go out on its own.${local ? "" : " Decoys came from a fixed list, not written for this question."}` : "This level sends no cover traffic.",
   });
   step({
     stage: "order",
-    title: "Cache-safe prompt order",
+    title: "Prompt layout",
     detail: salt
       ? "Shared system prompt, then a per-case salt, then the content."
       : "Shared system prompt, then the content. No case salt, so pieces can't be grouped.",
@@ -182,14 +234,14 @@ export async function compile(local: ChatModel, input: ShieldInput, hooks: Compi
 
 /** Combine answers for the real pieces (decoy answers are dropped) and restore pseudonyms locally. */
 export async function finish(
-  local: ChatModel,
+  local: ChatModel | undefined,
   plan: Plan,
   answers: ReadonlyMap<string, string>,
   onStep?: (step: TraceStep) => void,
   signal?: AbortSignal,
 ): Promise<Outcome> {
   signal?.throwIfAborted();
-  local = abortableModel(local, signal);
+  local = local && abortableModel(local, signal);
   const trace = [...plan.trace];
   if (plan.localAnswer !== undefined) {
     return {
@@ -206,10 +258,13 @@ export async function finish(
   const dropped = plan.pieces.filter((p) => p.role === "decoy" && answers.has(p.id)).length;
   if (answered.length === 0) throw new Error("no real piece was answered");
 
-  const citations = await reassemble(local, plan.redactedTask, answered);
+  // Without the on-device model the answers are shown one after another instead of merged.
+  const citations: Reassembled = local
+    ? await reassemble(local, plan.redactedTask, answered)
+    : { text: answered.map((a) => (answered.length > 1 ? `${a.question}\n\n${a.answer}` : a.answer)).join("\n\n"), cited: [], invalidCitations: [], uncited: [] };
   const last: TraceStep = {
     stage: "reassemble",
-    title: "Combined on this device",
+    title: local ? "Combined on this device" : answered.length > 1 ? "Answers shown one after another" : "Answer shown as it came back",
     detail: [
       `Used ${answered.length} answer${answered.length === 1 ? "" : "s"}, discarded ${dropped} decoy answer${dropped === 1 ? "" : "s"}.`,
       citations.invalidCitations.length ? `Unsupported citations flagged: ${citations.invalidCitations.join(", ")}.` : "",

@@ -7,6 +7,7 @@ import {
   SwapRequest,
   TopupQuoteRequest,
   type ModelPrice,
+  type QuoteState,
   type RelayError,
   type RelayInfo,
   type SearchHit,
@@ -78,6 +79,8 @@ export interface RelayDeps {
   readonly search?: SearchFn;
   readonly searchPrice: number;
   readonly responses: ResponseStore;
+  /** Cheap check that the AI the relay forwards to is answering, reported in /v1/info. */
+  readonly upstreamOk?: () => Promise<boolean>;
   /** Aggregate counters only. The relay never logs prompts, answers or coins. */
   readonly onEvent?: (event: "chat" | "search" | "topup" | "refund", credits: number) => void;
 }
@@ -103,6 +106,21 @@ async function parse<S extends z.ZodType>(req: Request, schema: S): Promise<z.in
  */
 export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response> {
   const inFlight = new Map<string, Promise<StoredResponse>>();
+
+  /** A quote's state after asking the payment watcher for news, or the error reply to send. */
+  async function currentState(quoteId: string): Promise<QuoteState | Response> {
+    try {
+      deps.watcher.state(quoteId);
+    } catch {
+      return fail(404, "not_found", "unknown quote");
+    }
+    try {
+      await deps.watcher.refresh?.(quoteId);
+    } catch (err) {
+      return fail(502, "upstream_error", `Couldn't check the payment: ${(err as Error).message}`);
+    }
+    return deps.watcher.state(quoteId);
+  }
 
   function resume(requestId: string, blanks: z.infer<typeof ChatPaidRequest>["changeOutputs"]): Response | Promise<Response> | undefined {
     // A retry while the first attempt is still running in this process waits for it.
@@ -189,6 +207,8 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
       deps.responses.acknowledge(body.requestId);
       return json(200, { ok: true });
     },
+    // Liveness for hosting platforms. Says nothing about keys, prices or traffic.
+    "GET /health": async () => json(200, { ok: true }),
     "GET /v1/info": async () => {
       const info: RelayInfo = {
         keyset: deps.mint.keyset,
@@ -196,6 +216,7 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
         searchPrice: deps.searchPrice,
         searchEnabled: deps.search !== undefined,
         network: deps.watcher.network,
+        ...(deps.upstreamOk ? { upstreamOk: await deps.upstreamOk().catch(() => false) } : {}),
       };
       return json(200, info);
     },
@@ -204,15 +225,19 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
       const body = await parse(req, TopupQuoteRequest);
       if (body instanceof Response) return body;
       if (deps.admission && (body.credits > deps.admission.quoteLimit || !deps.admission.quote(body.credits))) return fail(429, "limit_exceeded", `Demo top-ups are limited to ${deps.admission.quoteLimit} credits per quote and a shared daily budget`);
-      return json(200, deps.watcher.quote(body.credits));
+      try {
+        return json(200, await deps.watcher.quote(body.credits));
+      } catch (err) {
+        return fail(502, "upstream_error", `Couldn't get a payment address: ${(err as Error).message}`);
+      }
     },
 
     "GET /v1/topup/state": async (_req, url) => {
-      try {
-        return json(200, { state: deps.watcher.state(url.searchParams.get("quoteId") ?? "") });
-      } catch {
-        return fail(404, "not_found", "unknown quote");
-      }
+      const quoteId = url.searchParams.get("quoteId") ?? "";
+      const known = await currentState(quoteId);
+      if (known instanceof Response) return known;
+      const received = deps.watcher.received?.(quoteId);
+      return json(200, { state: known, ...(received ? { received } : {}) });
     },
 
     "POST /v1/topup/simulate": async (req) => {
@@ -237,12 +262,8 @@ export function createRelay(deps: RelayDeps): (req: Request) => Promise<Response
         const minted = stored.body as { outputsHash: string; signatures: unknown };
         return minted.outputsHash === outputsHash ? json(200, { signatures: minted.signatures }) : fail(409, "bad_request", "quote already minted with different outputs");
       }
-      let state;
-      try {
-        state = deps.watcher.state(body.quoteId);
-      } catch {
-        return fail(404, "not_found", "unknown quote");
-      }
+      const state = await currentState(body.quoteId);
+      if (state instanceof Response) return state;
       if (state !== "confirmed") return fail(402, "quote_unpaid", `quote is ${state}`);
       const { credits } = deps.watcher.lookup(body.quoteId);
       let signatures;

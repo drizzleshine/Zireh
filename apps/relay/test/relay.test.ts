@@ -3,7 +3,7 @@ import { scriptedModel, type ChatModel } from "@zireh/llm";
 import type { FetchLike, ModelPrice } from "@zireh/schema";
 import { directTransport } from "@zireh/tor";
 import { generateMintKeys, memoryProofStore, memorySpentStore, Mint, prepareTopup, Wallet } from "@zireh/wallet";
-import { fixedRate, simulatedWatcher } from "@zireh/zcash";
+import { fixedRate, simulatedWatcher, zecCheckoutWatcher } from "@zireh/zcash";
 import { describe, expect, it, vi } from "vitest";
 import { createRelay, memoryResponseStore } from "@zireh/relay-core";
 
@@ -114,6 +114,26 @@ describe("relay + client", () => {
     await fund(client, relayFetch, 10_000);
     await expect(client.prepareChat("other/model", ask, 10)).rejects.toBeInstanceOf(RelayCallError);
     expect(wallet.balance).toBe(10_000);
+  });
+});
+
+describe("upstream health", () => {
+  it("reports whether the AI behind the relay answers, and omits it when unknown", async () => {
+    const make = (upstreamOk?: () => Promise<boolean>) => {
+      const handler = createRelay({
+        mint: new Mint(generateMintKeys(), memorySpentStore()),
+        watcher: simulatedWatcher(fixedRate(50)),
+        models: new Map([[MODEL, { upstream: scriptedModel(() => "ok"), price }]]),
+        searchPrice: 2000,
+        responses: memoryResponseStore(),
+        ...(upstreamOk ? { upstreamOk } : {}),
+      });
+      const relayFetch: FetchLike = (url, init) => handler(new Request(url, init));
+      return new RelayClient({ baseUrl: "http://relay.test", transport: directTransport(relayFetch), wallet: new Wallet(memoryProofStore()) });
+    };
+    expect((await make(async () => true).info()).upstreamOk).toBe(true);
+    expect((await make(async () => { throw new Error("down"); }).info()).upstreamOk).toBe(false);
+    expect((await make().info()).upstreamOk).toBeUndefined();
   });
 });
 
@@ -385,4 +405,55 @@ it("G2 write-off rolls back when removing pending fails", async () => {
   expect(() => client.writeOffDispute(call.requestId)).toThrow("journal unavailable");
   expect(s.wallet.money.list("written-off:")).toHaveLength(0);
   expect(s.client.pending.list()).toHaveLength(1);
+});
+
+describe("real payments through ZecCheckout", () => {
+  function withService() {
+    const invoice = { id: "inv1", status: "pending", amount_zat: 0, received_zat: 0 };
+    let down = false;
+    const service = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (down) throw new Error("connection refused");
+      if (init?.method === "POST") {
+        invoice.amount_zat = Math.round(Number((JSON.parse(String(init.body)) as { amount_zec: string }).amount_zec) * 1e8);
+        return Response.json({ ...invoice, address: "utest1fresh", payment_uri: "zcash:utest1fresh?amount=0.002", expires_at: 2_000_000_000 }, { status: 201 });
+      }
+      return Response.json(invoice);
+    }) as typeof fetch;
+    const handler = createRelay({
+      mint: new Mint(generateMintKeys(), memorySpentStore()),
+      watcher: zecCheckoutWatcher({ url: "http://zeccheckout.test", apiKey: "k".repeat(24), network: "testnet", rate: fixedRate(50), fetch: service }),
+      models: new Map([[MODEL, { upstream: scriptedModel(() => "ok"), price }]]),
+      searchPrice: 2000,
+      responses: memoryResponseStore(),
+    });
+    const relayFetch: FetchLike = (url, init) => handler(new Request(url, init));
+    const wallet = new Wallet(memoryProofStore());
+    const client = new RelayClient({ baseUrl: "http://relay.test", transport: directTransport(relayFetch), wallet });
+    return { client, relayFetch, invoice, wallet, setDown: (value: boolean) => { down = value; } };
+  }
+
+  it("mints only once the payment has confirmed, and shows partial payments on the way", async () => {
+    const { client, relayFetch, invoice, wallet } = withService();
+    const quote = await client.quote(100_000);
+    expect(quote).toMatchObject({ address: "utest1fresh", paymentUri: "zcash:utest1fresh?amount=0.002", network: "testnet" });
+    expect((await relayFetch("http://relay.test/v1/topup/simulate", { method: "POST", body: JSON.stringify({ quoteId: quote.quoteId }) })).status).toBe(404);
+
+    Object.assign(invoice, { status: "underpaid", received_zat: 100_000 });
+    expect(await client.quoteStatus(quote.quoteId)).toEqual({ state: "paid", received: "0.00100000" });
+    await expect(client.redeemTopup(quote)).rejects.toThrow("quote is paid");
+
+    Object.assign(invoice, { status: "paid", received_zat: invoice.amount_zat });
+    expect(await client.redeemTopup(quote)).toBe(100_000);
+    expect(wallet.balance).toBe(100_000);
+    expect((await client.quoteStatus(quote.quoteId)).state).toBe("minted");
+  });
+
+  it("says the payment service can't be reached instead of claiming the quote is unknown", async () => {
+    const { client, setDown } = withService();
+    const quote = await client.quote(100_000);
+    setDown(true);
+    await expect(client.quoteStatus(quote.quoteId)).rejects.toThrow("Couldn't check the payment");
+    await expect(client.quote(100_000)).rejects.toThrow("Couldn't get a payment address");
+    await expect(client.quoteStatus("f".repeat(32))).rejects.toThrow("unknown quote");
+  });
 });

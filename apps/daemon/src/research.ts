@@ -6,7 +6,7 @@ import type { ChatModel } from "@zireh/llm";
 import type { PrivacyLevel, Pseudonym, ResearchEvent, TraceStep } from "@zireh/schema";
 
 export type { ResearchEvent };
-import { compile, finish, type Outcome } from "@zireh/shield";
+import { compile, finish, type Outcome, type Turn } from "@zireh/shield";
 import { newCircuitTag } from "@zireh/tor";
 import { InsufficientFunds, maxCost, type Wallet } from "@zireh/wallet";
 
@@ -22,6 +22,7 @@ export interface ResearchRequest {
   readonly model: string;
   readonly maxTokens?: number;
   readonly caseId?: string | undefined; // for the local privacy log only
+  readonly history?: readonly Turn[]; // earlier turns of the thread; stay on this computer
 }
 
 const RETRIES = 4;
@@ -54,7 +55,7 @@ async function pool<T>(items: readonly T[], limit: number, run: (item: T) => Pro
  * before sending fails, nothing is sent.
  */
 export async function runResearch(
-  deps: { local: ChatModel; relay: RelayClient; ledger: Ledger; wallet: Wallet },
+  deps: { local: ChatModel; localModelOk?: () => Promise<boolean>; relay: RelayClient; ledger: Ledger; wallet: Wallet; transport?: { readonly kind: "tor" | "direct" } },
   req: ResearchRequest,
   emit: (e: ResearchEvent) => void,
 ): Promise<void> {
@@ -72,7 +73,9 @@ export async function runResearch(
   try {
     req.signal?.throwIfAborted();
     const onStep = (step: TraceStep) => emit({ type: "step", step, atMs: Date.now() - started });
-    const plan = await compile(deps.local, { task: req.task, context: req.context, level: req.level, table: req.table, salt: req.salt, ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}) }, {
+    // On-device AI is optional: without it the pipeline hides by pattern and sends one plain question.
+    const local = deps.localModelOk && !(await deps.localModelOk()) ? undefined : deps.local;
+    const plan = await compile(local, { task: req.task, context: req.context, level: req.level, table: req.table, salt: req.salt, ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}), ...(req.history?.length ? { history: req.history } : {}) }, {
       onStep,
       ...(req.signal ? { signal: req.signal } : {}),
       onRedacted: (nextTable) => { table = nextTable; emit({ type: "redacted", table }); },
@@ -90,7 +93,7 @@ export async function runResearch(
 
     if (plan.localAnswer !== undefined) {
       deps.ledger.record({ destination: "local", role: "real", payload: req.task, ...(req.caseId ? { caseId: req.caseId } : {}) });
-      const outcome = await finish(deps.local, plan, new Map(), onStep, req.signal);
+      const outcome = await finish(local, plan, new Map(), onStep, req.signal);
       emit({ type: "done", outcome: { answer: outcome.answer, redactedAnswer: outcome.redactedAnswer, citations: outcome.citations }, table: plan.table, spent: 0, ms: Date.now() - started });
       return;
     }
@@ -161,8 +164,18 @@ export async function runResearch(
       for (const call of unsent) deps.relay.discardPrepared(call);
     }
 
+    // Say what actually went over the network, and how: Tor circuits or a plain connection.
+    const failed = plan.pieces.length - settled.size;
+    onStep({
+      stage: "send",
+      title: `Sent ${submitted.size} request${submitted.size === 1 ? "" : "s"}`,
+      detail: [
+        deps.transport?.kind === "direct" ? "Over a direct connection, not Tor: the relay could see this computer's address." : "Each on its own Tor circuit, paid with separate coins.",
+        `${settled.size} answered${failed ? `, ${failed} failed or not sent` : ""}.`,
+      ].join(" "),
+    });
     if (req.signal?.aborted) { cancelled(); return; }
-    const outcome = await finish(deps.local, plan, answers, onStep, req.signal);
+    const outcome = await finish(local, plan, answers, onStep, req.signal);
     emit({
       type: "done",
       outcome: { answer: outcome.answer, redactedAnswer: outcome.redactedAnswer, citations: outcome.citations },

@@ -1,196 +1,309 @@
-import { memberName, newLink, type CaseRecords } from "@zireh/cases";
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { memberName, newLink } from "@zireh/cases";
+import type { Link } from "@zireh/schema";
+import { addEdge, Background, BackgroundVariant, ConnectionMode, MarkerType, MiniMap, Panel, ReactFlow, ReactFlowProvider, reconnectEdge, useEdgesState, useNodesState, useReactFlow, type Connection, type Edge } from "@xyflow/react";
+import { ArrowsIn, ArrowsOut, CornersIn, SquaresFour as LayoutGrid, LinkSimple as Link2, Lightbulb, Minus, Graph as Network, Notepad as NotebookText, Plus, Scales as Scale, Trash as Trash2, X } from "@phosphor-icons/react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTheme } from "../theme.ts";
+import { toast } from "sonner";
 import { moveOnBoard, myMemberId, save, useStore } from "../store.ts";
 import { Comments } from "./Comments.tsx";
+import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { cn } from "@/lib/utils";
+import { SwapIcon } from "@/components/ui/swap-icon";
+import type { OpenItem } from "./CaseView.tsx";
+import { PaneHeader } from "./Pane.tsx";
+import { type Kind, type CardData, type CardNode, type LinkEdge, COLUMN_X, ROW_H, clip, cardsOf } from "./board/model.ts";
+import { CardNodeView } from "./board/CardNodeView.tsx";
+import { LinkActions, LinkEdgeView, sideToward } from "./board/LinkEdgeView.tsx";
+import { ToolButton } from "./board/ToolButton.tsx";
+import { useExpand } from "./board/useExpand.ts";
+import { LegendArrow } from "./board/LegendArrow.tsx";
 
-type Kind = "evidence" | "observation" | "finding";
-interface Card {
-  id: string;
-  kind: Kind;
-  title: string;
-  sub: string;
-}
-
-const CARD_W = 220;
-const CARD_H = 92;
-const COLUMN_X: Record<Kind, number> = { evidence: 24, observation: 324, finding: 624 };
-
-function cardsOf(rec: CaseRecords): Card[] {
-  const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
-  return [
-    ...rec.evidence.map((e) => ({ id: e.id, kind: "evidence" as const, title: e.title, sub: `Evidence, ${e.kind === "document" ? "document" : e.kind}` })),
-    ...rec.observations.filter((o) => o.status !== "rejected").map((o) => ({ id: o.id, kind: "observation" as const, title: clip(o.text.replace(/^Q: .*\n\n/, "").replace(/\s*\[A\d+\]/g, ""), 90), sub: o.status === "draft" ? "Draft observation" : "Observation" })),
-    ...rec.findings.map((f) => ({ id: f.id, kind: "finding" as const, title: clip(f.statement, 90), sub: "Finding" })),
-  ];
-}
+const nodeTypes = { card: CardNodeView };
+const edgeTypes = { link: LinkEdgeView };
 
 /**
- * The case board: every clue, observation and finding as a card the team can arrange and
- * connect. Citations (observation → evidence, finding → observation) are drawn automatically;
- * team-made links carry a label.
+ * The case board: every clue, observation and finding as a card on an infinite canvas.
+ * Citations (observation → evidence, finding → observation) are drawn automatically and are
+ * read-only. Team connections are cables: drag from any card edge to another card to make
+ * one, drag a cable's end to move it to a different card, select it to rename or remove it.
  */
-export function BoardPanel({ caseId }: { caseId: string }) {
+export function BoardPanel({ caseId, onOpen }: { caseId: string; onOpen: OpenItem }) {
+  return (
+    <ReactFlowProvider>
+      <Board caseId={caseId} onOpen={onOpen} />
+    </ReactFlowProvider>
+  );
+}
+
+function Board({ caseId, onOpen }: { caseId: string; onOpen: OpenItem }) {
   const rec = useStore((s) => s.cases[caseId])!;
   const cards = useMemo(() => cardsOf(rec), [rec]);
-  const [drag, setDrag] = useState<{ id: string; dx: number; dy: number; x: number; y: number } | undefined>();
-  const [connectFrom, setConnectFrom] = useState<string | undefined>();
-  const [pending, setPending] = useState<{ from: string; to: string } | undefined>();
-  const [label, setLabel] = useState("");
-  const [selected, setSelected] = useState<string | undefined>();
-  const surface = useRef<HTMLDivElement>(null);
-  const moved = useRef(false);
+  const { fitView, zoomIn, zoomOut } = useReactFlow();
+  const { dark } = useTheme();
+  const { expanded, frame, slot, toggle } = useExpand(() => requestAnimationFrame(() => void fitView({ duration: 480, padding: 0.15, maxZoom: 1.1 })));
+  const [show, setShow] = useState<Kind[]>(["evidence", "observation", "finding"]);
+  const [editing, setEditing] = useState<string | undefined>();
+  const [selectedId, setSelectedId] = useState<string | undefined>();
+  const me = myMemberId(caseId);
 
-  const pos = (c: Card, _i: number) => {
-    if (drag?.id === c.id) return { x: drag.x, y: drag.y };
-    const saved = rec.board[c.id];
-    if (saved) return saved;
-    const sameKind = cards.filter((x) => x.kind === c.kind);
-    return { x: COLUMN_X[c.kind], y: 24 + sameKind.indexOf(c) * (CARD_H + 44) };
-  };
-  const centers = new Map(cards.map((c, i) => [c.id, ((p) => ({ x: p.x + CARD_W / 2, y: p.y + CARD_H / 2 }))(pos(c, i))]));
+  const defaultPos = useCallback(
+    (id: string, kind: Kind) => {
+      const row = cards.filter((c) => c.data.kind === kind).findIndex((c) => c.id === id);
+      return { x: COLUMN_X[kind], y: row * ROW_H };
+    },
+    [cards],
+  );
 
-  const citations = [
-    ...rec.observations.flatMap((o) => o.evidenceIds.map((e) => ({ from: e, to: o.id }))),
-    ...rec.findings.flatMap((f) => f.observationIds.map((o) => ({ from: o, to: f.id }))),
-  ].filter((l) => centers.has(l.from) && centers.has(l.to));
+  const derivedNodes = useMemo<CardNode[]>(
+    () =>
+      cards
+        .filter((c) => show.includes(c.data.kind))
+        .map((c) => ({ id: c.id, type: "card", position: rec.board[c.id] ?? defaultPos(c.id, c.data.kind), data: c.data })),
+    [cards, rec.board, show, defaultPos],
+  );
 
-  const height = Math.max(520, ...cards.map((c, i) => pos(c, i).y + CARD_H + 40));
+  const liveLinks = useMemo(() => rec.links.filter((l) => !l.removedAt), [rec.links]);
+  const derivedEdges = useMemo<LinkEdge[]>(() => {
+    const visible = new Set(derivedNodes.map((n) => n.id));
+    const cite = (from: string, to: string): LinkEdge => ({
+      id: `cite:${from}:${to}`,
+      source: from,
+      target: to,
+      type: "link",
+      data: { label: "", team: false, mine: false, by: "" },
+      selectable: false,
+      reconnectable: false,
+      deletable: false,
+      markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: "var(--muted-foreground)" },
+    });
+    return [
+      ...rec.observations.flatMap((o) => o.evidenceIds.map((e) => cite(e, o.id))),
+      ...rec.findings.flatMap((f) => f.observationIds.map((o) => cite(o, f.id))),
+      ...liveLinks.map(
+        (l): LinkEdge => ({
+          id: l.id,
+          source: l.from,
+          target: l.to,
+          type: "link",
+          data: { label: l.label, team: true, mine: l.createdBy === me, by: memberName(rec, l.createdBy) },
+          reconnectable: l.createdBy === me,
+          deletable: l.createdBy === me,
+          markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: "var(--protected)" },
+        }),
+      ),
+    ].filter((e) => visible.has(e.source) && visible.has(e.target));
+  }, [rec.observations, rec.findings, liveLinks, derivedNodes, me, rec]);
 
-  function onPointerDown(e: ReactPointerEvent, c: Card, i: number) {
-    if (connectFrom !== undefined) return;
-    const p = pos(c, i);
-    const box = surface.current!.getBoundingClientRect();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    moved.current = false;
-    setDrag({ id: c.id, dx: e.clientX - box.left - p.x, dy: e.clientY - box.top - p.y, x: p.x, y: p.y });
-  }
-  function onPointerMove(e: ReactPointerEvent) {
-    if (!drag) return;
-    const box = surface.current!.getBoundingClientRect();
-    moved.current = true;
-    setDrag({ ...drag, x: Math.max(0, e.clientX - box.left - drag.dx), y: Math.max(0, e.clientY - box.top - drag.dy) });
-  }
-  function onPointerUp() {
-    if (!drag) return;
-    if (moved.current) void moveOnBoard(caseId, drag.id, drag.x, drag.y);
-    setDrag(undefined);
-  }
-  function onCardClick(c: Card) {
-    if (moved.current) {
-      moved.current = false;
-      return;
+  const [nodes, setNodes, onNodesChange] = useNodesState<CardNode>(derivedNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<LinkEdge>(derivedEdges);
+  // Synced records are the source of truth; keep local selection while a teammate's edit arrives.
+  useEffect(() => setNodes((prev) => derivedNodes.map((n) => ({ ...n, selected: prev.find((p) => p.id === n.id)?.selected ?? false }))), [derivedNodes, setNodes]);
+  useEffect(() => setEdges((prev) => derivedEdges.map((e) => ({ ...e, selected: prev.find((p) => p.id === e.id)?.selected ?? false }))), [derivedEdges, setEdges]);
+
+  const routed = useMemo(() => {
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    return edges.map((e) => {
+      const a = byId.get(e.source);
+      const b = byId.get(e.target);
+      return a && b ? { ...e, sourceHandle: sideToward(a, b), targetHandle: sideToward(b, a) } : e;
+    });
+  }, [nodes, edges]);
+
+  const linkById = (id: string) => liveLinks.find((l) => l.id === id && l.createdBy === me);
+  const persist = async (link: Link, message: string) => {
+    try {
+      await save(caseId, "links", link);
+    } catch (error) {
+      toast.error(message, { description: (error as Error).message });
     }
-    if (connectFrom === undefined) return setSelected(c.id === selected ? undefined : c.id);
-    if (connectFrom === "") return setConnectFrom(c.id);
-    if (connectFrom !== c.id) setPending({ from: connectFrom, to: c.id });
-    setConnectFrom(undefined);
-  }
+  };
 
-  const selectedCard = cards.find((c) => c.id === selected);
+  const onConnect = (c: Connection) => {
+    if (!c.source || !c.target || c.source === c.target) return;
+    if (liveLinks.some((l) => (l.from === c.source && l.to === c.target) || (l.from === c.target && l.to === c.source))) return void toast("These cards are already connected");
+    const link = newLink(caseId, myMemberId(caseId), { from: c.source, to: c.target, label: "" });
+    setEdges((eds) => addEdge({ ...c, id: link.id, type: "link", data: { label: "", team: true, mine: true, by: "" } }, eds));
+    setEditing(link.id);
+    void persist(link, "Couldn't save the connection");
+  };
+
+  const onReconnect = (old: Edge, c: Connection) => {
+    const link = linkById(old.id);
+    if (!link || !c.source || !c.target || c.source === c.target) return;
+    setEdges((eds) => reconnectEdge(old as LinkEdge, c, eds, { shouldReplaceId: false }));
+    void persist({ ...link, from: c.source, to: c.target }, "Couldn't move the connection");
+  };
+
+  const remove = (id: string) => {
+    const link = linkById(id);
+    if (!link) return;
+    setEdges((eds) => eds.filter((e) => e.id !== id));
+    void persist({ ...link, removedAt: new Date().toISOString() }, "Couldn't remove the connection");
+  };
+
+  const rename = (id: string, label: string) => {
+    const link = linkById(id);
+    if (link && link.label !== label.trim()) void persist({ ...link, label: label.trim() }, "Couldn't rename the connection");
+  };
+
+  const arrange = async () => {
+    const moves = cards.map((c) => ({ id: c.id, ...defaultPos(c.id, c.data.kind) }));
+    setNodes((ns) => ns.map((n) => ({ ...n, position: moves.find((m) => m.id === n.id) ?? n.position })));
+    requestAnimationFrame(() => void fitView({ duration: 400, padding: 0.15 }));
+    for (const m of moves) await moveOnBoard(caseId, m.id, m.x, m.y);
+  };
+
+  const selected = cards.find((c) => c.id === selectedId);
+  const selectedLinks = selected ? liveLinks.filter((l) => l.from === selected.id || l.to === selected.id) : [];
+  const titleOf = (id: string) => cards.find((c) => c.id === id)?.data.title ?? "a removed item";
 
   if (cards.length === 0)
     return (
-      <section className="panel">
-        <div className="empty">
-          <strong>The board is empty</strong>
-          Add evidence and observations; they appear here as cards you can arrange and connect.
+      <section className="page">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-16 text-center">
+          <Network className="size-8 text-muted-foreground" />
+          <strong className="text-base">The board is empty</strong>
+          <p className="max-w-sm text-sm text-muted-foreground">Add evidence and it shows up here as cards you can move and link.</p>
         </div>
       </section>
     );
 
+  // Exactly the space under the case header (inset margins + header), so the page never scrolls.
   return (
-    <section className="panel" aria-label="Case board">
-      <div className="board-bar">
-        <button className={`btn small ${connectFrom !== undefined ? "primary" : ""}`} onClick={() => setConnectFrom(connectFrom === undefined ? "" : undefined)}>
-          {connectFrom === undefined ? "Connect two cards" : connectFrom === "" ? "Pick the first card…" : "Now pick the second card…"}
-        </button>
-        <span className="legend">
-          <span className="key evidence" /> Evidence <span className="key observation" /> Observation <span className="key finding" /> Finding
-          <span className="key-line" /> cites
-        </span>
-      </div>
-      {pending && (
-        <form
-          className="composer board-link-form"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            await save(caseId, "links", newLink(caseId, myMemberId(caseId), { ...pending, label }));
-            setPending(undefined);
-            setLabel("");
-          }}
-        >
-          <label htmlFor="link-label" style={{ fontWeight: 600 }}>
-            How are these connected?
-          </label>
-          <input id="link-label" className="input" autoFocus maxLength={80} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="same phone number, contradicts, happened before…" />
-          <div className="composer-foot">
-            <span className="spacer" />
-            <button type="button" className="btn" onClick={() => setPending(undefined)}>
-              Cancel
-            </button>
-            <button type="submit" className="btn primary">
-              Connect
-            </button>
-          </div>
-        </form>
-      )}
-      <div className="board" ref={surface} style={{ height }} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
-        <svg className="board-lines" width="100%" height={height} aria-hidden="true">
-          {citations.map((l, i) => {
-            const a = centers.get(l.from)!;
-            const b = centers.get(l.to)!;
-            return <line key={`c${i}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="cite-line" />;
-          })}
-          {rec.links
-            .filter((l) => centers.has(l.from) && centers.has(l.to))
-            .map((l) => {
-              const a = centers.get(l.from)!;
-              const b = centers.get(l.to)!;
-              return (
-                <g key={l.id}>
-                  <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="team-line" />
-                  {l.label && (
-                    <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 6} className="line-label" textAnchor="middle">
-                      {l.label}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
-        </svg>
-        {cards.map((c, i) => {
-          const p = pos(c, i);
-          return (
-            <button
-              key={c.id}
-              className={`card ${c.kind} ${selected === c.id ? "selected" : ""} ${connectFrom === c.id ? "selected" : ""}`}
-              style={{ left: p.x, top: p.y, width: CARD_W, height: CARD_H }}
-              onPointerDown={(e) => onPointerDown(e, c, i)}
-              onClick={() => onCardClick(c)}
-              aria-pressed={selected === c.id}
-            >
-              <span className="card-sub">{c.sub}</span>
-              <span className="card-title">{c.title}</span>
-            </button>
-          );
-        })}
-      </div>
-      {selectedCard && (
-        <aside className="item" aria-label="Selected card">
-          <h3>{selectedCard.title}</h3>
-          <div className="meta">
-            <span>{selectedCard.sub}</span>
-            {rec.links
-              .filter((l) => l.from === selectedCard.id || l.to === selectedCard.id)
-              .map((l) => (
-                <span key={l.id}>
-                  {l.label || "linked"} · {memberName(rec, l.createdBy)}
+    <section className="flex h-[calc(100svh-7.25rem)] min-h-[480px] flex-col gap-3 px-4 py-3 md:px-6" aria-label="Case board">
+      <p className="shrink-0 text-sm text-muted-foreground">Evidence on the left, what people noticed in the middle, findings on the right. Drag from a card's edge to another card to link them.</p>
+      <LinkActions.Provider value={{ rename, remove, editing, setEditing }}>
+        {expanded && <div className="fixed inset-0 z-40 bg-black/35 backdrop-blur-[2px] animate-in fade-in-0 duration-300" onClick={toggle} aria-hidden="true" />}
+        <div ref={slot} className="relative min-h-0 flex-1">
+        <div ref={frame} className={cn("overflow-hidden border bg-card", expanded ? "fixed inset-3 z-50 rounded-[22px] shadow-2xl md:inset-4" : "absolute inset-0 rounded-[22px]")} role={expanded ? "dialog" : undefined} aria-modal={expanded || undefined} aria-label={expanded ? "Case board, expanded" : undefined}>
+          <ReactFlow<CardNode, LinkEdge>
+            nodes={nodes}
+            edges={routed}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onReconnect={onReconnect}
+            onEdgesDelete={(eds) => eds.forEach((e) => linkById(e.id) && remove(e.id))}
+            onNodeDragStop={(_, __, dragged) => dragged.forEach((n) => void moveOnBoard(caseId, n.id, n.position.x, n.position.y))}
+            onNodeClick={(_, n) => setSelectedId(n.id)}
+            onPaneClick={() => {
+              setSelectedId(undefined);
+              setEditing(undefined);
+            }}
+            connectionMode={ConnectionMode.Loose}
+            connectionRadius={48}
+            reconnectRadius={18}
+            connectionLineStyle={{ stroke: "var(--protected)", strokeWidth: 2 }}
+            deleteKeyCode={["Backspace", "Delete"]}
+            colorMode={dark ? "dark" : "light"}
+            fitView
+            fitViewOptions={{ padding: 0.15, maxZoom: 1.1 }}
+            minZoom={0.2}
+            maxZoom={2}
+            proOptions={{ hideAttribution: true }}
+            className="[--xy-background-color:transparent]"
+          >
+            <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="var(--border)" />
+            <Panel position="bottom-left" className="!m-3 flex flex-col overflow-hidden rounded-lg border bg-background shadow-sm">
+              <ToolButton label="Zoom in" onClick={() => void zoomIn({ duration: 200 })}><Plus /></ToolButton>
+              <ToolButton label="Zoom out" onClick={() => void zoomOut({ duration: 200 })}><Minus /></ToolButton>
+              <ToolButton label="Show everything" onClick={() => void fitView({ duration: 400, padding: 0.15, maxZoom: 1.1 })}><CornersIn /></ToolButton>
+            </Panel>
+            <MiniMap
+              pannable
+              zoomable
+              position="bottom-right"
+              className="!hidden !rounded-md !border md:!block"
+              nodeColor={(n) => ((n.data as CardData).kind === "finding" ? "var(--foreground)" : (n.data as CardData).kind === "observation" ? "var(--protected)" : "var(--muted-foreground)")}
+              maskColor="color-mix(in oklab, var(--background) 70%, transparent)"
+            />
+            <Panel position="top-left" className="!m-3 flex flex-wrap items-center gap-2">
+              <ToggleGroup type="multiple" variant="outline" size="sm" value={show} onValueChange={(v) => v.length && setShow(v as Kind[])} className="bg-background shadow-sm">
+                <ToggleGroupItem value="evidence" className="gap-1.5 px-2.5 text-xs">
+                  <NotebookText className="size-3.5" /> Evidence
+                </ToggleGroupItem>
+                <ToggleGroupItem value="observation" className="gap-1.5 px-2.5 text-xs">
+                  <Lightbulb className="size-3.5" /> Observations
+                </ToggleGroupItem>
+                <ToggleGroupItem value="finding" className="gap-1.5 px-2.5 text-xs">
+                  <Scale className="size-3.5" /> Findings
+                </ToggleGroupItem>
+              </ToggleGroup>
+              <Button variant="outline" size="sm" className="bg-background text-xs shadow-sm" onClick={() => void arrange()}>
+                <LayoutGrid /> Tidy up
+              </Button>
+            </Panel>
+            <Panel position="top-right" className="!m-3 flex items-center gap-2">
+              <span className="hidden h-8 items-center gap-4 rounded-lg border bg-background/90 px-3 text-xs text-muted-foreground shadow-sm backdrop-blur lg:flex">
+                <span className="flex items-center gap-2">
+                  <LegendArrow color="var(--muted-foreground)" dashed />
+                  Backs up
                 </span>
-              ))}
-          </div>
-          <Comments caseId={caseId} targetId={selectedCard.id} />
-        </aside>
-      )}
+                <span className="flex items-center gap-2">
+                  <LegendArrow color="var(--protected)" />
+                  Linked
+                </span>
+              </span>
+              <Button variant="outline" size="sm" className="bg-background text-xs shadow-sm" onClick={toggle} aria-label={expanded ? "Shrink the board" : "Expand the board"}>
+                <SwapIcon swapped={expanded} from={<ArrowsOut />} to={<ArrowsIn />} />
+                {expanded ? "Done" : "Expand"}
+              </Button>
+            </Panel>
+          </ReactFlow>
+
+          {selected && (
+            <aside className="absolute inset-y-3 right-3 z-10 flex w-[min(20rem,calc(100%-24px))] flex-col overflow-clip rounded-2xl bg-card shadow-xl surface animate-in slide-in-from-right-4 fade-in-0 duration-200" aria-label="Selected card">
+              <PaneHeader
+                title={selected.data.kind === "evidence" ? "Evidence" : selected.data.kind === "observation" ? "Observation" : "Finding"}
+                meta={selected.data.sub}
+                actions={
+                  <Button variant="ghost" size="icon" className="size-7" onClick={() => setSelectedId(undefined)} aria-label="Close">
+                    <X />
+                  </Button>
+                }
+              />
+              {selected.data.kind === "evidence" && <h3 className="px-4 pt-4 font-serif text-lg leading-snug md:px-5">{selected.data.title}</h3>}
+              <div className="grid flex-1 content-start gap-4 overflow-y-auto p-4 text-sm md:px-5">
+                {selected.data.detail && <p className="whitespace-pre-wrap font-serif text-[15px] leading-relaxed text-foreground/90">{selected.data.detail}</p>}
+                <div>
+                  <p className="mb-1.5 text-xs font-medium text-muted-foreground">Links</p>
+                  {selectedLinks.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">None yet. Pull a line from this card to another.</p>
+                  ) : (
+                    <ul className="grid gap-1.5">
+                      {selectedLinks.map((l) => (
+                        <li key={l.id} className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs">
+                          <Link2 className="size-3.5 shrink-0 text-protected" />
+                          <span className="min-w-0 flex-1">
+                            <span className="font-medium">{l.label || "linked"}</span> → <span className="text-muted-foreground">{clip(titleOf(l.from === selected.id ? l.to : l.from), 48)}</span>
+                            <span className="block text-muted-foreground">by {memberName(rec, l.createdBy)}</span>
+                          </span>
+                          {l.createdBy === me && (
+                            <Button variant="ghost" size="icon" className="size-6" onClick={() => remove(l.id)} aria-label="Remove connection">
+                              <Trash2 className="size-3" />
+                            </Button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => onOpen(selected.data.kind === "evidence" ? "evidence" : "findings", selected.id)}>
+                    Open in {selected.data.kind === "evidence" ? "Evidence" : "Findings"}
+                  </Button>
+                  <Comments caseId={caseId} targetId={selected.id} />
+                </div>
+              </div>
+            </aside>
+          )}
+        </div>
+        </div>
+      </LinkActions.Provider>
     </section>
   );
 }

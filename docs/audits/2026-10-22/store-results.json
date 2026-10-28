@@ -1,0 +1,19 @@
+[
+  {
+    "id": "S1-two-tabs-lose-offline-evidence",
+    "tabAEvidence": [
+      "Only tab A holds this evidence"
+    ],
+    "persistedEvidence": [
+      "Added in tab B"
+    ],
+    "tabAEnvelopeSurvived": false,
+    "id2": "S2-unchanged-selected-store-reference",
+    "sameSnapshot": true
+  },
+  {
+    "id": "S3-host-replay-rolls-back-accepted-observation",
+    "beforeReplay": "accepted",
+    "afterReplay": "draft"
+  }
+]

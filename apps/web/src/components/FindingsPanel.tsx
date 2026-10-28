@@ -1,145 +1,136 @@
-import { findingViews, memberName, newFinding, newReview } from "@zireh/cases";
-import type { Observation, Review } from "@zireh/schema";
-import { useState } from "react";
-import { myMemberId, save, useStore } from "../store.ts";
-import { Comments } from "./Comments.tsx";
+import { findingViews } from "@zireh/cases";
+import { ArrowRight, CaretLeft, MagnifyingGlass as Search, Check, Lightbulb, Plus } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
+import { myMemberId, useStore } from "../store.ts";
+import type { OpenItem } from "./CaseView.tsx";
+import { SideItem, SideList, WITH_SIDE } from "./Pane.tsx";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { PageBar } from "./SectionTitle.tsx";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { TONE_TEXT, TONE_DOT, verdict } from "./findings/verdict.ts";
+import { type Filter, FILTERS } from "./findings/filters.ts";
+import { Explainer } from "./findings/Explainer.tsx";
+import { FindingDetail } from "./findings/FindingDetail.tsx";
+import { CheckSheet } from "./findings/CheckSheet.tsx";
+import { NewFindingSheet } from "./findings/NewFindingSheet.tsx";
 
-const DECISIONS: { id: Review["decision"]; label: string }[] = [
-  { id: "support", label: "Supports" },
-  { id: "disagree", label: "Disagree" },
-  { id: "needs-evidence", label: "Needs evidence" },
-];
-
-const STATUS_COPY = { unreviewed: "Not reviewed", supported: "Supported", disputed: "Disputed", "needs-evidence": "Needs evidence" } as const;
-
-export function FindingsPanel({ caseId }: { caseId: string }) {
+/**
+ * The claims your team would print, one line each with whether it's ready. Checking new
+ * observations and writing a finding each happen in their own focused panel.
+ */
+export function FindingsPanel({ caseId, focus, onOpen }: { caseId: string; focus?: string | undefined; onOpen?: OpenItem }) {
   const rec = useStore((s) => s.cases[caseId])!;
   const me = myMemberId(caseId);
-  const [picked, setPicked] = useState<string[]>([]);
-  const [statement, setStatement] = useState("");
-  const [uncertainty, setUncertainty] = useState("");
-  const usable = rec.observations.filter((o) => o.status !== "rejected");
   const findings = findingViews(rec);
+  const drafts = rec.observations.filter((o) => o.status === "draft");
+  const accepted = rec.observations.filter((o) => o.status === "accepted");
+  const unused = accepted.filter((o) => !rec.findings.some((f) => f.observationIds.includes(o.id)));
+  // The open finding lives in the URL. An observation id there opens the finding built on it.
+  const open = focus && rec.findings.some((f) => f.id === focus) ? focus : focus ? rec.findings.find((f) => f.observationIds.includes(focus))?.id : undefined;
+  const setOpen = (id: string | undefined) => onOpen?.("findings", id);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
+  const judged = findings.map((f) => ({ f, v: verdict(rec, f) }));
+  const counts = Object.fromEntries(FILTERS.map((x) => [x.id, judged.filter((j) => x.match(j.v.tone)).length])) as Record<Filter, number>;
+  const shown = judged.filter((j) => FILTERS.find((x) => x.id === filter)!.match(j.v.tone) && (!query.trim() || j.f.statement.toLowerCase().includes(query.trim().toLowerCase())));
+  // Wide screens always show one; phones show the list until one is picked.
+  const current = shown.find((j) => j.f.id === open) ?? judged.find((j) => j.f.id === open) ?? shown[0];
+  const [checking, setChecking] = useState<string | boolean>(false);
+  const [writing, setWriting] = useState(false);
 
-  const author = (o: Observation) => (o.author.kind === "ai" ? `AI answer requested by ${memberName(rec, o.author.requestedBy)}` : memberName(rec, o.author.memberId));
+  // Something another tab pointed at: open the finding it belongs to, or the draft to check.
+  useEffect(() => {
+    if (!focus) return;
+    if (drafts.some((o) => o.id === focus)) setChecking(focus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus]);
 
   return (
-    <section className="panel" aria-label="Findings">
-      {!rec.case.requiresSignatures && <p className="notice">This is a legacy unsigned case. Earlier authorship cannot be verified cryptographically. New cases use per-member signatures.</p>}
-      <div>
-        <h2 className="section-title">Observations</h2>
-        {usable.length === 0 ? (
-          <div className="empty">
-            <strong>No observations yet</strong>
-            Add one from a piece of evidence, or save an answer from Research.
-          </div>
-        ) : (
-          <div className="list">
-            {usable.map((o) => (
-              <article className="item" key={o.id}>
-                <p className="doc">{o.text}</p>
-                <div className="meta">
-                  {o.status === "draft" && <span className="pill draft">Draft</span>}
-                  <span>{author(o)}</span>
-                  <span style={{ flex: 1 }} />
-                  <Comments caseId={caseId} targetId={o.id} />
-                  {o.status === "draft" && (
-                    <>
-                      <button className="btn small" onClick={() => save(caseId, "observations", { ...o, status: "accepted" })}>
-                        Accept
-                      </button>
-                      <button className="btn small quiet" onClick={() => save(caseId, "observations", { ...o, status: "rejected" })}>
-                        Reject
-                      </button>
-                    </>
-                  )}
-                  {o.status === "accepted" && (
-                    <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <input type="checkbox" checked={picked.includes(o.id)} onChange={() => setPicked((p) => (p.includes(o.id) ? p.filter((x) => x !== o.id) : [...p, o.id]))} />
-                      Cite in a finding
-                    </label>
-                  )}
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </div>
+    <section className="page" aria-label="Findings">
+      {!rec.case.requiresSignatures && <p className="rounded-lg border bg-muted/50 px-4 py-2 text-xs text-muted-foreground">This is an older case, so who wrote what can't be proven. New cases fix this.</p>}
+      <PageBar hint="The claims you'd print. Each one needs two separate sources and your team's agreement.">
+        <Button size="sm" onClick={() => setWriting(true)}>
+          <Plus /> New finding
+        </Button>
+      </PageBar>
 
-      {picked.length > 0 && (
-        <form
-          className="composer"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            await save(caseId, "findings", newFinding(caseId, me, { statement, observationIds: picked, uncertainty }));
-            setStatement("");
-            setUncertainty("");
-            setPicked([]);
-          }}
-        >
-          <div className="field">
-            <label htmlFor="f-statement">Finding, citing {picked.length} observation{picked.length === 1 ? "" : "s"}</label>
-            <textarea id="f-statement" className="textarea" required value={statement} onChange={(e) => setStatement(e.target.value)} />
-          </div>
-          <div className="field">
-            <label htmlFor="f-uncertainty">What's still uncertain?</label>
-            <input id="f-uncertainty" className="input" value={uncertainty} onChange={(e) => setUncertainty(e.target.value)} />
-          </div>
-          <div className="composer-foot">
-            <span className="spacer" />
-            <button type="submit" className="btn primary">
-              Add finding
-            </button>
-          </div>
-        </form>
+      {drafts.length > 0 && (
+        <button type="button" onClick={() => setChecking(true)} className="flex items-center gap-3 rounded-xl border border-decoy/30 bg-decoy-wash px-4 py-3 text-left text-sm transition-colors hover:border-decoy/60">
+          <Lightbulb className="size-5 shrink-0 text-decoy" weight="duotone" />
+          <span className="flex-1">
+            <span className="font-medium">
+              {drafts.length} new observation{drafts.length === 1 ? "" : "s"} to check.
+            </span>{" "}
+            <span className="text-muted-foreground">Accepted ones can back a finding.</span>
+          </span>
+          <span className="flex items-center gap-1 font-medium">
+            Check {drafts.length === 1 ? "it" : "them"} <ArrowRight className="size-4" />
+          </span>
+        </button>
       )}
 
-      <div>
-        <h2 className="section-title">Findings</h2>
-        {findings.length === 0 ? (
-          <div className="empty">
-            <strong>No findings yet</strong>
-            Accept observations, tick the ones that support a conclusion, and write it up for your team to review.
-          </div>
-        ) : (
-          <div className="list">
-            {findings.map((f) => {
-              const mine = f.reviews.filter((r) => r.memberId === me).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1);
-              return (
-                <article className="item" key={f.id}>
-                  <p className="doc" style={{ fontSize: "var(--s-18)" }}>
-                    {f.statement}
-                  </p>
-                  {f.uncertainty && <p className="level-note">Uncertain: {f.uncertainty}</p>}
-                  {f.missingObservations.length > 0 && <p className="notice">Cites {f.missingObservations.length} observation(s) that were rejected or removed.</p>}
-                  <div className="meta">
-                    <span className={`pill ${f.tally.status === "supported" ? "supported" : f.tally.status === "disputed" ? "disputed" : ""}`}>{STATUS_COPY[f.tally.status]}</span>
-                    <span>
-                      {f.tally.support} support · {f.tally.disagree} disagree · {f.tally.needsEvidence} need evidence
-                    </span>
-                    <span>By {memberName(rec, f.createdBy)}</span>
-                    <span style={{ flex: 1 }} />
-                    <Comments caseId={caseId} targetId={f.id} />
-                    <div className="reviews" role="group" aria-label="Your review">
-                      {DECISIONS.map((d) => (
-                        <button
-                          key={d.id}
-                          className="chip"
-                          aria-pressed={mine?.decision === d.id}
-                          onClick={() => save(caseId, "reviews", newReview(caseId, me, { findingId: f.id, decision: d.id, reason: "" }))}
-                        >
-                          {d.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {f.reviews.length > 0 && <details><summary>Review authorship</summary>{f.reviews.map((review) => <p className="level-note" key={review.id}>{memberName(rec, review.memberId)} · {review.memberId.slice(0, 12)} · {rec.verifiedReviews?.includes(review.id) ? "signature verified" : "legacy unsigned"} · {review.decision}</p>)}</details>}
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      {findings.length === 0 ? (
+        <Explainer onWrite={() => setWriting(true)} canWrite={accepted.length > 0} />
+      ) : (
+        <div className={WITH_SIDE}>
+          <SideList
+            title="Findings"
+            count={findings.length}
+            className={cn(open && "max-lg:hidden")}
+            top={
+              <>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQuery("")} placeholder="Search findings" aria-label="Search findings" className="h-8 pl-8 text-sm" />
+                </div>
+                <ToggleGroup type="single" size="sm" variant="outline" value={filter} onValueChange={(v) => v && setFilter(v as Filter)} aria-label="Show" className="flex-wrap justify-start">
+                  {FILTERS.filter((x) => x.id === "all" || counts[x.id]).map((x) => (
+                    <ToggleGroupItem key={x.id} value={x.id} className="gap-1 px-2.5 text-xs">
+                      {x.label} {x.id !== "all" && <span className="tabular-nums opacity-60">{counts[x.id]}</span>}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              </>
+            }
+          >
+            {shown.length === 0 ? (
+              <li className="px-3 py-6 text-center text-sm text-muted-foreground">Nothing matches.</li>
+            ) : (
+              shown.map(({ f, v }) => (
+                <SideItem
+                  key={f.id}
+                  active={f.id === current?.f.id}
+                  onSelect={() => setOpen(f.id)}
+                  icon={<span className={cn("mt-1 block size-2.5 rounded-full", TONE_DOT[v.tone])} />}
+                  title={f.statement}
+                  meta={<span className={TONE_TEXT[v.tone]}>{v.text}</span>}
+                />
+              ))
+            )}
+            {unused.length > 0 && (
+              <li className="px-2.5 pt-2 pb-1 text-xs text-muted-foreground">
+                {unused.length} accepted observation{unused.length === 1 ? " isn't" : "s aren't"} in a finding yet.{" "}
+                <button type="button" onClick={() => setWriting(true)} className="font-medium text-foreground underline-offset-4 hover:underline">
+                  Write one
+                </button>
+              </li>
+            )}
+          </SideList>
+          {current && (
+            <div className={cn(!open && "max-lg:hidden")}>
+              <button type="button" onClick={() => setOpen(undefined)} className="mb-3 flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground lg:hidden">
+                <CaretLeft className="size-4" /> All findings
+              </button>
+              <FindingDetail key={current.f.id} caseId={caseId} rec={rec} finding={current.f} verdict={current.v} me={me} onOpen={onOpen} />
+            </div>
+          )}
+        </div>
+      )}
+
+      <CheckSheet caseId={caseId} rec={rec} drafts={drafts} start={typeof checking === "string" ? checking : undefined} open={checking !== false} onClose={() => setChecking(false)} onOpen={onOpen} />
+      <NewFindingSheet caseId={caseId} rec={rec} me={me} accepted={accepted} open={writing} onClose={() => setWriting(false)} />
     </section>
   );
 }

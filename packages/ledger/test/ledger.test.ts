@@ -17,6 +17,12 @@ describe("Ledger", () => {
     expect(ledger.summary()).toEqual({ calls: 2, real: 1, decoys: 1, spent: 200, overcharges: 0 });
   });
 
+  it("keeps which question a request belongs to, for grouping on this device", () => {
+    const ledger = new Ledger();
+    ledger.record({ destination: "relay", role: "real", runId: "run-1", caseId: "case-1", payload: "q" });
+    expect(ledger.receipts()[0]).toMatchObject({ runId: "run-1", caseId: "case-1" });
+  });
+
   it("enforces the run state machine", () => {
     const ledger = new Ledger();
     ledger.startRun("r1", "p1", 500);

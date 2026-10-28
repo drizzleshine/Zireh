@@ -6,6 +6,13 @@
     <meta name="referrer" content="no-referrer" />
     <title>Zireh</title>
     <link rel="icon" href="/favicon.svg" />
+    <script>
+      // Apply the saved theme before first paint (src/theme.ts keeps it in sync afterwards).
+      try {
+        var t = localStorage.getItem("zireh:theme");
+        if (t === "dark" || (t !== "light" && matchMedia("(prefers-color-scheme: dark)").matches)) document.documentElement.classList.add("dark");
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

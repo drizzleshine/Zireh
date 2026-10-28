@@ -4,7 +4,7 @@ import { newCircuitTag, type Transport } from "@zireh/tor";
 import { RelayCallError, type RelayClient } from "@zireh/inference";
 import type { Ledger } from "@zireh/ledger";
 import type { ChatModel } from "@zireh/llm";
-import { redactText } from "@zireh/redact";
+import { redactText, redactWithoutModel } from "@zireh/redact";
 import { InviteSyncHost, PrivacyLevel, Pseudonym, TopupQuote, SyncHost, type DaemonStatus } from "@zireh/schema";
 import { Envelope, SyncClient, SyncError } from "@zireh/sync";
 import { InsufficientFunds, type Wallet } from "@zireh/wallet";
@@ -38,6 +38,8 @@ const ResearchBody = z.object({
   salt: z.string().regex(/^[0-9a-f]{64}$/),
   model: z.string().optional(),
   caseId: z.string().regex(/^[0-9a-f]{32}$/).optional(),
+  // Earlier turns of the thread: used on this computer to make a follow-up stand alone, never sent.
+  history: z.array(z.object({ question: z.string().max(4000), answer: z.string().max(8000) })).max(8).default([]),
 });
 
 /**
@@ -103,23 +105,27 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
     });
   }
 
+  let relayCheck: { at: number; result: Promise<DaemonStatus["relay"]> } | undefined;
   const routes: Record<string, (req: Request, url: URL) => Promise<Response>> = {
     "POST /v1/chat/completions": openAiChat,
     "GET /v1/models": async () =>
       json(200, { object: "list", data: PrivacyLevel.options.map((l) => ({ id: `zireh/${l}`, object: "model", owned_by: "zireh" })) }),
 
     "GET /api/status": async () => {
-      let relay: DaemonStatus["relay"];
-      try {
-        const info = await deps.relay.info(true);
-        relay = { ok: true, network: info.network, models: info.prices.map((p) => p.model), search: info.searchEnabled };
-      } catch (err) {
-        relay = { ok: false, models: [], error: (err as Error).message };
+      // A relay check costs a whole circuit (and up to a 10 s timeout when it's down), so the
+      // UI's frequent polls reuse the last answer, good or bad, for 30 s.
+      if (!relayCheck || Date.now() - relayCheck.at > 30_000) {
+        const pending = deps.relay.info(true).then(
+          (info): DaemonStatus["relay"] => ({ ok: true, ...(info.upstreamOk !== undefined ? { upstreamOk: info.upstreamOk } : {}), network: info.network, models: info.prices.map((p) => p.model), search: info.searchEnabled }),
+          (err: Error): DaemonStatus["relay"] => ({ ok: false, models: [], error: err.message }),
+        );
+        relayCheck = { at: Date.now(), result: pending };
       }
+      const [relay, localOk] = await Promise.all([relayCheck.result, deps.localModelOk()]);
       const status: DaemonStatus = {
         transport: deps.transport.kind,
         tor: deps.torState(),
-        localModel: { id: deps.local.id, ok: await deps.localModelOk() },
+        localModel: { id: deps.local.id, ok: localOk },
         relay,
         balance: deps.wallet.balance,
         pendingCalls: deps.relay.pending.list().length,
@@ -130,6 +136,11 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
     "POST /api/wallet/quote": async (req) => {
       const { credits } = z.object({ credits: z.number().int().positive().max(100_000_000) }).parse(await req.json());
       return json(200, await deps.relay.quote(credits));
+    },
+
+    "GET /api/wallet/quote-status": async (_req, url) => {
+      const quoteId = z.string().regex(/^[0-9a-f]{8,64}$/).parse(url.searchParams.get("quoteId"));
+      return json(200, await deps.relay.quoteStatus(quoteId));
     },
 
     "POST /api/wallet/simulate-payment": async (req) => {
@@ -214,14 +225,15 @@ export function createDaemon(deps: DaemonDeps): (req: Request) => Promise<Respon
     "POST /api/redact": async (req) => {
       const body = z.object({ texts: z.array(z.string().max(20_000)).min(1).max(100), table: z.array(Pseudonym).default([]) }).parse(await req.json());
       let table = body.table;
-      for (const text of body.texts) if (text.trim()) table = (await redactText(deps.local, text, table)).table;
+      const local = await deps.localModelOk();
+      for (const text of body.texts) if (text.trim()) table = (local ? await redactText(deps.local, text, table) : redactWithoutModel(text, table)).table;
       deps.ledger.record({ destination: "local", role: "real", payload: `Local redaction of ${body.texts.length} text(s) for publishing` });
       return json(200, { table });
     },
 
     "POST /api/search": async (req) => {
       const body = z.object({ query: z.string().trim().min(2).max(400), table: z.array(Pseudonym).default([]), caseId: z.string().regex(/^[0-9a-f]{32}$/).optional() }).parse(await req.json());
-      const red = await redactText(deps.local, body.query, body.table);
+      const red = (await deps.localModelOk()) ? await redactText(deps.local, body.query, body.table) : redactWithoutModel(body.query, body.table);
       const call = await deps.relay.prepareSearch(red.text, 5, { role: "real", ...(body.caseId ? { caseId: body.caseId } : {}) });
       const circuit = newCircuitTag();
       const result = await deps.relay.send(call, circuit);

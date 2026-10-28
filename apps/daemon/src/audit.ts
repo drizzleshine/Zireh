@@ -6,7 +6,7 @@ export function observePayments(relay: RelayClient, ledger: Ledger): void {
   const ensure = (call: PendingCall, circuit?: string) => {
     if (ledger.receipts().some((receipt) => receipt.id === call.requestId)) return;
     ledger.record({ requestId: call.requestId, state: "attempted", destination: call.kind === "search" ? "search" : "relay",
-      role: call.audit?.role ?? "real", ...(call.audit?.caseId ? { caseId: call.audit.caseId } : {}),
+      role: call.audit?.role ?? "real", ...(call.audit?.caseId ? { caseId: call.audit.caseId } : {}), ...(call.audit?.runId ? { runId: call.audit.runId } : {}),
       payload: JSON.stringify(call.body), preview: call.messages?.at(-1)?.content ?? String(call.body.query ?? ""),
       ...(circuit ? { circuit } : {}) });
   };

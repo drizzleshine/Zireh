@@ -1,4 +1,4 @@
-import type { BoardLayout, Case, Comment, Conclusion, Evidence, Finding, Link, Member, Observation, Pseudonym, Review } from "@zireh/schema";
+import type { BoardLayout, Case, Comment, Conclusion, Evidence, Finding, Link, Member, Observation, Pseudonym, Reply, Review } from "@zireh/schema";
 
 /** Everything a case holds, as stored (and synced) records. */
 export interface CaseRecords {
@@ -13,6 +13,7 @@ export interface CaseRecords {
   readonly links: readonly Link[];
   readonly board: BoardLayout["positions"];
   readonly conclusions: readonly Conclusion[];
+  readonly replies: readonly Reply[];
 }
 
 export const latestConclusion = (records: CaseRecords): Conclusion | undefined =>

@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 import { openAiCompatible } from "@zireh/llm";
 import { Mint } from "@zireh/wallet";
-import { fixedRate, simulatedWatcher } from "@zireh/zcash";
+import { fixedRate, simulatedWatcher, zecCheckoutWatcher } from "@zireh/zcash";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { exposeAsOnion } from "@zireh/tor";
@@ -33,26 +33,53 @@ const models = new Map(
   ]),
 );
 
+// The relay being up says nothing about the AI it forwards to. A model listing is free and quick;
+// the answer is reused for 15 s so frequent /v1/info calls don't hammer the provider.
+let upstreamCheck: { at: number; result: Promise<boolean> } | undefined;
+const upstreamOk = () => {
+  if (!upstreamCheck || Date.now() - upstreamCheck.at > 15_000) {
+    const result = fetch(`${up.baseUrl.replace(/\/$/, "")}/models`, {
+      headers: up.mode === "token-factory" ? { authorization: `Bearer ${up.apiKey}` } : {},
+      signal: AbortSignal.timeout(3000),
+    }).then(
+      async (res) => {
+        if (!res.ok) return false;
+        if (up.mode === "token-factory") return true;
+        const body = (await res.json()) as { data?: { id: string }[] };
+        return (body.data ?? []).some((m) => m.id === up.localModel);
+      },
+      () => false,
+    );
+    upstreamCheck = { at: Date.now(), result };
+  }
+  return upstreamCheck.result;
+};
+
 const totals = { chat: 0, search: 0, topup: 0, refund: 0 };
 const handler = createRelay({
   ...(config.demo ? { admission: sqliteDemoAdmission(db, config.demo) } : {}),
   mint: new Mint(loadOrCreateMintKeys(config.dataDir), sqliteSpentStore(db)),
-  watcher: simulatedWatcher(fixedRate(config.usdPerZec), Date.now, sqliteQuoteStore(db)),
+  watcher: config.zecCheckout
+    ? zecCheckoutWatcher({ ...config.zecCheckout, rate: fixedRate(config.usdPerZec), quotes: sqliteQuoteStore(db) })
+    : simulatedWatcher(fixedRate(config.usdPerZec), Date.now, sqliteQuoteStore(db)),
   models,
   ...(config.tavilyApiKey ? { search: tavilySearch(config.tavilyApiKey) } : {}),
   searchPrice: config.searchPrice,
   responses: sqliteResponseStore(db),
+  upstreamOk,
   onEvent: (event, credits) => {
     totals[event] += credits;
   },
 });
 
-serve({ fetch: handler, port: config.port, hostname: "127.0.0.1" }, ({ port }) => {
-  console.log(`relay listening on 127.0.0.1:${port}`);
+// Local by default. A hosted container sets RELAY_HOST=0.0.0.0 and PORT so its platform can route to it.
+const hostname = process.env.RELAY_HOST ?? "127.0.0.1";
+serve({ fetch: handler, port: config.port, hostname }, ({ port }) => {
+  console.log(`relay listening on ${hostname}:${port}`);
   console.log(`upstream: ${up.mode === "token-factory" ? `Nebius Token Factory (${up.baseUrl})` : `LOCAL DEV via ${up.localModel} — not Token Factory`}`);
   console.log(`models: ${offered.map((p) => p.model).join(", ")}`);
   console.log(`search: ${config.tavilyApiKey ? "Tavily" : "disabled (no TAVILY_API_KEY)"}`);
-  console.log("payments: simulated Zcash network");
+  console.log(`payments: ${config.zecCheckout ? `Zcash ${config.zecCheckout.network} via ZecCheckout (${config.zecCheckout.url})` : "simulated Zcash network"}`);
 });
 
 // RELAY_ONION=1 publishes the relay as an onion service and writes its URL to <dataDir>/onion-url.

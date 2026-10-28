@@ -1,9 +1,10 @@
+import { Check, Minus } from "@phosphor-icons/react";
 import { Dialog } from "./Dialog.tsx";
+import { Button } from "@/components/ui/button";
 
-const SEES: [string, string, string, string, string][] = [
-  ["Your IP address", "✓", "–", "–", "–"],
+const SEES: [string, ...string[]][] = [
   ["Names, places, quotes", "✓", "–", "–", "–"],
-  ["Your case files and team", "✓", "–", "ciphertext", "–"],
+  ["Your case files and team", "✓", "–", "locked", "–"],
   ["General questions (no names)", "✓", "✓", "–", "✓"],
   ["Which questions are decoys", "✓", "–", "–", "–"],
   ["Which questions belong together", "✓", "–", "–", "–"],
@@ -11,57 +12,70 @@ const SEES: [string, string, string, string, string][] = [
 ];
 
 const STEPS: [string, string][] = [
-  ["Hide", "A Nemotron model on this computer finds names, places, IDs and quotes and swaps them for vague descriptions."],
-  ["Rewrite and split", "Your task becomes general questions. Private and Paranoid split it so no single question tells the story."],
-  ["Check for leaks", "The local model plays the provider and asks what it could infer. Risky questions are rewritten or held back."],
+  ["Hide", "Names, places, numbers and quotes are swapped for vague words on your computer."],
+  ["Rewrite and split", "Your question is made general. Higher levels split it so no single piece tells the story."],
+  ["Check for leaks", "Each piece is checked before it goes. Risky ones are reworded or held back."],
   ["Add decoys", "Ordinary questions on unrelated topics go out alongside the real ones."],
-  ["Send separately", "Each request takes its own Tor circuit to the relay's onion address and pays with its own anonymous coins."],
-  ["Put it back together", "Decoy answers are discarded. The real answers are combined here and the names are restored."],
+  ["Send separately", "Each piece goes out on its own, paid with its own coins."],
+  ["Put it back together", "Decoy answers are thrown away. Real ones are joined here and the names put back."],
 ];
 
-/** Plain explanation of the privacy model, reachable from anywhere. */
+/** Plain explanation of the privacy model, reachable from anywhere. Spacing follows the dialog rhythm: 24 between blocks, 16 inside. */
 export function HowItWorks({ onClose }: { onClose: () => void }) {
   return (
-    <Dialog title="How Zireh protects you" onClose={onClose}>
-      <ol className="how-steps">
-        {STEPS.map(([title, text]) => (
-          <li key={title}>
-            <strong>{title}.</strong> {text}
+    <Dialog title="How Zireh protects you" description="What happens to a question between you and the AI." onClose={onClose} wide>
+      <ol className="grid gap-4 sm:grid-cols-2">
+        {STEPS.map(([title, text], i) => (
+          <li key={title} className="flex gap-4">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-protected-wash font-display text-sm font-semibold text-protected tabular-nums">{i + 1}</span>
+            <div className="grid gap-1 pt-1">
+              <p className="text-sm font-medium">{title}</p>
+              <p className="text-sm text-muted-foreground">{text}</p>
+            </div>
           </li>
         ))}
       </ol>
-      <table className="sees">
-        <caption className="level-note">Who can see what</caption>
-        <thead>
-          <tr>
-            <th scope="col"></th>
-            <th scope="col">You</th>
-            <th scope="col">Relay</th>
-            <th scope="col">Sync host</th>
-            <th scope="col">AI provider</th>
-          </tr>
-        </thead>
-        <tbody>
-          {SEES.map(([what, ...cells]) => (
-            <tr key={what}>
-              <th scope="row">{what}</th>
-              {cells.map((c, i) => (
-                <td key={i} className={c === "✓" ? "yes" : undefined}>
-                  {c}
-                </td>
+
+      <div className="section">
+        <h3 className="text-sm font-semibold">Who can see what</h3>
+        <div className="overflow-x-auto rounded-xl surface">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 text-xs text-muted-foreground">
+              <tr className="h-10">
+                <th scope="col" className="px-4 text-left font-medium">
+                  <span className="sr-only">What</span>
+                </th>
+                {["You", "Relay", "Sync server", "AI provider"].map((h) => (
+                  <th key={h} scope="col" className="px-4 font-medium">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {SEES.map(([what, ...cells]) => (
+                <tr key={what} className="h-10">
+                  <th scope="row" className="px-4 text-left font-normal">
+                    {what}
+                  </th>
+                  {cells.map((c, i) => (
+                    <td key={i} className="px-4 text-center">
+                      {c === "✓" ? <Check className="mx-auto size-4 text-protected" weight="bold" aria-label="Yes" /> : c === "–" ? <Minus className="mx-auto size-4 text-muted-foreground/40" aria-label="No" /> : <span className="text-xs text-muted-foreground">{c}</span>}
+                    </td>
+                  ))}
+                </tr>
               ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="level-note">
-        Topic still leaks: the provider can tell someone asked about newsroom safety, not who or where. The Privacy log shows exactly what
-        left this computer.
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <p className="rounded-xl bg-muted/60 p-4 text-sm text-muted-foreground">
+        <span className="font-medium text-foreground">Two honest limits.</span> The topic still shows: the AI can tell someone asked about press safety, not who or where. And the relay can see your internet address. The Privacy log shows everything that was sent.
       </p>
-      <div className="dialog-foot">
-        <button className="btn primary" onClick={onClose}>
-          Got it
-        </button>
+
+      <div className="flex justify-end">
+        <Button onClick={onClose}>Got it</Button>
       </div>
     </Dialog>
   );

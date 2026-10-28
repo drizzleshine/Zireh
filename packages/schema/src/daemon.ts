@@ -6,7 +6,7 @@ export interface DaemonStatus {
   readonly transport: "tor" | "direct";
   readonly tor: { readonly ready: boolean; readonly progress: number };
   readonly localModel: { readonly id: string; readonly ok: boolean };
-  readonly relay: { readonly ok: boolean; readonly network?: string; readonly models: string[]; readonly search?: boolean; readonly error?: string };
+  readonly relay: { readonly ok: boolean; readonly upstreamOk?: boolean; readonly network?: string; readonly models: string[]; readonly search?: boolean; readonly error?: string };
   readonly balance: number;
   readonly pendingCalls: number;
 }

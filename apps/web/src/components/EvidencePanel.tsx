@@ -1,172 +1,182 @@
-import { isEmbeddedImage, evidenceDownload } from "../evidence.ts";
-import { memberName, newEvidence, newObservation } from "@zireh/cases";
 import type { Evidence } from "@zireh/schema";
-import { useState } from "react";
-import { prepareImage } from "../media.ts";
-import { myMemberId, save, useStore } from "../store.ts";
-import { Comments } from "./Comments.tsx";
-import { ImageRedactor } from "./ImageRedactor.tsx";
+import { CaretLeft, DotsThree as MoreHorizontal, MagnifyingGlass as Search, User as UserRound, FileCsv as FileSpreadsheet, Plus, X } from "@phosphor-icons/react";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
+import { custodyCsv } from "../evidence.ts";
+import { type Draft } from "../intake.ts";
+import { useIdentities, withIdentities } from "../sources.ts";
+import { useStore } from "../store.ts";
+import type { OpenItem } from "./CaseView.tsx";
+import { navigate } from "../route.ts";
+import { SourcesSheet } from "./Sources.tsx";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { cn } from "@/lib/utils";
+import { Pane, SideItem, SideList, WITH_SIDE } from "./Pane.tsx";
+import { PageBar } from "./SectionTitle.tsx";
+import { KINDS, kindOf } from "./evidence/kinds.ts";
+import { ago } from "./evidence/ago.ts";
+import { Intake } from "./evidence/Intake.tsx";
+import { Reader } from "./evidence/Reader.tsx";
 
-const KINDS: { id: Evidence["kind"]; label: string }[] = [
-  { id: "note", label: "Note" },
-  { id: "document", label: "Document text" },
-  { id: "link", label: "Link" },
-  { id: "image", label: "Image" },
-];
-
-export function EvidencePanel({ caseId }: { caseId: string }) {
+export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus?: string | undefined; onOpen: OpenItem }) {
   const rec = useStore((s) => s.cases[caseId])!;
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [adding, setAdding] = useState(rec.evidence.length === 0);
-  const [kind, setKind] = useState<Evidence["kind"]>("note");
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [noting, setNoting] = useState<string | undefined>();
-  const [note, setNote] = useState("");
-  const [imageNote, setImageNote] = useState<string | undefined>();
-  const [error, setError] = useState<string | undefined>();
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<Evidence["kind"] | "all">("all");
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  // The open item lives in the URL (/case/<id>/evidence/<item>), so reload and Back keep it.
+  const chosen = focus;
+  const setChosen = (id: string | undefined) => onOpen("evidence", id);
+  // The add box stays out of the way until it's wanted: an empty case, the button, or a file dragged in.
+  const intakeOpen = adding || rec.evidence.length === 0 || drafts.length > 0;
+  const identities = useIdentities(caseId);
+  const table = useMemo(() => withIdentities(caseId, rec.pseudonyms), [caseId, rec.pseudonyms, identities]);
 
-  const add = async () => {
-    await save(caseId, "evidence", newEvidence(caseId, myMemberId(caseId), { kind, title, body }));
-    setTitle("");
-    setBody("");
-    setImageNote(undefined);
-    setAdding(false);
+  const counts = useMemo(() => Object.fromEntries(KINDS.map((k) => [k.id, rec.evidence.filter((e) => e.kind === k.id).length])) as Record<Evidence["kind"], number>, [rec.evidence]);
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return [...rec.evidence]
+      .sort((a, b) => b.addedAt.localeCompare(a.addedAt))
+      .filter((e) => (filter === "all" || e.kind === filter) && (!q || e.title.toLowerCase().includes(q) || e.source?.toLowerCase().includes(q) || (e.kind !== "image" && e.body.toLowerCase().includes(q))));
+  }, [rec.evidence, query, filter]);
+  // Wide screens always show something in the reading pane; phones show the list until one is picked.
+  const current = shown.find((e) => e.id === chosen) ?? rec.evidence.find((e) => e.id === chosen) ?? shown[0];
+  const step = (by: number) => {
+    const i = shown.findIndex((e) => e.id === current?.id);
+    const next = shown[Math.min(shown.length - 1, Math.max(0, i + by))];
+    // Arrow keys move through the list without filling Back with every step.
+    if (next) navigate({ view: "case", caseId, tab: "evidence", item: next.id }, { replace: true });
   };
 
   return (
-    <section className="panel" aria-label="Evidence">
-      {adding ? (
-        <form
-          className="composer"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setError(undefined);
-            void add().catch((error: Error) => setError(error.message));
-          }}
-        >
-          <div className="levels" role="group" aria-label="Kind of evidence">
-            {KINDS.map((k) => (
-              <button
-                type="button"
-                key={k.id}
-                aria-pressed={kind === k.id}
-                onClick={() => {
-                  setKind(k.id);
-                  setBody("");
-                  setImageNote(undefined);
-                }}
-              >
-                {k.label}
-              </button>
-            ))}
-          </div>
-          <div className="field">
-            <label htmlFor="ev-title">Title</label>
-            <input id="ev-title" className="input" required maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} />
-          </div>
-          {kind === "image" ? (
-            <div className="field">
-              <label htmlFor="ev-file">Image</label>
-              <input
-                id="ev-file"
-                type="file"
-                accept="image/*"
-                required={!body}
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  setError(undefined);
-                  try {
-                    const img = await prepareImage(file);
-                    setBody(img.dataUrl);
-                    if (!title) setTitle(file.name.replace(/\.[^.]+$/, ""));
-                    setImageNote(`Re-encoded at ${img.width}×${img.height}. Location, camera and time data removed on this computer.`);
-                  } catch (err) {
-                    setError((err as Error).message);
-                  }
-                }}
-              />
-              {body.startsWith("data:image/") && <ImageRedactor src={body} onChange={setBody} />}
-              {imageNote && <span className="hint">{imageNote}</span>}
-            </div>
-          ) : (
-            <div className="field">
-              <label htmlFor="ev-body">{kind === "link" ? "URL and why it matters" : "Content"}</label>
-              <textarea id="ev-body" className="textarea" required maxLength={100_000} value={body} onChange={(e) => setBody(e.target.value)} />
-              <span className="hint">Encrypted before it leaves this browser. When you include it in a question, names in it are hidden first.</span>
-            </div>
-          )}
-          {error && <p className="error" role="alert">{error}</p>}
-          <div className="composer-foot">
-            <span className="spacer" />
-            {rec.evidence.length > 0 && (
-              <button type="button" className="btn" onClick={() => setAdding(false)}>
-                Cancel
-              </button>
-            )}
-            <button type="submit" className="btn primary">
-              Add evidence
-            </button>
-          </div>
-        </form>
-      ) : (
-        <div>
-          <button className="btn" onClick={() => setAdding(true)}>
-            Add evidence
-          </button>
-        </div>
-      )}
+    <section className="page" aria-label="Evidence" onDragEnter={(e) => e.dataTransfer.types.includes("Files") && setAdding(true)}>
+      <SourcesSheet caseId={caseId} rec={rec} open={sourcesOpen} onOpenChange={setSourcesOpen} />
+      <PageBar hint="Files, tips and links for this case, read and encrypted in this browser.">
+        {rec.evidence.length > 0 && !adding && (
+          <>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" aria-label="More">
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => setSourcesOpen(true)}>
+                  <UserRound /> Sources
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    const href = URL.createObjectURL(new Blob([custodyCsv(rec)], { type: "text/csv;charset=utf-8" }));
+                    const a = document.createElement("a");
+                    a.href = href;
+                    a.download = `${rec.case.title.replace(/[^\p{L}\p{N}]+/gu, "-").slice(0, 60)}-evidence-log.csv`;
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(href), 1000);
+                    toast.success("List exported", { description: "Who added what, when and from which source. Real names are left out." });
+                  }}
+                >
+                  <FileSpreadsheet /> Export list (CSV)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button size="sm" variant={intakeOpen ? "outline" : "default"} onClick={() => setAdding((v) => !v)}>
+              {intakeOpen ? <X /> : <Plus />}
+              <span className="hidden sm:inline">{intakeOpen ? "Close" : "Add evidence"}</span>
+            </Button>
+          </>
+        )}
+      </PageBar>
 
-      <div className="list">
-        {[...rec.evidence].reverse().map((e) => (
-          <article className="item" key={e.id}>
-            <h3>{e.title}</h3>
-            {e.kind === "image" ? (
-              isEmbeddedImage(e.body) ? <img className="evidence-image" src={e.body} alt={e.title} /> : <p className="error">External or unsupported image content was blocked.</p>
-            ) : (
-              <div>
-                <p className="doc" style={{ whiteSpace: "pre-wrap" }}>{expanded.has(e.id) ? e.body : e.body.length > 900 ? `${e.body.slice(0, 900)}…` : e.body}</p>
-                {e.body.length > 900 && <button className="btn small" aria-expanded={expanded.has(e.id)} onClick={() => setExpanded((previous) => { const next = new Set(previous); if (next.has(e.id)) next.delete(e.id); else next.add(e.id); return next; })}>{expanded.has(e.id) ? "Collapse document" : `Read full document (${e.body.length.toLocaleString()} characters)`}</button>}
-              </div>
-            )}
-            <div className="meta">
-              <span>{KINDS.find((k) => k.id === e.kind)?.label ?? e.kind}</span>
-              <span>Added by {memberName(rec, e.addedBy)}</span>
-              <span title={e.sha256}>sha256 {e.sha256.slice(0, 12)}</span>
-              <span style={{ flex: 1 }} />
-              <button className="btn small" onClick={() => {
-              const { blob, filename } = evidenceDownload(e);
-              const url = URL.createObjectURL(blob);
-              const link = document.createElement("a"); link.href = url; link.download = filename; link.click();
-              setTimeout(() => URL.revokeObjectURL(url), 1000);
-            }}>Download full evidence</button>
-            <Comments caseId={caseId} targetId={e.id} />
-              <button className="btn small" onClick={() => setNoting(noting === e.id ? undefined : e.id)}>
-                Add observation
-              </button>
-            </div>
-            {noting === e.id && (
-              <form
-                className="field"
-                onSubmit={async (ev) => {
-                  ev.preventDefault();
-                  await save(caseId, "observations", newObservation(caseId, { kind: "member", memberId: myMemberId(caseId) }, { text: note, evidenceIds: [e.id] }));
-                  setNote("");
-                  setNoting(undefined);
-                }}
-              >
-                <label htmlFor={`obs-${e.id}`}>What do you see in this?</label>
-                <textarea id={`obs-${e.id}`} className="textarea" required value={note} onChange={(ev) => setNote(ev.target.value)} />
-                <div>
-                  <button type="submit" className="btn primary small">
-                    Save observation
-                  </button>
+      <div className={WITH_SIDE}>
+        <SideList
+          title="Evidence"
+          count={rec.evidence.length}
+          className={cn(chosen && "max-lg:hidden")}
+          top={
+            rec.evidence.length === 0 ? undefined : (
+              <>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") setQuery("");
+                      else if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        step(1);
+                      }
+                    }}
+                    placeholder="Search titles, sources and text"
+                    aria-label="Search evidence"
+                    className="h-8 pl-8 text-sm"
+                  />
                 </div>
-              </form>
-            )}
-          </article>
-        ))}
+                <ToggleGroup type="single" size="sm" variant="outline" value={filter} onValueChange={(v) => v && setFilter(v as typeof filter)} aria-label="Show" className="justify-start">
+                  <ToggleGroupItem value="all" className="px-2.5 text-xs">
+                    All
+                  </ToggleGroupItem>
+                  {KINDS.filter((k) => counts[k.id]).map((k) => (
+                    <ToggleGroupItem key={k.id} value={k.id} className="gap-1 px-2.5 text-xs">
+                      {k.label}s <span className="tabular-nums opacity-60">{counts[k.id]}</span>
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              </>
+            )
+          }
+        >
+          {rec.evidence.length === 0 ? (
+            <li className="px-3 py-6 text-center text-sm text-muted-foreground">No evidence yet. Add your first item to get started.</li>
+          ) : shown.length === 0 ? (
+            <li className="px-3 py-6 text-center text-sm text-muted-foreground">Nothing matches.</li>
+          ) : (
+            shown.map((e) => {
+              const Icon = kindOf(e.kind).icon;
+              const used = rec.observations.filter((o) => o.evidenceIds.includes(e.id) && o.status !== "rejected").length;
+              return (
+                <SideItem
+                  key={e.id}
+                  active={e.id === current?.id}
+                  onSelect={() => {
+                      setChosen(e.id);
+                      setAdding(false);
+                    }}
+                  icon={<Icon />}
+                  title={e.title}
+                  meta={
+                    <>
+                      <span className={e.source ? "" : "text-decoy"}>{e.source ?? "No source"}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{ago(e.addedAt)}</span>
+                      {used > 0 && <span aria-hidden="true">·</span>}
+                      {used > 0 && <span>used {used}×</span>}
+                    </>
+                  }
+                />
+              );
+            })
+          )}
+        </SideList>
+        {intakeOpen ? (
+          <Pane bodyClassName="grid gap-3 p-4 md:p-6">
+            <p className="text-center text-xs text-muted-foreground">
+              {new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            </p>
+            <Intake caseId={caseId} table={table} drafts={drafts} setDrafts={setDrafts} />
+          </Pane>
+        ) : current ? (
+          <div className={cn(!chosen && "max-lg:hidden")}>
+            <button type="button" onClick={() => setChosen(undefined)} className="mb-3 flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground lg:hidden">
+              <CaretLeft className="size-4" /> All evidence
+            </button>
+            <Reader key={current.id} caseId={caseId} evidence={current} query={query} table={table} onOpen={onOpen} />
+          </div>
+          ) : null}
       </div>
     </section>
   );

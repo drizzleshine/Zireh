@@ -33,7 +33,7 @@ export const Pseudonym = z.object({
 });
 export type Pseudonym = z.infer<typeof Pseudonym>;
 
-export type Stage = "redact" | "route" | "split" | "leakcheck" | "decoy" | "order" | "send" | "reassemble";
+export type Stage = "standalone" | "redact" | "route" | "split" | "leakcheck" | "decoy" | "order" | "send" | "reassemble";
 
 /** One entry in the "what you asked / what the provider saw" view. */
 export interface TraceStep {

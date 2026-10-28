@@ -1,21 +1,18 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { Dialog as Root, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-/** Native modal dialog: focus trapping, Escape and backdrop come from the browser. */
-export function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const el = ref.current!;
-    el.showModal();
-    const close = () => onClose();
-    el.addEventListener("close", close);
-    return () => el.removeEventListener("close", close);
-  }, [onClose]);
+/** App modal on Radix: focus trap, Escape, scroll lock and enter/exit motion. */
+export function Dialog({ title, description, onClose, children, wide }: { title: string; description?: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   return (
-    <dialog ref={ref} aria-labelledby="dialog-title">
-      <div className="dialog-body">
-        <h2 id="dialog-title">{title}</h2>
-        {children}
-      </div>
-    </dialog>
+    <Root open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className={wide ? "gap-6 sm:max-w-2xl" : "gap-6 sm:max-w-lg"}>
+        <DialogHeader>
+          <DialogTitle className="text-lg">{title}</DialogTitle>
+          {description ? <DialogDescription>{description}</DialogDescription> : <DialogDescription className="sr-only">{title}</DialogDescription>}
+        </DialogHeader>
+        {/* Body blocks sit 24px apart; the negative margin keeps focus rings from being clipped by the scroller. */}
+        <div className="-mx-6 grid max-h-[70vh] content-start gap-6 overflow-y-auto px-6">{children}</div>
+      </DialogContent>
+    </Root>
   );
 }
