@@ -4,7 +4,6 @@ import {
   canonicalJson,
   generateCaseKey,
   generateMintKeypair,
-  hashJson,
   hashToCurve,
   hexToBytes,
   open,
@@ -82,7 +81,7 @@ describe("case box", () => {
 describe("hashing", () => {
   it("canonical JSON ignores key order and undefined", () => {
     expect(canonicalJson({ b: 1, a: [2, { d: 3, c: undefined }] })).toBe('{"a":[2,{"d":3}],"b":1}');
-    expect(hashJson({ a: 1, b: 2 })).toBe(hashJson({ b: 2, a: 1 }));
+    expect(canonicalJson({ a: 1, b: 2 })).toBe(canonicalJson({ b: 2, a: 1 }));
   });
 
   it("sha256Hex matches a known vector", () => {

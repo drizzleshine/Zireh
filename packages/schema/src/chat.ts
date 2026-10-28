@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** OpenAI-compatible chat shapes: shared by the local model, the relay and Token Factory. */
+/** OpenAI-compatible chat shapes: shared by the on-device model, the relay and its provider. */
 
 export const ChatRole = z.enum(["system", "user", "assistant"]);
 export type ChatRole = z.infer<typeof ChatRole>;

@@ -3,7 +3,7 @@ import { ArrowRight, CaretLeft, MagnifyingGlass as Search, Check, Lightbulb, Plu
 import { useEffect, useState } from "react";
 import { myMemberId, useStore } from "../store.ts";
 import type { OpenItem } from "./CaseView.tsx";
-import { SideItem, SideList, WITH_SIDE } from "./Pane.tsx";
+import { Pane, SideItem, SideList, WITH_SIDE } from "./Pane.tsx";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { PageBar } from "./SectionTitle.tsx";
 import { Button } from "@/components/ui/button";
@@ -11,14 +11,13 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { TONE_TEXT, TONE_DOT, verdict } from "./findings/verdict.ts";
 import { type Filter, FILTERS } from "./findings/filters.ts";
-import { Explainer } from "./findings/Explainer.tsx";
 import { FindingDetail } from "./findings/FindingDetail.tsx";
 import { CheckSheet } from "./findings/CheckSheet.tsx";
-import { NewFindingSheet } from "./findings/NewFindingSheet.tsx";
+import { NewFindingForm } from "./findings/NewFindingForm.tsx";
 
 /**
- * The claims your team would print, one line each with whether it's ready. Checking new
- * observations and writing a finding each happen in their own focused panel.
+ * The claims your team would print, one line each with whether it's ready. Writing a
+ * finding happens in the reading pane; checking new observations has its own panel.
  */
 export function FindingsPanel({ caseId, focus, onOpen }: { caseId: string; focus?: string | undefined; onOpen?: OpenItem }) {
   const rec = useStore((s) => s.cases[caseId])!;
@@ -26,7 +25,6 @@ export function FindingsPanel({ caseId, focus, onOpen }: { caseId: string; focus
   const findings = findingViews(rec);
   const drafts = rec.observations.filter((o) => o.status === "draft");
   const accepted = rec.observations.filter((o) => o.status === "accepted");
-  const unused = accepted.filter((o) => !rec.findings.some((f) => f.observationIds.includes(o.id)));
   // The open finding lives in the URL. An observation id there opens the finding built on it.
   const open = focus && rec.findings.some((f) => f.id === focus) ? focus : focus ? rec.findings.find((f) => f.observationIds.includes(focus))?.id : undefined;
   const setOpen = (id: string | undefined) => onOpen?.("findings", id);
@@ -51,9 +49,11 @@ export function FindingsPanel({ caseId, focus, onOpen }: { caseId: string; focus
     <section className="page" aria-label="Findings">
       {!rec.case.requiresSignatures && <p className="rounded-lg border bg-muted/50 px-4 py-2 text-xs text-muted-foreground">This is an older case, so who wrote what can't be proven. New cases fix this.</p>}
       <PageBar hint="The claims you'd print. Each one needs two separate sources and your team's agreement.">
-        <Button size="sm" onClick={() => setWriting(true)}>
-          <Plus /> New finding
-        </Button>
+        {findings.length > 0 && !writing && (
+          <Button size="sm" onClick={() => setWriting(true)}>
+            <Plus /> New finding
+          </Button>
+        )}
       </PageBar>
 
       {drafts.length > 0 && (
@@ -71,66 +71,67 @@ export function FindingsPanel({ caseId, focus, onOpen }: { caseId: string; focus
         </button>
       )}
 
-      {findings.length === 0 ? (
-        <Explainer onWrite={() => setWriting(true)} canWrite={accepted.length > 0} />
-      ) : (
-        <div className={WITH_SIDE}>
+      <div className={WITH_SIDE}>
           <SideList
             title="Findings"
             count={findings.length}
             className={cn(open && "max-lg:hidden")}
             top={
-              <>
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQuery("")} placeholder="Search findings" aria-label="Search findings" className="h-8 pl-8 text-sm" />
-                </div>
-                <ToggleGroup type="single" size="sm" variant="outline" value={filter} onValueChange={(v) => v && setFilter(v as Filter)} aria-label="Show" className="flex-wrap justify-start">
-                  {FILTERS.filter((x) => x.id === "all" || counts[x.id]).map((x) => (
-                    <ToggleGroupItem key={x.id} value={x.id} className="gap-1 px-2.5 text-xs">
-                      {x.label} {x.id !== "all" && <span className="tabular-nums opacity-60">{counts[x.id]}</span>}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
-              </>
+              findings.length === 0 ? undefined : (
+                <>
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQuery("")} placeholder="Search findings" aria-label="Search findings" className="h-8 pl-8 text-sm" />
+                  </div>
+                  <ToggleGroup type="single" size="sm" variant="outline" value={filter} onValueChange={(v) => v && setFilter(v as Filter)} aria-label="Show" className="flex-wrap justify-start">
+                    {FILTERS.filter((x) => x.id === "all" || counts[x.id]).map((x) => (
+                      <ToggleGroupItem key={x.id} value={x.id} className="gap-1 px-2.5 text-xs">
+                        {x.label} {x.id !== "all" && <span className="tabular-nums opacity-60">{counts[x.id]}</span>}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                </>
+              )
             }
           >
-            {shown.length === 0 ? (
+            {findings.length === 0 ? (
+              <li className="px-3 py-6 text-center text-sm text-muted-foreground">No findings yet. Write the first one to get started.</li>
+            ) : shown.length === 0 ? (
               <li className="px-3 py-6 text-center text-sm text-muted-foreground">Nothing matches.</li>
             ) : (
               shown.map(({ f, v }) => (
                 <SideItem
                   key={f.id}
                   active={f.id === current?.f.id}
-                  onSelect={() => setOpen(f.id)}
-                  icon={<span className={cn("mt-1 block size-2.5 rounded-full", TONE_DOT[v.tone])} />}
+                  onSelect={() => {
+                    setOpen(f.id);
+                    setWriting(false);
+                  }}
+                  icon={<span className="grid size-4 place-items-center"><span className={cn("block size-2.5 rounded-full", TONE_DOT[v.tone])} /></span>}
                   title={f.statement}
                   meta={<span className={TONE_TEXT[v.tone]}>{v.text}</span>}
                 />
               ))
             )}
-            {unused.length > 0 && (
-              <li className="px-2.5 pt-2 pb-1 text-xs text-muted-foreground">
-                {unused.length} accepted observation{unused.length === 1 ? " isn't" : "s aren't"} in a finding yet.{" "}
-                <button type="button" onClick={() => setWriting(true)} className="font-medium text-foreground underline-offset-4 hover:underline">
-                  Write one
-                </button>
-              </li>
-            )}
           </SideList>
-          {current && (
+          {writing || findings.length === 0 ? (
+            <Pane bodyClassName="grid gap-3 p-4 md:p-6">
+              <p className="text-center text-xs text-muted-foreground">
+                {new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+              </p>
+              <NewFindingForm caseId={caseId} rec={rec} me={me} accepted={accepted} onDone={(id) => { setWriting(false); if (id) setOpen(id); }} />
+            </Pane>
+          ) : current ? (
             <div className={cn(!open && "max-lg:hidden")}>
               <button type="button" onClick={() => setOpen(undefined)} className="mb-3 flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground lg:hidden">
                 <CaretLeft className="size-4" /> All findings
               </button>
               <FindingDetail key={current.f.id} caseId={caseId} rec={rec} finding={current.f} verdict={current.v} me={me} onOpen={onOpen} />
             </div>
-          )}
-        </div>
-      )}
+          ) : null}
+      </div>
 
       <CheckSheet caseId={caseId} rec={rec} drafts={drafts} start={typeof checking === "string" ? checking : undefined} open={checking !== false} onClose={() => setChecking(false)} onOpen={onOpen} />
-      <NewFindingSheet caseId={caseId} rec={rec} me={me} accepted={accepted} open={writing} onClose={() => setWriting(false)} />
     </section>
   );
 }

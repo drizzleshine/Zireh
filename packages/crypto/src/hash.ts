@@ -9,7 +9,6 @@ export const sha256 = (input: Uint8Array | string): Uint8Array =>
 export const sha256Hex = (input: Uint8Array | string): string => bytesToHex(sha256(input));
 
 /** Hash of a JSON value with sorted keys, so equal values always hash equally. */
-export const hashJson = (value: unknown): string => sha256Hex(canonicalJson(value));
 
 export function canonicalJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);

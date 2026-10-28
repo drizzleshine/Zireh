@@ -1,7 +1,0 @@
-{
-  "id": "Y1-count-batched-outbox-exceeds-host-limit",
-  "records": 2,
-  "batchBytes": 4267753,
-  "batchStatus": 413,
-  "singleStatus": 200
-}

@@ -2,7 +2,6 @@ import { fromBase64Url, generateCaseKey, toBase64Url, utf8ToBytes, sha256Hex } f
 import { describe, expect, it } from "vitest";
 import {
   caseToken,
-  caseTokenHash,
   findingViews,
   inviteFragment,
   newCase,
@@ -84,7 +83,6 @@ describe("invites", () => {
     const key = generateCaseKey();
     const token = caseToken(key);
     expect(token).not.toContain(key);
-    expect(caseTokenHash(token)).not.toBe(token);
     expect(caseToken(key)).toBe(token);
   });
 });

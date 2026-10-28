@@ -96,7 +96,7 @@ spending key.
 
 
 Paid-provider demo safety: simulated and testnet coins are free, so with either of them setting
-`NEBIUS_API_KEY` or `TAVILY_API_KEY` requires `RELAY_DEMO=1`. Demo top-ups default to at most 5,000,000 credits
+`LLM_API_KEY` or `TAVILY_API_KEY` requires `RELAY_DEMO=1`. Demo top-ups default to at most 5,000,000 credits
 per quote and 20,000,000 credits per UTC day. A separate daily budget reserves each provider
 call's maximum charge before spending coins. Both daily counters persist across restarts.
 `RELAY_DEMO_QUOTE_LIMIT` and `RELAY_DEMO_DAILY_LIMIT` configure those ceilings. This is a capped
@@ -109,8 +109,10 @@ demo, not a real Zcash payment service.
 | In your browser (WebGPU, transformers.js) | `onnx-community/NVIDIA-Nemotron-3-Nano-4B-BF16-ONNX`, 4-bit | Redaction, hints, classification, rewriting, splitting, leak check, decoys, reassembly. Runs in a Web Worker with reasoning off. Optional: without it, names are hidden by rule and each question goes out whole. |
 | Relay → **Nebius Token Factory** | `nvidia/nemotron-3-super-120b-a12b` (default), `nvidia/Llama-3_1-Nemotron-Ultra-253B-v1` | Answers the generalized questions. Called through Token Factory's OpenAI-compatible API (`https://api.tokenfactory.nebius.com/v1`) with the relay's key. |
 
-Without a `NEBIUS_API_KEY` the relay runs in **local-dev mode**: it answers with a local
-OpenAI-compatible model (`OLLAMA_URL`, `LOCAL_MODEL`) and says so everywhere (logs, UI, model name). Nothing is ever labeled as Token Factory when
+The relay talks to any OpenAI-compatible provider: set `LLM_API_KEY`, `LLM_BASE_URL` and
+`LLM_MODELS` to swap Token Factory for another (Meta's Model API, OpenRouter, a vLLM server, …).
+Without an `LLM_API_KEY` it runs in **local-dev mode**: it answers with a local model (Ollama by
+default) and says so everywhere (logs, UI, model name). Nothing is ever labeled as Token Factory when
 it isn't.
 
 **Tavily** (optional): the relay offers paid web search through Tavily; the browser redacts the

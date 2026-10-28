@@ -479,16 +479,14 @@ pub fn from_config(cfg: &config::RelayConfig) -> Result<(Arc<Relay>, Option<(Arc
     let db = Arc::new(RelayDb::open(dir).map_err(|e| format!("relay database in {}: {e}", cfg.data_dir))?);
     let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().map_err(|e| e.to_string())?;
     let (models, health) = match &cfg.upstream {
-        config::Upstream::TokenFactory { base_url, api_key } => (
-            cfg.prices.iter().map(|price| Model { price: price.clone(), upstream: ChatUpstream { base_url: base_url.clone(), model: price.model.clone(), api_key: Some(api_key.clone()), extra_body: Default::default(), client: client.clone() } }).collect(),
+        config::Upstream::Hosted { base_url, api_key } => (
+            cfg.prices.iter().map(|price| Model { price: price.clone(), upstream: ChatUpstream { base_url: base_url.clone(), model: price.model.clone(), api_key: Some(api_key.clone()), extra_body: cfg.extra_body.clone(), client: client.clone() } }).collect(),
             HealthCheck::new(base_url.clone(), Some(api_key.clone()), None, client.clone()),
         ),
-        // Only the model that actually answers is offered, so nothing is labeled as Token Factory.
+        // Only the model that actually answers is offered, under its own name.
         config::Upstream::LocalDev { base_url, local_model } => {
             let price = ModelPrice { model: local_model.clone(), ..cfg.prices[0].clone() };
-            // No hidden reasoning tokens, so bills stay checkable.
-            let extra_body = serde_json::Map::from_iter([("reasoning_effort".to_string(), Value::String("none".into()))]);
-            (vec![Model { price, upstream: ChatUpstream { base_url: base_url.clone(), model: local_model.clone(), api_key: None, extra_body, client: client.clone() } }], HealthCheck::new(base_url.clone(), None, Some(local_model.clone()), client.clone()))
+            (vec![Model { price, upstream: ChatUpstream { base_url: base_url.clone(), model: local_model.clone(), api_key: None, extra_body: cfg.extra_body.clone(), client: client.clone() } }], HealthCheck::new(base_url.clone(), None, Some(local_model.clone()), client.clone()))
         }
     };
     let search = cfg.tavily_api_key.clone().map(|api_key| Tavily { api_key, url: cfg.tavily_url.clone(), client: client.clone() });

@@ -18,7 +18,7 @@ import {
   type Usage,
 } from "@zireh/schema";
 import { newCircuitTag, type Transport } from "./transport.ts";
-import { checkBill, checkSettlement, InsufficientFunds, memoryMoneyStore, prepareOutputs, splitAmount, maxCost, prepareChange, prepareTopup, sum, unblindAll, type BillCheck, type PendingOutputs, type Wallet, type MoneyStore } from "@zireh/wallet";
+import { checkBill, checkSettlement, InsufficientFunds, prepareOutputs, splitAmount, maxCost, prepareChange, prepareTopup, sum, unblindAll, type BillCheck, type PendingOutputs, type Wallet, type MoneyStore } from "@zireh/wallet";
 import { z } from "zod";
 
 /** Everything needed to send (or re-send) one paid call. Persisted before the first send. */
@@ -63,8 +63,6 @@ export function moneyPendingStore(money: MoneyStore): PendingStore {
   };
 }
 
-
-export const memoryPendingStore = (money: MoneyStore = memoryMoneyStore()): PendingStore => moneyPendingStore(money);
 
 export type CallResult =
   | { readonly answerExpired?: boolean; readonly kind: "chat"; readonly requestId: string; readonly content: string; readonly model: string; readonly usage: Usage; readonly charged: number; readonly bill: BillCheck }

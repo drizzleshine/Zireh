@@ -44,4 +44,3 @@ export function parseInvite(text: string): Invite | undefined {
  * only its hash, so it can check members without being able to decrypt anything.
  */
 export const caseToken = (caseKey: string): string => sha256Hex(`zireh/case-token/v1:${caseKey}`);
-export const caseTokenHash = (token: string): string => sha256Hex(`zireh/case-token-hash/v1:${token}`);

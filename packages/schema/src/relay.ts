@@ -15,7 +15,6 @@ export const RelayInfo = z.object({
 });
 export type RelayInfo = z.infer<typeof RelayInfo>;
 
-export const TopupQuoteRequest = z.object({ credits: z.number().int().positive().max(100_000_000) });
 export const TopupQuote = z.object({
   quoteId: z.string(),
   credits: z.number().int().positive(),
@@ -33,7 +32,6 @@ export type QuoteState = z.infer<typeof QuoteState>;
 export const QuoteStatus = z.object({ state: QuoteState, received: z.string().optional() });
 export type QuoteStatus = z.infer<typeof QuoteStatus>;
 
-export const MintRequest = z.object({ quoteId: z.string(), outputs: z.array(BlindedMessage).min(1).max(64) });
 export const MintResponse = z.object({ signatures: z.array(BlindSignature) });
 
 /** Zero-fee denomination exchange; the complete response is committed with the burn. */

@@ -4,4 +4,3 @@ export * from "./mint.ts";
 export * from "./wallet.ts";
 export * from "./store.ts";
 export * from "./ledger.ts";
-export * from "./zcash/index.ts";

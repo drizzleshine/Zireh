@@ -1,9 +1,9 @@
 import { memberName, newObservation } from "@zireh/cases";
 import type { Evidence, Pseudonym } from "@zireh/schema";
-import { Sparkle, EyeSlash as EyeOff, Lightbulb, LinkSimple as Link2, User as UserRound } from "@phosphor-icons/react";
+import { DownloadSimple, Sparkle, EyeSlash as EyeOff, Lightbulb, LinkSimple as Link2, User as UserRound } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { isEmbeddedImage } from "../../evidence.ts";
+import { evidenceDownload, isEmbeddedImage } from "../../evidence.ts";
 import { scan } from "../../intake.ts";
 import { myMemberId, save, useStore } from "../../store.ts";
 import type { OpenItem } from "../CaseView.tsx";
@@ -54,6 +54,20 @@ export function Reader({ caseId, evidence: e, query, table, onOpen }: { caseId: 
           )}
           <Button size="sm" variant="outline" onClick={() => setNoting(true)}>
             <Lightbulb /> Add observation
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              const { blob, filename } = evidenceDownload(e);
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = filename;
+              a.click();
+              setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+            }}
+          >
+            <DownloadSimple /> Download
           </Button>
           <span className="ml-auto">
             <Comments caseId={caseId} targetId={e.id} />

@@ -1,6 +1,6 @@
 import { scriptedModel } from "@zireh/llm";
 import { describe, expect, it } from "vitest";
-import { applyTable, detectPatterns, properNounCandidates, extendTable, findLeaks, glossary, redactText, restore, withHints } from "../src/redact/index.ts";
+import { applyTable, detectPatterns, properNounCandidates, extendTable, findLeaks, redactText, restore, withHints } from "../src/redact/index.ts";
 
 describe("detectPatterns", () => {
   it("finds contacts, ids and money without overlap", () => {
@@ -86,7 +86,6 @@ describe("redactText", () => {
     expect(table.find((p) => p.original === "Lagos")!.hint).toBe("a large city in Nigeria");
     expect(table.find((p) => p.original === "Daily Ledger")!.hint).toBe("an organization"); // own name inside: generic
     expect(withHints(text, table)).toBe("An organization in a large city in Nigeria covers smuggling.");
-    expect(glossary(table).sort()).toEqual(["[ORG_1] = an organization", "[PLACE_1] = a large city in Nigeria"]);
   });
 
   it("rejects a hint that contains another hidden value", () => {

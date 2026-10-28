@@ -4,7 +4,7 @@
 # Needs `maritime login` first. Uploads a staged copy (see stage.sh: host/ sources only, no .zireh/,
 # .env or node_modules), creates the agent, and waits for it to answer /health.
 # Secrets are set afterwards, never uploaded, for example:
-#   maritime env set zireh-host NEBIUS_API_KEY=... RELAY_DEMO=1 --secret --reload --json
+#   maritime env set zireh-host LLM_API_KEY=... LLM_BASE_URL=... LLM_MODELS=... RELAY_DEMO=1 --secret --reload --json
 #   maritime env set zireh-host ZCASH_UFVK=uviewtest1... ZCASH_NETWORK=testnet --secret --reload --json
 set -euo pipefail
 name="${1:-zireh-host}"

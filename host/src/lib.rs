@@ -2,6 +2,7 @@
 //! Each service lives in `features/<name>` and exposes a `router(..)` that `main` merges.
 
 pub mod config;
+pub mod dotenv;
 pub mod features;
 pub mod http;
 pub mod js;

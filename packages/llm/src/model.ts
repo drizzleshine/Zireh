@@ -8,7 +8,7 @@ export interface ChatOptions {
   readonly signal?: AbortSignal;
 }
 
-/** The one interface every model sits behind: local Nemotron Nano, Token Factory, or a test double. */
+/** The one interface every model sits behind: the on-device Nemotron Nano, an OpenAI-compatible endpoint, or a test double. */
 export interface ChatModel {
   readonly id: string;
   chat(messages: readonly ChatMessage[], options: ChatOptions): Promise<ChatResult>;
@@ -36,51 +36,6 @@ export class ModelError extends Error {
     super(message);
     this.name = "ModelError";
   }
-}
-
-interface OpenAiConfig {
-  readonly baseUrl: string; // e.g. http://127.0.0.1:11434/v1 or https://api.tokenfactory.nebius.com/v1
-  readonly model: string;
-  readonly apiKey?: string;
-  readonly fetch?: FetchLike;
-  /** Provider-specific request fields, e.g. `{ reasoning_effort: "none" }` for a fast local model. */
-  readonly extraBody?: Readonly<Record<string, unknown>>;
-}
-
-/** Any OpenAI-compatible `/chat/completions` endpoint (Ollama, Token Factory, …). */
-export function openAiCompatible(config: OpenAiConfig): ChatModel {
-  const doFetch = config.fetch ?? fetch;
-  const url = `${config.baseUrl.replace(/\/$/, "")}/chat/completions`;
-  return {
-    id: config.model,
-    async chat(messages, { maxTokens, temperature, signal }) {
-      const res = await doFetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}),
-        },
-        body: JSON.stringify({ ...config.extraBody, model: config.model, messages, max_tokens: maxTokens, temperature }),
-        ...(signal ? { signal } : {}),
-      });
-      if (!res.ok) throw new ModelError(`${config.model}: HTTP ${res.status} ${await res.text()}`, res.status);
-      const body = (await res.json()) as {
-        model?: string;
-        choices?: { message?: { content?: string } }[];
-        usage?: { prompt_tokens?: number; completion_tokens?: number; completion_tokens_details?: { reasoning_tokens?: number } };
-      };
-      const reasoning = body.usage?.completion_tokens_details?.reasoning_tokens;
-      return {
-        content: body.choices?.[0]?.message?.content ?? "",
-        model: body.model ?? config.model,
-        usage: {
-          prompt_tokens: body.usage?.prompt_tokens ?? 0,
-          completion_tokens: body.usage?.completion_tokens ?? 0,
-          ...(reasoning !== undefined ? { reasoning_tokens: reasoning } : {}),
-        },
-      };
-    },
-  };
 }
 
 /** Deterministic test double: the handler sees the messages and returns the reply text. */

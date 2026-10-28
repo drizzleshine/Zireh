@@ -1,6 +1,4 @@
-use std::env;
-
-/// Runtime configuration, read once from the environment.
+/// Runtime configuration, read once from the environment (see `crate::dotenv`).
 #[derive(Debug, Clone)]
 pub struct Config {
     pub port: u16,
@@ -9,10 +7,6 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_env() -> Result<Config, String> {
-        Self::from_lookup(|k| env::var(k).ok())
-    }
-
     /// `SYNC_PORT` and `SYNC_HOST_BIND` are the TypeScript sync host's names and win when set,
     /// so existing deployments keep working.
     pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Result<Config, String> {

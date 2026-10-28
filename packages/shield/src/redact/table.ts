@@ -67,10 +67,6 @@ export function applyTable(text: string, table: readonly Pseudonym[]): string {
   return out;
 }
 
-/** "[PLACE_1] = a large city in Nigeria" lines, for stages that rewrite questions. */
-export const glossary = (table: readonly Pseudonym[]): string[] =>
-  table.filter((p) => p.hint).map((p) => `${p.placeholder} = ${p.hint}`);
-
 /**
  * Replace placeholders with their vague descriptions, for questions that go to the provider.
  * Done in code, not by the model, so it is exact. Placeholders without a hint stay as they are.
