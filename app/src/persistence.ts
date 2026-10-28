@@ -21,8 +21,7 @@ export interface WorkspaceData {
 }
 export interface StoredRecord { readonly caseId: string; readonly collection: CollectionName; readonly record: { id: string }; readonly envelope?: Envelope; readonly echoPending?: boolean; readonly verified?: boolean }
 /**
- * Everything this browser keeps, in one IndexedDB object store ("zireh-records" → "data"), by key.
- * Storage names keep the project's earlier name so data saved before the rename stays readable:
+ * Everything this browser keeps, in one IndexedDB object store ("zireh-records" → "data"), by key:
  *
  *   workspace:<case>                          keys, sync position and status for one case
  *   record:<case>:<collection>:<id>           one decrypted record plus its sealed envelope

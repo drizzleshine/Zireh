@@ -27,7 +27,7 @@ out.bdhke = [0, 1, 2, 3, 4].map((i) => {
 });
 
 const pairs = Object.fromEntries(DENOMINATIONS.map((d) => { const k = hex32(`denom${d}`); return [String(d), { privateKey: k, publicKey: publicKeyOf(k) }]; }));
-const keysetId = `zp${sha256Hex(DENOMINATIONS.map((d) => pairs[String(d)]!.publicKey).join("")).slice(0, 14)}`;
+const keysetId = `zr${sha256Hex(DENOMINATIONS.map((d) => pairs[String(d)]!.publicKey).join("")).slice(0, 14)}`;
 out.keyset = { privateKeys: Object.fromEntries(Object.entries(pairs).map(([a, p]) => [a, p.privateKey])), id: keysetId, json: JSON.stringify(publicKeyset({ id: keysetId, pairs })), mintKeysFile: JSON.stringify({ id: keysetId, pairs }) };
 
 out.splitAmount = [0, 1, 2, 3, 13, 1000, 2 ** 24 - 1, 2 ** 24, 2 ** 25 - 1, 2 ** 25, 2 ** 25 + 5, 3 * 2 ** 24 + 7, 100_000_000].map((total) => ({ total, coins: splitAmount(total) }));
@@ -57,7 +57,7 @@ const values: unknown[] = [
   null, true, 0, -0, 1, -1, 0.1, 1.5e-7, 1e21, 123456789012345680000, 2 ** 53, "plain", "quote\" back\\ slash / ctl\u0001\u001f nl\n", "é😀  ",
   [], {}, [1, "a", null, { z: 1, a: [true, false] }],
   { b: 1, a: 2, A: 3, "10": "x", "2": "y", é: "u", c: undefined, nested: { y: [{ k: "v" }], x: null } },
-  [{ amount: 1, B_: "02ab", keysetId: "zp1" }, { amount: 0, B_: "03cd", keysetId: "zp1" }],
+  [{ amount: 1, B_: "02ab", keysetId: "zr1" }, { amount: 0, B_: "03cd", keysetId: "zr1" }],
 ];
 out.canonicalJson = values.map((value) => ({ value: value === undefined ? null : value, text: canonicalJson(value), sha256: sha256Hex(canonicalJson(value)) }));
 

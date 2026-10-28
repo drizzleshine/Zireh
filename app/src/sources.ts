@@ -32,29 +32,15 @@ function store(caseId: string, vault: Vault) {
 }
 
 /**
- * Identities live in the case database (see persistence.ts), not localStorage. Older versions kept
- * them in localStorage; those are moved over once and removed. The store waits for this before
- * reporting itself loaded, so no AI call can run before source names are known to be hidden.
+ * Identities live in the case database (see persistence.ts). The store waits for them to load
+ * before reporting itself loaded, so no AI call can run before source names are known to be hidden.
  */
-const LEGACY = "zireh:source-identities:";
 export const identitiesReady: Promise<void> =
   typeof indexedDB === "undefined"
     ? Promise.resolve()
     : database.rangeEntries<Vault>(Keys.vaults).then(
         (entries) => {
           for (const [key, vault] of entries) cache.set(key.slice(Keys.vaults.length), vault);
-          try {
-            for (const key of Object.keys(localStorage).filter((k) => k.startsWith(LEGACY))) {
-              const caseId = key.slice(LEGACY.length);
-              const old = JSON.parse(localStorage.getItem(key) ?? "{}") as Vault;
-              const merged = { ...old, ...read(caseId) };
-              cache.set(caseId, merged);
-              store(caseId, merged);
-              localStorage.removeItem(key);
-            }
-          } catch {
-            /* storage blocked: nothing to move */
-          }
           emit();
         },
         () => {},

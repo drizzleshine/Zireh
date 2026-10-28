@@ -13,7 +13,6 @@ export function memoryStorage(): SyncStorage {
   return { getItem: (key) => items.get(key) ?? null, setItem: (key, value) => void items.set(key, value) };
 }
 
-// The earlier project name, kept so coins saved before the rename are still found.
 const MONEY_KEY = "zireh:money:v1";
 
 /**

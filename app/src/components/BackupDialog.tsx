@@ -67,7 +67,7 @@ export function BackupDialog({ caseId, onClose, onImported }: { caseId?: string;
             <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed p-4 text-sm hover:border-ring/60">
               <FileUp className="size-5 text-muted-foreground" />
               <span className="flex-1 truncate">{file ? file.name : "Choose a .zireh backup file"}</span>
-              <input type="file" required accept=".zireh,.zireh,application/json" className="sr-only" onChange={(event) => setFile(event.target.files?.[0])} />
+              <input type="file" required accept=".zireh,application/json" className="sr-only" onChange={(event) => setFile(event.target.files?.[0])} />
             </label>
           )}
           <div className="grid gap-1.5">

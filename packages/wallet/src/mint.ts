@@ -15,7 +15,7 @@ export function generateMintKeys(): MintKeys {
 }
 
 const keysetIdOf = (pairs: Readonly<Record<string, MintKeypair>>): string =>
-  `zp${sha256Hex(DENOMINATIONS.map((d) => pairs[String(d)]!.publicKey).join("")).slice(0, 14)}`;
+  `zr${sha256Hex(DENOMINATIONS.map((d) => pairs[String(d)]!.publicKey).join("")).slice(0, 14)}`;
 
 export const publicKeyset = (keys: MintKeys): Keyset => ({
   id: keys.id,

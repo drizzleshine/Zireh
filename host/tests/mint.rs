@@ -125,7 +125,7 @@ fn mint_issues_burns_once_and_signs_change() {
     let err = mint.issue(&[BlindedMessage { amount: 4, ..blank(1) }], 5).unwrap_err();
     assert_eq!((err.code, err.message.as_str()), (MintErrorCode::BadRequest, "outputs total 4, expected 5"));
     assert_eq!(mint.issue(&[BlindedMessage { amount: 3, ..blank(1) }], 3).unwrap_err().message, "no key for amount 3");
-    assert_eq!(mint.issue(&[BlindedMessage { amount: 2, keyset_id: "zpother".into(), ..blank(1) }], 2).unwrap_err().message, "unknown keyset");
+    assert_eq!(mint.issue(&[BlindedMessage { amount: 2, keyset_id: "zrother".into(), ..blank(1) }], 2).unwrap_err().message, "unknown keyset");
 
     let a = coin(&mint, &keys, 8, 10);
     let b = coin(&mint, &keys, 2, 20);

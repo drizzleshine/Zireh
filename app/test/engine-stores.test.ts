@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Proof } from "@zireh/schema";
 import { browserMoneyStore, memoryStorage } from "../src/engine/stores.ts";
 
-const coin = (n: number): Proof => ({ amount: 1, secret: `s${n}`, C: "02".padEnd(66, "0"), keysetId: "zp00000000000000" });
+const coin = (n: number): Proof => ({ amount: 1, secret: `s${n}`, C: "02".padEnd(66, "0"), keysetId: "zr00000000000000" });
 
 describe("browser money store", () => {
   it("writes a transaction in one piece, and only when the outermost one commits", () => {

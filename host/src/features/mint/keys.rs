@@ -37,7 +37,7 @@ pub struct Keyset {
 
 pub fn keyset_id(pairs: &BTreeMap<u64, Keypair>) -> String {
     let joined: String = denominations().filter_map(|d| pairs.get(&d)).map(|p| p.public_key.as_str()).collect();
-    format!("zp{}", &hex::encode(Sha256::digest(joined.as_bytes()))[..14])
+    format!("zr{}", &hex::encode(Sha256::digest(joined.as_bytes()))[..14])
 }
 
 impl MintKeys {

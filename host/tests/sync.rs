@@ -404,7 +404,7 @@ async fn data_survives_reopen_and_reads_a_database_written_by_the_typescript_hos
         )
         .unwrap();
         // sha256("zireh/case-token-hash/v1:" + "a" * 64), as @zireh/cases computes it.
-        c.execute("INSERT INTO cases VALUES (?, ?)", [CASE, "94c8601effed261027165cca028017d869bd468b8ee47cb49b7356734edbe252"]).unwrap();
+        c.execute("INSERT INTO cases VALUES (?, ?)", [CASE, "bae2bdfcf5d350b886fc8ffef8c1e330f560d67546ff389677015e62d97c0aa7"]).unwrap();
         c.execute("INSERT INTO records (case_id, id, collection, sealed) VALUES (?, ?, 'cases', ?)", [CASE, &id(1), r#"{"v":1,"iv":"i","ct":"c"}"#]).unwrap();
     }
 

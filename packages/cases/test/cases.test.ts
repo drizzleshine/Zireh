@@ -76,7 +76,7 @@ describe("invites", () => {
   it("round-trips through a URL fragment and rejects malformed input", () => {
     const invite = { caseId: "a".repeat(32), caseKey: generateCaseKey() };
     expect(parseInvite(`https://app.test/#${inviteFragment(invite)}`)).toEqual(invite);
-    expect(parseInvite("https://app.test/#zp1.short.key")).toBeUndefined();
+    expect(parseInvite("https://app.test/#zr1.short.key")).toBeUndefined();
   });
 
   it("derives a token the host can check but not reverse", () => {
@@ -125,7 +125,7 @@ describe("invite sync-host location", () => {
   it("includes a validated public host and signed-case requirement in the fragment", () => {
     const invite = { caseId: "a".repeat(32), caseKey: generateCaseKey(), host: "https://sync.example.org", requiresSignatures: true };
     const fragment = inviteFragment(invite);
-    expect(fragment.startsWith("zp2.")).toBe(true);
+    expect(fragment.startsWith("zr2.")).toBe(true);
     expect(parseInvite(`http://127.0.0.1:7878/#${fragment}`)).toMatchObject({ ...invite, syncId: invite.caseId, keyEpoch: 0 });
   });
   it("refuses internal addresses, plain HTTP and URLs with extra routing material", () => {
@@ -137,7 +137,7 @@ describe("invite sync-host location", () => {
     for (const host of ["http://127.0.0.1:11434", "http://localhost:8788"]) {
       expect(() => inviteFragment({ caseId: "a".repeat(32), caseKey: generateCaseKey(), host })).toThrow();
     }
-    const bad = `zp2.${toBase64Url(utf8ToBytes(JSON.stringify({ caseId: "a".repeat(32), caseKey: generateCaseKey(), host: "http://127.0.0.1:11434", syncId: "a".repeat(32), keyEpoch: 0 })))}`;
+    const bad = `zr2.${toBase64Url(utf8ToBytes(JSON.stringify({ caseId: "a".repeat(32), caseKey: generateCaseKey(), host: "http://127.0.0.1:11434", syncId: "a".repeat(32), keyEpoch: 0 })))}`;
     expect(parseInvite(`https://app.test/#${bad}`)).toBeUndefined();
     expect(fromBase64Url(bad.slice(4)).length).toBeGreaterThan(0);
   });
