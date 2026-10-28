@@ -19,6 +19,9 @@ use super::{
 };
 use crate::http::{error, internal_error, js_number, json_raw, not_found};
 
+/// Largest integer JavaScript (and so zod) treats as exact.
+const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+
 const COLLECTIONS: [&str; 12] =
     ["members", "cases", "evidence", "observations", "findings", "reviews", "pseudonyms", "comments", "links", "board", "conclusions", "replies"];
 
@@ -246,7 +249,8 @@ fn envelope(v: &Value) -> Option<NewRecord> {
     if let Some(rev) = s.get("rev") {
         let r = rev.as_object()?;
         let lamport = r.get("lamport")?.as_f64()?;
-        if !(lamport.is_finite() && lamport.fract() == 0.0 && lamport > 0.0) {
+        // zod's `.int()` accepts only safe integers (≤ 2^53 − 1).
+        if !(lamport.is_finite() && lamport.fract() == 0.0 && lamport > 0.0 && lamport <= MAX_SAFE_INTEGER) {
             return None;
         }
         let device = r.get("deviceId")?.as_str().filter(|s| is_hex(s, 32))?;

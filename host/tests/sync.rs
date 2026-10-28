@@ -220,6 +220,7 @@ async fn invalid_bodies_are_400() {
         ("rev null", json!({ "records": [{ "id": id(1), "collection": "cases", "sealed": { "v": 1, "iv": "a", "ct": "b", "rev": null } }] })),
         ("rev lamport 0", json!({ "records": [{ "id": id(1), "collection": "cases", "sealed": { "v": 1, "iv": "a", "ct": "b", "rev": { "lamport": 0, "deviceId": id(2) } } }] })),
         ("rev lamport fractional", json!({ "records": [{ "id": id(1), "collection": "cases", "sealed": { "v": 1, "iv": "a", "ct": "b", "rev": { "lamport": 1.5, "deviceId": id(2) } } }] })),
+        ("rev lamport past 2^53", json!({ "records": [{ "id": id(1), "collection": "cases", "sealed": { "v": 1, "iv": "a", "ct": "b", "rev": { "lamport": 9_007_199_254_740_992u64, "deviceId": id(2) } } }] })),
         ("rev lamport string", json!({ "records": [{ "id": id(1), "collection": "cases", "sealed": { "v": 1, "iv": "a", "ct": "b", "rev": { "lamport": "1", "deviceId": id(2) } } }] })),
         ("rev bad device", json!({ "records": [{ "id": id(1), "collection": "cases", "sealed": { "v": 1, "iv": "a", "ct": "b", "rev": { "lamport": 1, "deviceId": "nope" } } }] })),
         ("one bad among good", json!({ "records": [good.clone(), env(2, "nope")] })),
