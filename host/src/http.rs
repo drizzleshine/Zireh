@@ -34,20 +34,7 @@ pub fn internal_error() -> Response {
     (StatusCode::INTERNAL_SERVER_ERROR, [(header::CONTENT_TYPE, "text/plain; charset=UTF-8")], "Internal Server Error").into_response()
 }
 
-/// Format a number as `JSON.stringify` would (`null` for non-finite).
-pub fn js_number(n: f64) -> String {
-    if !n.is_finite() {
-        "null".into()
-    } else if n == 0.0 {
-        "0".into()
-    } else if n.abs() >= 1e21 {
-        format!("{n:e}").replacen('e', "e+", 1)
-    } else if n.abs() < 1e-6 {
-        format!("{n:e}")
-    } else {
-        format!("{n}")
-    }
-}
+pub use crate::js::js_number;
 
 /// `/health` (any method, as before) and the JSON 404 for everything unrouted.
 pub fn base_router() -> Router {

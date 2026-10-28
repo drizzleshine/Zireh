@@ -17,7 +17,8 @@ use super::{
     store::{Denied, Fail, NewRecord, Store},
     MAX_RECORDS_PER_PUSH, MAX_SYNC_BODY_BYTES,
 };
-use crate::http::{error, internal_error, js_number, json_raw, not_found};
+use crate::http::{error, internal_error, json_raw, not_found};
+use crate::js::{js_number, str_json};
 
 /// Largest integer JavaScript (and so zod) treats as exact.
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
@@ -219,10 +220,6 @@ async fn push(store: Store, case_id: String, token: Option<String>, headers: &He
         Err(f) => fail(f),
     })
     .await
-}
-
-fn str_json(s: &str) -> String {
-    serde_json::to_string(s).expect("string serializes")
 }
 
 /// `z.object({ records: z.array(Envelope).min(1).max(200) })`, producing the exact text
