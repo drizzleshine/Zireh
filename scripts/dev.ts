@@ -4,8 +4,7 @@
  *
  *   pnpm dev
  *
- * The app still expects the old local daemon for its privacy pipeline and wallet; those move into
- * the browser next, and until then the research and top-up screens can't reach the host.
+ * The wallet, privacy pipeline and on-device model run in the browser and call the host directly.
  * Reads variables from .env if present. Data lives in .zireh/.
  */
 import { spawn, type ChildProcess } from "node:child_process";

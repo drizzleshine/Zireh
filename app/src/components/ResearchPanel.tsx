@@ -2,7 +2,7 @@ import { evidenceContext } from "../evidence.ts";
 import { answerOf, onHistoryAdded, reconcileResearch, researchHistory, saveResearch, threadsOf, type Run, type StoredResearch, type Thread } from "../research-history.ts";
 import { restore, extendTable } from "@zireh/shield";
 import { newObservation } from "@zireh/cases";
-import type { DaemonStatus, PrivacyLevel } from "@zireh/schema";
+import type { AppStatus, PrivacyLevel } from "@zireh/schema";
 import { Warning as AlertTriangle, ArrowUp, Plus, SlidersHorizontal as Settings2, Square, X, Sparkle as Sparkles, FileText, CircleNotch as Loader2 } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -31,7 +31,7 @@ import { setSlot, useSlot, type RunSlot } from "./research/slot.ts";
 
 interface Props {
   caseId: string;
-  status: DaemonStatus | undefined;
+  status: AppStatus | undefined;
   onBalanceChange: () => void;
   onTopUp: () => void;
   onSettings: () => void;
@@ -116,7 +116,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp, onSett
   }, [running, runId, run, rec.pseudonyms]);
 
   // On-device AI is an extra: only Local only needs it. Everything else needs the relay.
-  const ready = status && (level === "local" ? status.localModel.ok : status.relay.ok && status.relay.upstreamOk !== false && (status.transport === "direct" || status.tor.ready));
+  const ready = status && (level === "local" ? status.localModel.ok : status.relay.ok && status.relay.upstreamOk !== false && !status.walletBusy);
 
   async function start() {
     const threadId = thread?.id ?? crypto.randomUUID().replace(/-/g, "");

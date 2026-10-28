@@ -1,4 +1,4 @@
-import type { DaemonStatus } from "@zireh/schema";
+import type { AppStatus } from "@zireh/schema";
 import { BookOpenText, CaretUpDown, Cpu, Flask, FolderSimpleLock, GearSix, MagnifyingGlass, Plus, Wallet } from "@phosphor-icons/react";
 import { formatUsd } from "../api.ts";
 import { useStore } from "../store.ts";
@@ -23,8 +23,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 
 interface Props {
-  status: DaemonStatus | undefined;
-  daemonError: string | undefined;
+  status: AppStatus | undefined;
+  hostError: string | undefined;
   selected: string | undefined;
   settingsOpen: boolean;
   onSelect: (id: string) => void;
@@ -41,7 +41,7 @@ interface Props {
 type Health = "ok" | "warn" | "bad" | "idle";
 
 /** Cases first; help and settings below; balance and connection pinned to the bottom. */
-export function AppSidebar({ status, daemonError, selected, settingsOpen, onSelect: select, onTopUp, onNewCase, onDemo: demo, onHome: home, onHow, onCommand, onSettings: settings }: Props) {
+export function AppSidebar({ status, hostError, selected, settingsOpen, onSelect: select, onTopUp, onNewCase, onDemo: demo, onHome: home, onHow, onCommand, onSettings: settings }: Props) {
   // On phones the sidebar is a sheet over the page; going somewhere should close it.
   const { isMobile, setOpenMobile } = useSidebar();
   const go = <A extends unknown[]>(fn: (...a: A) => void) => (...a: A) => {
@@ -58,8 +58,8 @@ export function AppSidebar({ status, daemonError, selected, settingsOpen, onSele
   // Only the relay decides whether Zireh can work. On-device AI is an optional extra.
   // A reachable relay whose AI is down can't answer anything, so it is not "Ready".
   const aiDown = !!status?.relay.ok && status.relay.upstreamOk === false;
-  const relay: Health = daemonError ? "bad" : !status ? "idle" : !status.relay.ok ? "bad" : aiDown ? "warn" : "ok";
-  const summary = daemonError ? "Can't connect" : relay === "ok" ? "Ready" : relay === "warn" ? "The AI isn't answering" : relay === "bad" ? "Can't reach the relay" : "Connecting…";
+  const relay: Health = hostError ? "bad" : !status ? "idle" : !status.relay.ok ? "bad" : aiDown ? "warn" : "ok";
+  const summary = hostError ? "Can't connect" : relay === "ok" ? "Ready" : relay === "warn" ? "The AI isn't answering" : relay === "bad" ? "Can't reach the relay" : "Connecting…";
 
   return (
     <Sidebar collapsible="icon" variant="inset">
@@ -162,8 +162,8 @@ export function AppSidebar({ status, daemonError, selected, settingsOpen, onSele
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="start" className="w-(--radix-dropdown-menu-trigger-width) min-w-64">
                 <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">Connection</DropdownMenuLabel>
-                {daemonError ? (
-                  <p className="px-2 pb-2 text-sm text-destructive">{daemonError}</p>
+                {hostError ? (
+                  <p className="px-2 pb-2 text-sm text-destructive">{hostError}</p>
                 ) : (
                   <div className="grid gap-2 px-2 pb-2 text-sm">
                     <div className="flex items-center gap-2">

@@ -17,7 +17,7 @@ import {
   type Settlement,
   type Usage,
 } from "@zireh/schema";
-import { newCircuitTag, type Transport } from "@zireh/tor";
+import { newCircuitTag, type Transport } from "./transport.ts";
 import { checkBill, checkSettlement, InsufficientFunds, memoryMoneyStore, prepareOutputs, splitAmount, maxCost, prepareChange, prepareTopup, sum, unblindAll, type BillCheck, type PendingOutputs, type Wallet, type MoneyStore } from "@zireh/wallet";
 import { z } from "zod";
 
@@ -112,7 +112,7 @@ export interface RelayClientOptions {
 }
 
 /**
- * Pays the relay with ecash over Tor. Every call uses its own circuit. A call is persisted
+ * Pays the relay with ecash, each call with its own coins and tag. A call is persisted
  * before it is sent and re-sent with the same requestId after a failure, so a dropped
  * connection never means paying twice or losing change.
  */

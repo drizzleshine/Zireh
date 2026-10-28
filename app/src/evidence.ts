@@ -2,7 +2,7 @@ import type { Evidence } from "@zireh/schema";
 
 export const isEmbeddedImage = (body: string): boolean => /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(body);
 
-/** The daemon accepts at most 20 context strings of 20,000 characters each. */
+/** The research pipeline accepts at most 20 context strings of 20,000 characters each. */
 export function evidenceContext(evidence: readonly Evidence[], selected: readonly string[]) {
   const eligible = evidence.filter((item) => selected.includes(item.id) && item.kind !== "image");
   const entries = eligible.slice(0, 20).map((item) => {

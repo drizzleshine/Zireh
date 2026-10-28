@@ -18,16 +18,17 @@ model protect the question, and a large cloud model answer it.
 
 ## What happens when you ask a question
 
-Everything up to "send" runs on your computer, using **NVIDIA Nemotron 3 Nano 4B** (via Ollama).
+Everything up to "send" runs in your browser, using **NVIDIA Nemotron 3 Nano 4B** on the graphics
+card (WebGPU; about 2.5 GB, downloaded once when you turn it on).
 
 | # | Step | What it does |
 |---|---|---|
 | 1 | **Redact** | Finds names, organizations, places, IDs, contacts and amounts. Each becomes a placeholder with a deliberately vague description ("Lagos" → "a city in West Africa"). Pattern detectors + model extraction + a second classification pass for anything missed. |
-| 2 | **Route** | "Local only" stops here and answers on your computer. |
+| 2 | **Route** | "Local only" stops here and answers in your browser. |
 | 3 | **Rewrite / split** | Turns the task into self-contained general questions. Higher levels split it so no single question reveals the whole situation. |
 | 4 | **Leak check** | The local model plays the provider: "what could I infer about this person?" Risky pieces are generalized once, then blocked. A deterministic floor blocks any piece containing a hidden value, whatever the model says. |
 | 5 | **Decoys** | Plausible cover questions on unrelated topics. Near-duplicates and decoys with odd placeholders are rejected, because they'd point at the real question. |
-| 6 | **Send** | Every piece, real or decoy, goes out on **its own Tor circuit**, paid with **its own unlinkable ecash coins**, to the relay's **onion service**. |
+| 6 | **Send** | Every piece, real or decoy, goes out as **its own request**, paid with **its own unlinkable ecash coins**. |
 | 7 | **Reassemble** | Decoy answers are excluded from reassembly; real answers are combined locally with citations checked for existing answer IDs (not factual support), and the hidden names are put back. |
 
 ![Research view](docs/screenshots/research.png)
@@ -43,9 +44,9 @@ Everything up to "send" runs on your computer, using **NVIDIA Nemotron 3 Nano 4B
 
 ## Who sees what
 
-| | Your computer | Relay | Sync host | AI provider |
+| | Your browser | Relay | Sync host | AI provider |
 |---|---|---|---|---|
-| Your IP | ✓ | – (onion service) | – (onion service) | – |
+| Your IP | ✓ | ✓ | ✓ | – |
 | Names, places, case details | ✓ | – | – (ciphertext) | – |
 | Generalized question pieces | ✓ | ✓ | – | ✓ |
 | Which pieces are decoys / belong together | ✓ | – | – | – |
@@ -68,7 +69,7 @@ Everything up to "send" runs on your computer, using **NVIDIA Nemotron 3 Nano 4B
 - **Privacy log**: paid research and search requests are recorded before sending, with the complete serialized body, its hash, attempt status and settled cost. Failed attempts remain visible; recovery updates the same request ID.
 - **Review before send** pauses a prepared plan for explicit approval; Paranoid enables it by default. Saved hide phrases invalidate a prepared review when changed.
 - **Encrypted backups** protect the case key, signing identity, records and research history with a passphrase; imports preserve newer local revisions. Archives are capped at 64 MiB, with oversized exports refused before download.
-- **Research history** survives reloads and recovers individual paid answers from the daemon when final synthesis was interrupted.
+- **Research history** survives reloads and recovers individual paid answers from the wallet's journal when final synthesis was interrupted.
 - **Evidence** can be expanded and downloaded in full. Research shows an explicit notice when it uses a shortened excerpt.
 - **Member removal** rotates the case key and sync namespace. Share fresh invites with the remaining members; prior copies remain accessible.
 - **Signed authorship** binds new member identities and record revisions to signing keys. Review signatures are visible; old unsigned data stays labeled legacy.
@@ -76,28 +77,14 @@ Everything up to "send" runs on your computer, using **NVIDIA Nemotron 3 Nano 4B
 
 ![Case board](docs/screenshots/board.png)
 
-## Use it from any AI tool
-
-The daemon offers a non-streaming OpenAI-compatible text adapter. Editors and scripts that
-use plain text chat can route through the privacy pipeline by changing one URL. Tool calls
-and vision are unsupported; `stream` is ignored and the adapter returns one JSON response:
-
-```bash
-export OPENAI_BASE_URL=http://127.0.0.1:7878/v1
-export OPENAI_API_KEY=$(cat .zireh/daemon/local-api-key)   # created on first start, owner-only
-# models: zireh/local, zireh/standard, zireh/private, zireh/paranoid
-# or pick the level per request with the header  x-zireh-level: private
-```
-
-Each request is redacted, generalized, split and decoyed like a research question, sent over
-Tor, and answered with names restored. Every request shows up in the privacy log.
-
 ## Payments: per-token billing without identity
 
-The current watcher is simulated: no real ZEC moves. The demo exercises quotes, blind minting
-and per-token settlements; real chain intake remains unimplemented.
+Top-ups are simulated by default: no real ZEC moves, and "Mark as paid" stands in for a payment.
+With `ZCASH_UFVK` set, the host instead gives each quote its own shielded address and watches the
+chain for it with a viewing key only (testnet unless `ZCASH_NETWORK=mainnet`); it never holds a
+spending key.
 
-1. Request a quote and mark the simulated payment as confirmed.
+1. Request a quote and pay it (or mark the simulated payment as paid).
 2. The relay issues **blind-signed ecash coins** (Cashu-style BDHKE, verified against the Cashu
    NUT-00 test vectors). The relay can't link coins to the payment or to each other.
 3. Each call pays the **worst case** (input bound + `max_tokens`); the relay returns **change**
@@ -108,33 +95,32 @@ and per-token settlements; real chain intake remains unimplemented.
    automatically.
 
 
-Paid-provider demo safety: the current payment watcher is simulated. Setting `NEBIUS_API_KEY`
-or `TAVILY_API_KEY` requires `RELAY_DEMO=1`. Demo top-ups default to at most 5,000,000 credits
+Paid-provider demo safety: simulated and testnet coins are free, so with either of them setting
+`NEBIUS_API_KEY` or `TAVILY_API_KEY` requires `RELAY_DEMO=1`. Demo top-ups default to at most 5,000,000 credits
 per quote and 20,000,000 credits per UTC day. A separate daily budget reserves each provider
 call's maximum charge before spending coins. Both daily counters persist across restarts.
-`RELAY_DEMO_QUOTE_LIMIT` and `RELAY_DEMO_DAILY_LIMIT` configure those ceilings. The relay binds
-to `127.0.0.1`; optional Tor onion exposure retains that local binding. This is a capped demo,
-not a real Zcash payment service.
+`RELAY_DEMO_QUOTE_LIMIT` and `RELAY_DEMO_DAILY_LIMIT` configure those ceilings. This is a capped
+demo, not a real Zcash payment service.
 
 ## NVIDIA Nemotron and Nebius Token Factory
 
 | Where | Model | Role |
 |---|---|---|
-| On your computer (Ollama) | `nemotron-3-nano:4b` | Redaction, hints, classification, rewriting, splitting, leak check, decoys, reassembly. Runs in non-reasoning mode: each stage takes about 1 s on an M1 instead of about 10 s. |
+| In your browser (WebGPU, transformers.js) | `onnx-community/NVIDIA-Nemotron-3-Nano-4B-BF16-ONNX`, 4-bit | Redaction, hints, classification, rewriting, splitting, leak check, decoys, reassembly. Runs in a Web Worker with reasoning off. Optional: without it, names are hidden by rule and each question goes out whole. |
 | Relay → **Nebius Token Factory** | `nvidia/nemotron-3-super-120b-a12b` (default), `nvidia/Llama-3_1-Nemotron-Ultra-253B-v1` | Answers the generalized questions. Called through Token Factory's OpenAI-compatible API (`https://api.tokenfactory.nebius.com/v1`) with the relay's key. |
 
-Without a `NEBIUS_API_KEY` the relay runs in **local-dev mode**: it answers with the local Nano
-model and says so everywhere (logs, UI, model name). Nothing is ever labeled as Token Factory when
+Without a `NEBIUS_API_KEY` the relay runs in **local-dev mode**: it answers with a local
+OpenAI-compatible model (`OLLAMA_URL`, `LOCAL_MODEL`) and says so everywhere (logs, UI, model name). Nothing is ever labeled as Token Factory when
 it isn't.
 
-**Tavily** (optional): the relay offers paid web search through Tavily; the daemon redacts the
-query first and sends it over Tor like any other call.
+**Tavily** (optional): the relay offers paid web search through Tavily; the browser redacts the
+query first and pays for it like any other call.
 
 Research reserves separate coins for the complete plan before sending any question. If needed,
 a zero-fee blind swap splits large coins first; interrupted swaps recover from the durable journal.
-Up to four pieces run concurrently, each with an independent random 1–3000 ms delay and a fresh
-Tor circuit. Real questions and decoys use the same schedule. Stop releases unsent reservations;
-submitted calls still settle. Timing correlation remains a limit of Tor.
+Up to four pieces run concurrently, each with an independent random 1–3000 ms delay. Real
+questions and decoys use the same schedule. Stop releases unsent reservations; submitted calls
+still settle. Only one browser tab holds the wallet at a time, so two tabs never spend the same coin.
 
 ## Architecture
 
@@ -146,14 +132,14 @@ A monorepo of small packages in strict layers. A package may only import from lo
 | L0 | `schema` (contracts and validators), `crypto` (hashing, AES-GCM case box, BDHKE) |
 | L1 | `llm` (one OpenAI-compatible client for local and cloud models, JSON helper) |
 | L3 | `shield` (the privacy pipeline: redact, split, leak check, decoys, live trace) |
-| L4 | `tor` (circuit-isolated transport, onion services), `wallet` (mint, wallet, pricing, bill audit, ledger, Zcash payment watchers) |
-| L5 | `relay-client` (paid, idempotent relay client), `relay` (relay handler) |
+| L4 | `wallet` (mint, wallet, pricing, bill audit, ledger) |
+| L5 | `relay-client` (paid, idempotent relay client) |
 | L7 | `cases` (collaboration domain, publication), `sync` (sealed envelopes) |
 
 | Folder | Runs | Composes |
 |---|---|---|
-| `app/` | your browser | cases, sync, encryption, UI |
-| `host/` | server | Rust: the sync service now; the relay is being ported into it |
+| `app/` | your browser | wallet, privacy pipeline, on-device model (Web Worker), cases, sync, encryption, UI |
+| `host/` | server | Rust, one binary: relay, ecash mint, Zcash payments (viewing key only) and sync |
 
 Design notes are kept outside the repo.
 
@@ -164,11 +150,11 @@ Requirements: Node 22.19+ within the 22.x line, Node 24.x, or Node 26+, pnpm, an
 ```bash
 pnpm install
 cp .env.example .env          # optional
-pnpm dev                      # Rust host on :8788 + the web app's Vite dev server
+pnpm dev                      # Rust host on :8788 + the web app on :5173
 ```
 
-Note: the old local daemon and relay are being replaced. App features that used the daemon
-(local model, wallet, relay calls) do not work until the port into the Rust host lands.
+The app calls the host at `http://127.0.0.1:8788`; build it with `VITE_HOST_URL` set to use a
+deployed host instead. Coins and the privacy log live in that browser's storage.
 
 ```bash
 pnpm check        # layer check + typecheck
@@ -176,31 +162,33 @@ pnpm check        # layer check + typecheck
 
 ## Measured on an M1 MacBook (8 GB)
 
+Measured with the earlier Ollama setup; the in-browser model has not been timed yet.
+
 | | |
 |---|---|
-| Tor cold bootstrap | ~78 s (first run only) |
-| Tor warm bootstrap | 3.4 s |
-| HTTPS request on a fresh circuit | 1.0–2.2 s |
-| Local pipeline stage (Nano, non-reasoning) | ~1 s each |
+| Local pipeline stage (Nano via Ollama, non-reasoning) | ~1 s each |
 | Private-level question, local-dev upstream | 40–180 s (the "cloud" model shares the laptop GPU) |
 
 ## Honest limits
 
-- **Zcash intake is simulated.** The relay uses a labeled simulated network; a viewing-key watcher
-  on testnet is designed (`zcash.PaymentWatcher`) but not built.
-- **Tor helps against passive observers.** An adversary who controls both your guard and the
-  relay could correlate timing. A mixnet with constant cover traffic would be stronger.
+- **Real Zcash intake is untested.** It is built (viewing key, per-quote addresses, compact-block
+  scanning) but has not yet received a real testnet payment; the default is the labeled
+  simulated network.
+- **No network anonymity.** Requests leave the browser over plain HTTPS, so the relay and sync
+  host see your IP address (not your name, the hidden values or which pieces belong together).
+  Use a trusted VPN if your address itself is sensitive.
 - **Topic still leaks.** Generalization hides who and where, not what the question is about.
 - **Images stay local.** They're stripped and shared with the team, not sent to the AI. Face
   hiding is manual (mark and pixelate); the local model is text-only.
 - **The device is the trust boundary.** Case keys, signing keys and coins live unencrypted in this browser's
-  storage and the daemon's data folder; protect the computer (disk encryption, screen lock).
+  storage; protect the computer (disk encryption, screen lock). Clearing the site's data deletes the
+  coins, and case backups don't include them yet.
 - **Concurrent edits use authenticated record revisions.** Devices reject older or repeated
   versions they have already seen. A newly joined device can still be shown an older authentic
   history until it receives a newer checkpoint from another member. Concurrent edits to the
   same record use a deterministic revision order; they are not merged field by field.
 - **Legacy authorship remains unverified.** New cases require per-member signatures; earlier unsigned records cannot be retroactively authenticated. Compare member fingerprints through a trusted channel when identity matters.
-- **Invite routing is restricted.** Invite-supplied hosts must be v3 onion URLs or localhost/127.0.0.1 development servers.
+- **Invite routing is restricted.** Invite-supplied hosts must be public HTTPS origins: no IP addresses, local names, paths or credentials.
 - **Small-model judgment.** Nano 4B can miss a name; that's why there are pattern detectors, a
   second classification pass and a deterministic leak floor. The privacy log shows exactly what
   was sent, so a miss is visible.

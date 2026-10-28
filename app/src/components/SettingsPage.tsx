@@ -1,16 +1,14 @@
-import type { DaemonStatus } from "@zireh/schema";
-import { ArrowClockwise, Check, Copy, Cpu, Desktop, Keyboard, Moon, PaintBrush, Sun, UploadSimple, Wallet } from "@phosphor-icons/react";
-import { useState } from "react";
-import { toast } from "sonner";
-import { formatUsd } from "../api.ts";
+import type { AppStatus } from "@zireh/schema";
+import { ArrowClockwise, Cpu, Desktop, DownloadSimple, Keyboard, Moon, PaintBrush, Sun, UploadSimple, Wallet } from "@phosphor-icons/react";
+import { useEffect } from "react";
+import { formatUsd, startLocalModel } from "../api.ts";
 import { setTheme, useTheme, type Theme } from "../theme.ts";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
-import { SwapIcon } from "@/components/ui/swap-icon";
 
 interface Props {
-  status: DaemonStatus | undefined;
+  status: AppStatus | undefined;
   onRefresh: () => Promise<void>;
   onTopUp: () => void;
   onImport: () => void;
@@ -139,92 +137,53 @@ function Preview({ kind }: { kind: Theme }) {
   );
 }
 
-function LocalModel({ status, onRefresh }: { status: DaemonStatus | undefined; onRefresh: () => Promise<void> }) {
-  const [checking, setChecking] = useState(false);
-  const ok = status?.localModel.ok;
-  const model = status?.localModel.id ?? "nemotron-3-nano:4b";
-  const command = `ollama pull ${model}`;
+function LocalModel({ status, onRefresh }: { status: AppStatus | undefined; onRefresh: () => Promise<void> }) {
+  const model = status?.localModel;
+  const state = model?.state ?? "off";
+  const loading = state === "loading";
+  // Download progress comes from the status; ask for it often while a download runs.
+  useEffect(() => {
+    if (!loading) return;
+    const t = setInterval(() => void onRefresh(), 1000);
+    return () => clearInterval(t);
+  }, [loading, onRefresh]);
+  const percent = Math.round(model?.percent ?? 0);
+  const label = state === "ready" ? "Running in this browser" : loading ? `Downloading… ${percent}%` : state === "unsupported" ? "Can't run in this browser" : state === "failed" ? "Didn't start" : "Off";
   return (
     <div className="panel surface gap-4 text-sm">
       <div className="flex flex-wrap items-center gap-3">
-        <span className={cn("size-2.5 rounded-full", ok ? "bg-protected" : "bg-muted-foreground/40")} />
-        <span className="font-medium">{ok ? `Connected: ${model}` : "Not connected"}</span>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="ml-auto"
-          disabled={checking}
-          onClick={async () => {
-            setChecking(true);
-            await onRefresh();
-            setChecking(false);
-          }}
-        >
-          <ArrowClockwise className={cn(checking && "animate-spin")} /> Check again
-        </Button>
+        <span className={cn("size-2.5 rounded-full", state === "ready" ? "bg-protected" : loading ? "animate-pulse bg-protected/60" : "bg-muted-foreground/40")} />
+        <span className="font-medium">{label}</span>
+        {(state === "off" || state === "failed") && (
+          <Button
+            size="sm"
+            className="ml-auto"
+            onClick={async () => {
+              const started = startLocalModel();
+              await onRefresh();
+              await started;
+              await onRefresh();
+            }}
+          >
+            {state === "failed" ? <ArrowClockwise /> : <DownloadSimple />} {state === "failed" ? "Try again" : "Download and start"}
+          </Button>
+        )}
       </div>
+      {loading && (
+        <div className="h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} aria-label="Model download">
+          <div className="h-full rounded-full bg-protected transition-[width] duration-500" style={{ width: `${percent}%` }} />
+        </div>
+      )}
       <p className="max-w-[60ch] text-muted-foreground">
-        A free AI model on your own computer that protects each question before it leaves: it tells people from places and companies, writes a fitting description for each, rewrites follow-ups, splits questions up and adds decoys.
+        NVIDIA Nemotron 3 Nano, a free AI model that runs inside this browser and protects each question before it leaves: it tells people from places and companies, writes a fitting description for each, rewrites follow-ups, splits questions up and adds decoys.
       </p>
-      {!ok && (
+      {state === "off" && <p className="max-w-[60ch] text-muted-foreground">The first start downloads about 2.5 GB, once; the browser keeps it after that. It needs a computer with a graphics card and a recent Chrome or Edge.</p>}
+      {model?.error && <p className="max-w-[60ch] text-destructive">{model.error}</p>}
+      {state !== "ready" && (
         <p className="max-w-[60ch] rounded-lg bg-muted/60 px-3 py-2 text-muted-foreground">
           <span className="font-medium text-foreground">Without it:</span> every name-like word is hidden by rule and reads as “a name” unless you describe it, each question goes out whole, without splitting or decoys, and only Standard is available.
         </p>
       )}
-      {!ok && (
-        <ol className="grid gap-3">
-          <li className="flex gap-3">
-            <Step n={1} />
-            <span>
-              Install{" "}
-              <a href="https://ollama.com/download" target="_blank" rel="noreferrer" className="font-medium underline underline-offset-4">
-                Ollama
-              </a>
-              , a free app that runs AI models on your computer.
-            </span>
-          </li>
-          <li className="flex gap-3">
-            <Step n={2} />
-            <span className="grid min-w-0 gap-2">
-              Download the model:
-              <span className="flex min-w-0 items-center gap-2 rounded-lg bg-muted px-3 py-2 font-mono text-xs">
-                <span className="truncate">{command}</span>
-                <CopyButton text={command} />
-              </span>
-            </span>
-          </li>
-          <li className="flex gap-3">
-            <Step n={3} />
-            <span>Keep Ollama open, then press Check again.</span>
-          </li>
-        </ol>
-      )}
     </div>
-  );
-}
-
-function Step({ n }: { n: number }) {
-  return <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-protected-wash font-display text-xs font-semibold text-protected">{n}</span>;
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <button
-      type="button"
-      className="hit ml-auto rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground"
-      aria-label="Copy command"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(text);
-          setDone(true);
-          setTimeout(() => setDone(false), 1500);
-        } catch {
-          toast.error("Couldn't copy. Select the text instead.");
-        }
-      }}
-    >
-      <SwapIcon swapped={done} from={<Copy className="size-4" />} to={<Check className="size-4" />} />
-    </button>
   );
 }

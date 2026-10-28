@@ -23,7 +23,7 @@ interface Item {
 
 /**
  * What the question will look like to the AI provider, worked out on this device before Ask.
- * Without on-device AI this is exact: it runs the same rules the daemon will. With it, the model
+ * Without on-device AI this is exact: it runs the same rules the pipeline will. With it, the model
  * can hide more and rewrites the question, so only the certain part is shown.
  */
 export function SendPreview({ caseId, task, context, table, localAi }: { caseId: string; task: string; context: readonly string[]; table: readonly Pseudonym[]; localAi: boolean }) {

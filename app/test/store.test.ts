@@ -250,7 +250,7 @@ describe("case-specific sync location", () => {
   it("persists the invite's host and uses it for the first pull and later sync", async () => {
     const member = newMember("Owner");
     const c = newCase({ title: "remote case", question: "question", privacy: "private", createdBy: member.id });
-    const key = generateCaseKey(), host = `http://${"a".repeat(56)}.onion`;
+    const key = generateCaseKey(), host = "https://sync.example.org";
     const envelope = await sealRecord(key, "cases", c);
     remote.push.mockResolvedValue({ cursor: 2 });
     remote.pull.mockImplementation(async (_id, _token, after) => ({ records: after ? [] : [{ ...envelope, seq: 1 }], cursor: after || 1, head: after || 1 }));

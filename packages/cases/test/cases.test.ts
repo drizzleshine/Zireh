@@ -124,14 +124,14 @@ describe("F05 publication scan coverage", () => {
 });
 
 describe("invite sync-host location", () => {
-  it("includes a validated onion host and signed-case requirement in the fragment", () => {
-    const invite = { caseId: "a".repeat(32), caseKey: generateCaseKey(), host: `http://${"a".repeat(56)}.onion`, requiresSignatures: true };
+  it("includes a validated public host and signed-case requirement in the fragment", () => {
+    const invite = { caseId: "a".repeat(32), caseKey: generateCaseKey(), host: "https://sync.example.org", requiresSignatures: true };
     const fragment = inviteFragment(invite);
     expect(fragment.startsWith("zp2.")).toBe(true);
     expect(parseInvite(`http://127.0.0.1:7878/#${fragment}`)).toMatchObject({ ...invite, syncId: invite.caseId, keyEpoch: 0 });
   });
-  it("refuses internal addresses, public clearnet hosts and URLs with extra routing material", () => {
-    for (const host of ["http://169.254.169.254", "http://192.168.1.1", "https://public.example", "http://user@localhost:8788", "http://localhost:8788/path", "http://localhost:8788/?secret=1"]) {
+  it("refuses internal addresses, plain HTTP and URLs with extra routing material", () => {
+    for (const host of ["http://169.254.169.254", "https://169.254.169.254", "http://192.168.1.1", "https://[fd00::1]", "https://printer.local", "http://public.example", `http://${"a".repeat(56)}.onion`, "http://user@localhost:8788", "http://localhost:8788/path", "http://localhost:8788/?secret=1"]) {
       expect(() => inviteFragment({ caseId: "a".repeat(32), caseKey: generateCaseKey(), host })).toThrow();
     }
   });

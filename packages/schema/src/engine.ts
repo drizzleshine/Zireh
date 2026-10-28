@@ -1,14 +1,16 @@
 import type { Pseudonym, TraceStep } from "./privacy.ts";
 
-/** Contract between the local daemon and the web UI. */
+/** Contract between the in-browser engine (wallet, privacy pipeline, on-device model) and the UI. */
 
-export interface DaemonStatus {
-  readonly transport: "tor" | "direct";
-  readonly tor: { readonly ready: boolean; readonly progress: number };
-  readonly localModel: { readonly id: string; readonly ok: boolean };
+export type LocalModelState = "off" | "loading" | "ready" | "failed" | "unsupported";
+
+export interface AppStatus {
+  readonly localModel: { readonly id: string; readonly ok: boolean; readonly state: LocalModelState; readonly percent?: number; readonly error?: string };
   readonly relay: { readonly ok: boolean; readonly upstreamOk?: boolean; readonly network?: string; readonly models: string[]; readonly search?: boolean; readonly error?: string };
   readonly balance: number;
   readonly pendingCalls: number;
+  /** Another tab holds the wallet; this one can't spend until it closes. */
+  readonly walletBusy?: boolean;
 }
 
 export interface PlannedPiece {

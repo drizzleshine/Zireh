@@ -12,7 +12,7 @@ import { forgetIdentities, identitiesReady } from "./sources.ts";
 
 /**
  * Local-first case storage. Records live in this browser (IndexedDB) and sync to the team
- * as sealed envelopes through the daemon. The case key never leaves the device except
+ * as sealed envelopes through the Zireh host. The case key never leaves the device except
  * inside an invite link fragment.
  */
 
@@ -208,7 +208,7 @@ export async function createCase(input: { title: string; question: string; priva
   const member = { ...newMember(input.memberName), id: keys.memberId, signingKey: keys.publicKey };
   const c = { ...newCase({ title: input.title, question: input.question, privacy: input.privacy, createdBy: member.id }), requiresSignatures: true };
   let syncUrl: string | undefined;
-  try { syncUrl = SyncHost.parse((await api.syncConfig()).host); } catch { /* Local-first creation also works while the daemon is offline. */ }
+  try { syncUrl = SyncHost.parse((await api.syncConfig()).host); } catch { /* Local-first creation also works while the host is offline. */ }
   const w = { caseId: c.id, ...(syncUrl ? { syncUrl } : {}), caseKey: generateCaseKey(), memberId: member.id, memberKeys: keys, requiresSignatures: true, cursor: 0 };
   const envelope = await sealRecord(w.caseKey, "cases", c, await database.reserveRevision(c.id, "cases", c.id), { keys });
   await change(async () => { await database.putWorkspace(w); await database.save({ caseId: c.id, collection: "cases", record: c, verified: true }, envelope); });
@@ -250,8 +250,8 @@ export const inviteLink = async (caseId: string): Promise<string> => {
   if (w.needsInvite) throw new Error("Ask the creator for an updated invite");
   const raw = w.syncUrl ?? (await api.syncConfig()).host;
   if (!w.syncUrl) await change(() => database.patchWorkspace(caseId, { syncUrl: SyncHost.parse(raw) }));
-  const onion = InviteSyncHost.safeParse(raw);
-  const host = onion.success ? onion.data : undefined;
+  const shareable = InviteSyncHost.safeParse(raw);
+  const host = shareable.success ? shareable.data : undefined;
   return `${location.origin}/#${inviteFragment({ caseId, caseKey: w.caseKey, ...(host ? { host } : {}), ...(w.requiresSignatures ? { requiresSignatures: true } : {}), ...(w.syncId ? { syncId: w.syncId, keyEpoch: w.keyEpoch ?? 1 } : {}) })}`;
 };
 

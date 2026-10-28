@@ -1,7 +1,7 @@
 import { parseInvite, type Invite } from "@zireh/cases";
-import type { DaemonStatus } from "@zireh/schema";
+import type { AppStatus } from "@zireh/schema";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, DaemonError } from "./api.ts";
+import { api } from "./api.ts";
 import { BackupDialog } from "./components/BackupDialog.tsx";
 import { CaseView, type Tab } from "./components/CaseView.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
@@ -24,8 +24,8 @@ import { navigate, useRoute } from "./route.ts";
 import { getSnapshot, useStore } from "./store.ts";
 
 export function App() {
-  const [status, setStatus] = useState<DaemonStatus | undefined>();
-  const [daemonError, setDaemonError] = useState<string | undefined>();
+  const [status, setStatus] = useState<AppStatus | undefined>();
+  const [hostError, setHostError] = useState<string | undefined>();
   // The address bar is the one source of truth for where you are (see route.ts).
   const route = useRoute();
   const selected = route.view === "case" ? route.caseId : undefined;
@@ -52,9 +52,9 @@ export function App() {
   const refresh = useCallback(async () => {
     try {
       setStatus(await api.status());
-      setDaemonError(undefined);
+      setHostError(undefined);
     } catch (err) {
-      setDaemonError(err instanceof DaemonError ? err.message : String(err));
+      setHostError(err instanceof Error ? err.message : String(err));
     }
   }, []);
 
@@ -108,7 +108,7 @@ export function App() {
       <SidebarProvider>
         <AppSidebar
           status={status}
-          daemonError={daemonError}
+          hostError={hostError}
           selected={selected}
           onSelect={setSelected}
           onTopUp={() => setDialog("wallet")}

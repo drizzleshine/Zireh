@@ -12,13 +12,13 @@ export async function unsupportedReason(): Promise<string | undefined> {
   return undefined;
 }
 
-let model: WorkerModel | undefined;
+const MODEL_NAME = "nemotron-3-nano-4b (on this device)";
+let worker: WorkerModel | undefined;
+const started = () => (worker ??= workerModel(new Worker(new URL("./nemotron.worker.ts", import.meta.url), { type: "module" }) as unknown as WorkerLike, MODEL_NAME));
 
-/** The one on-device model for this tab. Nothing downloads until `load` or the first `chat`. */
-export function localModel(): WorkerModel {
-  model ??= workerModel(
-    new Worker(new URL("./nemotron.worker.ts", import.meta.url), { type: "module" }) as unknown as WorkerLike,
-    "nemotron-3-nano-4b (on this device)",
-  );
-  return model;
-}
+/** The one on-device model for this tab. Nothing starts or downloads until `load` or the first `chat`. */
+export const localModel = (): WorkerModel => ({
+  id: MODEL_NAME,
+  load: (onProgress) => started().load(onProgress),
+  chat: (messages, options) => started().chat(messages, options),
+});

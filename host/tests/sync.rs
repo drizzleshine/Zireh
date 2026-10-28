@@ -458,3 +458,15 @@ fn js_number_parsing() {
         assert!(js_to_number(bad).is_nan(), "{bad}");
     }
 }
+
+#[tokio::test]
+async fn browsers_on_other_origins_can_call_the_host() {
+    let app = app().layer(axum::middleware::from_fn(zireh_host::http::cors));
+    let pre = send(&app, Request::builder().method("OPTIONS").uri(path(CASE, "")).header("origin", "https://app.example").body(Body::empty()).unwrap()).await;
+    assert_eq!(pre.status, StatusCode::NO_CONTENT);
+    assert_eq!(pre.headers["access-control-allow-origin"], "*");
+    assert!(pre.headers["access-control-allow-headers"].to_str().unwrap().contains("x-case-token"));
+    let res = push(&app, CASE, &token('a'), vec![env(1, "members")]).await;
+    assert_eq!(res.status, StatusCode::OK);
+    assert_eq!(res.headers["access-control-allow-origin"], "*");
+}

@@ -49,3 +49,16 @@ pub fn base_router() -> Router {
         }
     })
 }
+
+/// The web app runs in the browser on its own origin and calls the host directly. Nothing here
+/// uses cookies or ambient credentials (calls are paid with coins or carry a case token), so any
+/// origin may call it; preflights are answered without reaching the routes.
+pub async fn cors(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let mut res = if req.method() == axum::http::Method::OPTIONS { StatusCode::NO_CONTENT.into_response() } else { next.run(req).await };
+    let headers = res.headers_mut();
+    headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, header::HeaderValue::from_static("*"));
+    headers.insert(header::ACCESS_CONTROL_ALLOW_METHODS, header::HeaderValue::from_static("GET, POST"));
+    headers.insert(header::ACCESS_CONTROL_ALLOW_HEADERS, header::HeaderValue::from_static("content-type, x-case-token"));
+    headers.insert(header::ACCESS_CONTROL_MAX_AGE, header::HeaderValue::from_static("600"));
+    res
+}

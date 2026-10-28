@@ -21,7 +21,7 @@ async fn main() {
         tokio::spawn(payments.run_scanner(url, Duration::from_secs(15), birthday));
     }
     let offered: Vec<&str> = relay.models.iter().map(|m| m.price.model.as_str()).collect();
-    let app = http::base_router().merge(sync::routes::router(store)).merge(relay::router(relay.clone()));
+    let app = http::base_router().merge(sync::routes::router(store)).merge(relay::router(relay.clone())).layer(axum::middleware::from_fn(http::cors));
     let listener = tokio::net::TcpListener::bind((config.bind.as_str(), config.port)).await.unwrap_or_else(|e| fatal(format!("cannot listen on {}:{}: {e}", config.bind, config.port)));
 
     println!("zireh host listening on {}:{}", config.bind, config.port);

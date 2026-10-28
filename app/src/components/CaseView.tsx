@@ -1,4 +1,4 @@
-import type { DaemonStatus } from "@zireh/schema";
+import type { AppStatus } from "@zireh/schema";
 import { CaretDown, Check, CloudWarning as CloudAlert, CloudCheck, CloudArrowUp as CloudUpload, Database as DatabaseBackup, EyeSlash as EyeOff, LinkSimple as Link2, DotsThree as MoreHorizontal, Trash, Users, X } from "@phosphor-icons/react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -32,7 +32,7 @@ export type OpenItem = (tab: Tab, id?: string) => void;
 
 interface Props {
   caseId: string;
-  status: DaemonStatus | undefined;
+  status: AppStatus | undefined;
   tab: Tab;
   /** An item another tab or the command menu asked to open, highlighted where it lives. */
   focus: string | undefined;
