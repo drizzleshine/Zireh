@@ -1,0 +1,28 @@
+[package]
+name = "zireh-host"
+version = "0.1.0"
+edition = "2021"
+publish = false
+default-run = "zireh-host"
+
+[lib]
+name = "zireh_host"
+path = "src/lib.rs"
+
+[[bin]]
+name = "zireh-host"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio"] }
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "net"] }
+rusqlite = { version = "=0.41.1", features = ["bundled"] }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["raw_value"] }
+sha2 = "=0.11.1"
+hex = "=0.4.3"
+form_urlencoded = "=1.2.2"
+http-body-util = "=0.1.5"
+
+[dev-dependencies]
+tower = { version = "=0.5.3", features = ["util"] }
