@@ -41,35 +41,25 @@ export function Reader({ caseId, evidence: e, query, table, onOpen }: { caseId: 
       bodyClassName="grid gap-5 p-4 md:p-6"
       footer={
         <>
-          {e.kind !== "image" && (
+          <span className="font-mono text-[11px] text-muted-foreground" title={e.sha256}>
+            sha256 {e.sha256.slice(0, 16)}…
+          </span>
+          <span className="ml-auto flex items-center gap-1">
             <Button
               size="sm"
+              variant="ghost"
+              className="text-muted-foreground"
               onClick={() => {
-                askAbout(caseId, e.id, rec.case.privacy);
-                onOpen("research");
+                const { blob, filename } = evidenceDownload(e);
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = filename;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(a.href), 1000);
               }}
             >
-              <Sparkle /> Ask AI about this
+              <DownloadSimple /> Download
             </Button>
-          )}
-          <Button size="sm" variant="outline" onClick={() => setNoting(true)}>
-            <Lightbulb /> Add observation
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              const { blob, filename } = evidenceDownload(e);
-              const a = document.createElement("a");
-              a.href = URL.createObjectURL(blob);
-              a.download = filename;
-              a.click();
-              setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-            }}
-          >
-            <DownloadSimple /> Download
-          </Button>
-          <span className="ml-auto">
             <Comments caseId={caseId} targetId={e.id} />
           </span>
         </>
@@ -170,36 +160,50 @@ export function Reader({ caseId, evidence: e, query, table, onOpen }: { caseId: 
           <p className="font-serif text-[16px] leading-relaxed whitespace-pre-wrap">
             <Highlighted text={e.body.slice(0, 200_000)} hits={hits} query={query} />
           </p>
+          {hits.length > 0 && (
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <EyeOff className="size-3.5 text-protected" /> {hits.length} detail{hits.length === 1 ? "" : "s"} underlined here {hits.length === 1 ? "is" : "are"} replaced before anything goes to an AI.
+            </p>
+          )}
           {e.body.length > 200_000 && <p className="text-xs text-muted-foreground">Showing the first 200,000 characters. Download the original for the rest.</p>}
         </div>
       )}
 
-      <div className="grid gap-3 border-t pt-4 text-xs text-muted-foreground">
-        {hits.length > 0 && (
-          <p className="flex items-center gap-1.5">
-            <EyeOff className="size-3.5 text-protected" /> {hits.length} detail{hits.length === 1 ? "" : "s"} underlined here {hits.length === 1 ? "is" : "are"} replaced before anything goes to an AI.
-          </p>
+      <div className="grid gap-2">
+        <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Used in</p>
+        {used.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nothing yet. Add an observation to start building on it.</p>
+        ) : (
+          <ul className="grid gap-2">
+            {used.map((o) => (
+              <li key={o.id} className="border-l-2 pl-3 text-sm">
+                <button type="button" onClick={() => onOpen("findings", o.id)} className="text-left underline-offset-4 hover:underline">
+                  {o.text.replace(/^Q: .*\n\n/, "").replace(/\s*\[A\d+\]/g, "").slice(0, 140)}
+                </button>
+                <span className="text-xs text-muted-foreground"> · {o.status === "draft" ? "to check" : "accepted"}</span>
+              </li>
+            ))}
+          </ul>
         )}
-        <div className="grid gap-1.5">
-          <p className="font-medium text-foreground/80">Used in</p>
-          {used.length === 0 ? (
-            <p>Nothing yet. Add an observation to start building on it.</p>
-          ) : (
-            <ul className="grid gap-1">
-              {used.map((o) => (
-                <li key={o.id}>
-                  <button type="button" onClick={() => onOpen("findings", o.id)} className="text-left text-foreground/80 underline-offset-4 hover:text-foreground hover:underline">
-                    {o.text.replace(/^Q: .*\n\n/, "").replace(/\s*\[A\d+\]/g, "").slice(0, 140)}
-                  </button>
-                  <span> · {o.status === "draft" ? "to check" : "accepted"}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <p className="font-mono text-[11px]" title={e.sha256}>
-          sha256 {e.sha256.slice(0, 16)}…
-        </p>
+        {!writing && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button size="sm" variant="outline" onClick={() => setNoting(true)}>
+              <Lightbulb /> Add observation
+            </Button>
+            {e.kind !== "image" && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  askAbout(caseId, e.id, rec.case.privacy);
+                  onOpen("research");
+                }}
+              >
+                <Sparkle /> Ask AI about this
+              </Button>
+            )}
+          </div>
+        )}
       </div>
     </Pane>
   );

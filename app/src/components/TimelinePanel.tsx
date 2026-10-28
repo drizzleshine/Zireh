@@ -1,15 +1,11 @@
 import { CalendarBlank as CalendarRange, FileText, User as UserRound } from "@phosphor-icons/react";
 import { Fragment, useMemo } from "react";
 import { chronology, type ChronoEvent } from "../chronology.ts";
-import { codenames } from "../sources.ts";
 import { useStore } from "../store.ts";
 import type { OpenItem } from "./CaseView.tsx";
 import { PageBar } from "./SectionTitle.tsx";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-
-/** A steady colour per source, so the same source reads the same all the way down. */
-const LANE = ["bg-protected", "bg-decoy", "bg-sky-500", "bg-violet-500", "bg-rose-500", "bg-amber-500", "bg-lime-500"];
 
 const day = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 const dateLabel = (e: ChronoEvent) => (e.precision === "month" ? "—" : e.end ? `${day(e.date)}–${new Date(`${e.end}T12:00:00`).getDate()}` : day(e.date));
@@ -18,8 +14,6 @@ const dateLabel = (e: ChronoEvent) => (e.precision === "month" ? "—" : e.end ?
 export function TimelinePanel({ caseId, onOpen }: { caseId: string; onOpen: OpenItem }) {
   const rec = useStore((s) => s.cases[caseId])!;
   const { events, undated } = useMemo(() => chronology(rec.evidence), [rec.evidence]);
-  const names = codenames(rec);
-  const lane = (s: string | undefined) => (s ? LANE[names.indexOf(s) % LANE.length] : "bg-muted-foreground/50");
   // Separate sources that put something on the same day: the strongest sign two accounts agree.
   const sourcesOn = (date: string) => new Set(events.filter((e) => e.date === date && e.evidence.source).map((e) => e.evidence.source)).size;
   const guessed = events.some((e) => e.guessedYear);
@@ -60,7 +54,7 @@ export function TimelinePanel({ caseId, onOpen }: { caseId: string; onOpen: Open
                 </div>
                 <div className="relative flex justify-center">
                   <span className="absolute inset-y-0 w-px bg-border" />
-                  <span className={cn("relative mt-5 size-2.5 rounded-full ring-4 ring-background", lane(e.evidence.source))} />
+                  <span className="relative mt-5 size-2 rounded-full bg-muted-foreground/40 ring-4 ring-background" />
                 </div>
                 <button type="button" onClick={() => onOpen("evidence", e.evidence.id)} className="card my-2 gap-2 text-left surface transition-colors hover:bg-muted/30">
                   <p className="font-serif text-[15px] leading-relaxed">{e.text}</p>

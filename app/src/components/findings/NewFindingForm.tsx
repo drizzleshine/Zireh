@@ -39,7 +39,7 @@ export function NewFindingForm({ caseId, rec, me, accepted, onDone }: { caseId: 
         }
       }}
     >
-      <div className="grid flex-1 content-start gap-5 overflow-y-auto p-5">
+      <div className="grid flex-1 content-start gap-5 p-4 md:p-6">
         <div className="grid gap-1.5">
           <Label htmlFor="nf-statement">What are you claiming?</Label>
           <Textarea id="nf-statement" required autoFocus value={statement} onChange={(e) => setStatement(e.target.value)} placeholder="State it as you would print it." className="min-h-24 font-serif text-[16px]" />

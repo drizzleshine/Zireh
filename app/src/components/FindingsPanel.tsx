@@ -115,10 +115,7 @@ export function FindingsPanel({ caseId, focus, onOpen }: { caseId: string; focus
             )}
           </SideList>
           {writing || findings.length === 0 ? (
-            <Pane bodyClassName="grid gap-3 p-4 md:p-6">
-              <p className="text-center text-xs text-muted-foreground">
-                {new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-              </p>
+            <Pane title="New finding" meta="Write the claim, then tick what proves it.">
               <NewFindingForm caseId={caseId} rec={rec} me={me} accepted={accepted} onDone={(id) => { setWriting(false); if (id) setOpen(id); }} />
             </Pane>
           ) : current ? (
