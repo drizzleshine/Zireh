@@ -26,7 +26,12 @@ export function setSlot(caseId: string, update: (s: RunSlot) => RunSlot) {
   slots.set(caseId, next);
   for (const l of slotListeners) l();
   if (next.run && next.runId && (next.run !== previous.run || next.runId !== previous.runId)) {
-    void saveResearch(caseId, next.runId, next.run).catch((error: Error) => {
+    void saveResearch(caseId, next.runId, next.run).then(() => {
+      if (!getSlot(caseId).historyError) return;
+      const { historyError: _cleared, ...rest } = getSlot(caseId);
+      slots.set(caseId, rest);
+      for (const listener of slotListeners) listener();
+    }, (error: Error) => {
       slots.set(caseId, { ...getSlot(caseId), historyError: `Could not save research history: ${error.message}` });
       for (const listener of slotListeners) listener();
     });

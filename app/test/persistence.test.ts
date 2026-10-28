@@ -22,4 +22,13 @@ describe("storage layout", () => {
     expect(left.filter((key) => key.includes("abcd"))).toHaveLength(6);
     expect(await database.range(Keys.records("abcd"))).toEqual([{ id: "r" }]);
   });
+
+  it("keeps working after the browser closes the connection underneath it", async () => {
+    await database.write((s) => s.put("before", "probe"));
+    // What a full disk or cleared site data does: the open connection stops accepting transactions.
+    const connection = await (database as unknown as { opened: Promise<IDBDatabase> }).opened;
+    connection.close();
+    await database.write((s) => s.put("after", "probe"));
+    expect(await database.get("probe")).toBe("after");
+  });
 });

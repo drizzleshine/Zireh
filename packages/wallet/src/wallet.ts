@@ -12,12 +12,16 @@ export type { MoneyStore as ProofStore } from "./store.ts";
 export { memoryMoneyStore as memoryProofStore } from "./store.ts";
 import type { MoneyStore } from "./store.ts";
 
+/** Credits are µUSD; small amounts keep three significant digits ("$0.000725"). */
+const usd = (credits: number): string =>
+  credits <= 0 ? "$0" : credits >= 10_000 ? `$${(credits / 1e6).toFixed(2)}` : `$${Number((credits / 1e6).toPrecision(3))}`;
+
 export class InsufficientFunds extends Error {
   constructor(
     readonly needed: number,
     readonly available: number,
   ) {
-    super(`need ${needed} credits, have ${available}`);
+    super(`Not enough money in this browser's wallet: this needs up to ${usd(needed)} and it holds ${usd(available)}. Add money to continue.`);
     this.name = "InsufficientFunds";
   }
 }

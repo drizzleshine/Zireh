@@ -134,3 +134,10 @@ describe("pricing and bill check", () => {
     expect(checkBill(price, messages, "y".repeat(20), usage, fair, 300).reason).toMatch(/cap/);
   });
 });
+
+describe("insufficient funds", () => {
+  it("says what is needed in dollars and what to do", () => {
+    expect(new InsufficientFunds(725, 0).message).toBe("Not enough money in this browser's wallet: this needs up to $0.000725 and it holds $0. Add money to continue.");
+    expect(new InsufficientFunds(5_000_000, 120_000).message).toContain("needs up to $5.00 and it holds $0.12");
+  });
+});

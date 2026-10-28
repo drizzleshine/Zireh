@@ -62,17 +62,35 @@ const under = (prefix: string) => IDBKeyRange.bound(prefix, `${prefix}\uffff`);
 class BrowserDatabase {
   private opened: Promise<IDBDatabase> | undefined;
   private open(): Promise<IDBDatabase> {
-    return this.opened ??= new Promise((resolve, reject) => {
+    const opening = this.opened ??= new Promise((resolve, reject) => {
       const request = indexedDB.open("zireh-records", 1);
       request.onupgradeneeded = () => request.result.createObjectStore("data");
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        // The browser closes a connection on its own when storage fails (a full disk, cleared site
+        // data). Forget it then, so the next call opens a fresh one instead of failing forever.
+        const forget = () => { if (this.opened === opening) this.opened = undefined; };
+        db.onclose = forget;
+        db.onversionchange = () => { db.close(); forget(); };
+        resolve(db);
+      };
+      request.onerror = () => { this.opened = undefined; reject(request.error); };
     });
+    return opening;
+  }
+  /** A transaction on a live connection; one closed underneath us is replaced once. */
+  private async transaction(mode: IDBTransactionMode): Promise<IDBTransaction> {
+    try {
+      return (await this.open()).transaction("data", mode);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "InvalidStateError")) throw error;
+      this.opened = undefined;
+      return (await this.open()).transaction("data", mode);
+    }
   }
   async write(work: (store: IDBObjectStore) => void): Promise<void> {
-    const db = await this.open();
+    const transaction = await this.transaction("readwrite");
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction("data", "readwrite");
       transaction.oncomplete = () => resolve();
       transaction.onabort = () => reject(transaction.error ?? new Error("Local storage transaction aborted"));
       transaction.onerror = () => reject(transaction.error);
@@ -80,9 +98,8 @@ class BrowserDatabase {
     });
   }
   async entries(): Promise<[string, unknown][]> {
-    const db = await this.open();
+    const transaction = await this.transaction("readonly");
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction("data", "readonly");
       const store = transaction.objectStore("data");
       const keys = store.getAllKeys();
       const values = store.getAll();
@@ -92,27 +109,26 @@ class BrowserDatabase {
   }
   /** One value by key, without loading anything else. */
   async get<T>(key: string): Promise<T | undefined> {
-    const db = await this.open();
+    const transaction = await this.transaction("readonly");
     return new Promise((resolve, reject) => {
-      const request = db.transaction("data", "readonly").objectStore("data").get(key);
+      const request = transaction.objectStore("data").get(key);
       request.onsuccess = () => resolve(request.result as T | undefined);
       request.onerror = () => reject(request.error);
     });
   }
   /** Every value whose key starts with `prefix` (see Keys), in key order. */
   async range<T>(prefix: string): Promise<T[]> {
-    const db = await this.open();
+    const transaction = await this.transaction("readonly");
     return new Promise((resolve, reject) => {
-      const request = db.transaction("data", "readonly").objectStore("data").getAll(under(prefix));
+      const request = transaction.objectStore("data").getAll(under(prefix));
       request.onsuccess = () => resolve(request.result as T[]);
       request.onerror = () => reject(request.error);
     });
   }
   /** Like `range`, with each value's key, for groups whose values don't carry their own id. */
   async rangeEntries<T>(prefix: string): Promise<[string, T][]> {
-    const db = await this.open();
+    const transaction = await this.transaction("readonly");
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction("data", "readonly");
       const store = transaction.objectStore("data");
       const keys = store.getAllKeys(under(prefix));
       const values = store.getAll(under(prefix));
