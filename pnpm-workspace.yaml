@@ -4,3 +4,5 @@ packages:
   - legacy/*
 allowBuilds:
   esbuild: false
+  onnxruntime-node: false
+  protobufjs: false

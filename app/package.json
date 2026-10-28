@@ -9,11 +9,13 @@
   },
   "dependencies": {
     "@fontsource-variable/outfit": "5.2.8",
+    "@huggingface/transformers": "4.3.1",
     "@phosphor-icons/react": "2.1.10",
     "@tailwindcss/vite": "^4.3.3",
     "@xyflow/react": "^12.12.0",
     "@zireh/cases": "workspace:*",
     "@zireh/crypto": "workspace:*",
+    "@zireh/llm": "workspace:*",
     "@zireh/schema": "workspace:*",
     "@zireh/shield": "workspace:*",
     "@zireh/sync": "workspace:*",
