@@ -1,6 +1,6 @@
 import type { Attachment, Evidence } from "@zireh/schema";
 import { CaretLeft, CaretRight, DownloadSimple, EyeSlash, File as FileIcon, FilePdf, FileText, FilmStrip, Image as ImageIcon, LinkSimple, MusicNotes, Note, Paperclip, X } from "@phosphor-icons/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { downloadFile, fileUrl, filesOf, formatBytes, textOf, viewOf, type FileView } from "../../evidence.ts";
 import { ImageRedactor } from "../ImageRedactor.tsx";
 import { Button } from "@/components/ui/button";
@@ -18,10 +18,19 @@ export function evidenceIcon(e: Evidence): typeof FileIcon {
   return /^\s*https?:\/\/\S+/.test(textOf(e)) ? LinkSimple : Note;
 }
 
-/** A blob URL for as long as the component shows the file. */
+/**
+ * A blob URL for as long as the component shows the file. Created and revoked in the same
+ * effect, so a re-run (React's development double-run, or a new file after a redaction) never
+ * leaves the image pointing at a revoked URL.
+ */
 function useFileUrl(file: Attachment | undefined, enabled = true) {
-  const url = useMemo(() => (file && enabled ? fileUrl(file) : undefined), [file, enabled]);
-  useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url]);
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    if (!file || !enabled) return setUrl(undefined);
+    const next = fileUrl(file);
+    setUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [file?.sha256, file?.data.length, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
   return url;
 }
 
@@ -29,12 +38,14 @@ function useFileUrl(file: Attachment | undefined, enabled = true) {
 export function FileTile({ file, onOpen, onRemove, size = "md" }: { file: Attachment; onOpen: () => void; onRemove?: () => void; size?: "sm" | "md" }) {
   const view = viewOf(file);
   const url = useFileUrl(file, view === "image");
-  const Icon = ICON[view];
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [url]);
+  const Icon = view === "image" ? ImageIcon : ICON[view];
   return (
     <div className={cn("group relative shrink-0", size === "sm" ? "size-16" : "size-24")}>
       <button type="button" onClick={onOpen} title={`${file.name} · ${formatBytes(file.size)}`} className="flex size-full flex-col items-center justify-center gap-1 overflow-hidden rounded-xl border bg-muted/40 text-muted-foreground transition-colors hover:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none">
-        {url ? (
-          <img src={url} alt={file.name} className="size-full object-cover" />
+        {url && !broken ? (
+          <img src={url} alt={file.name} onError={() => setBroken(true)} className="size-full object-cover" />
         ) : (
           <>
             <Icon className="size-6" />
@@ -62,9 +73,17 @@ export function FileViewer({ files, index, onIndex, onClose, onRedact }: { files
   const view = file ? viewOf(file) : "other";
   const url = useFileUrl(file, view === "image" || view === "audio" || view === "video");
   const [redacting, setRedacting] = useState(false);
+  // The redacted picture, shown at once while the save comes back with the new file.
+  const [fresh, setFresh] = useState<string>();
+  const [broken, setBroken] = useState(false);
   const step = (by: number) => index !== undefined && files.length > 1 && onIndex((index + by + files.length) % files.length);
 
-  useEffect(() => setRedacting(false), [index]);
+  useEffect(() => {
+    setRedacting(false);
+    setFresh(undefined);
+  }, [index]);
+  useEffect(() => setFresh(undefined), [file?.sha256]);
+  useEffect(() => setBroken(false), [url, fresh]);
 
   return (
     <Dialog open={!!file} onOpenChange={(open) => !open && onClose()}>
@@ -112,10 +131,18 @@ export function FileViewer({ files, index, onIndex, onClose, onRedact }: { files
               )}
               {view === "image" && redacting && onRedact ? (
                 <div className="p-4">
-                  <ImageRedactor src={`data:image/jpeg;base64,${file.data}`} canvasClassName="block max-h-[70svh] max-w-full cursor-crosshair touch-none rounded-md" onChange={(dataUrl) => onRedact(index!, dataUrl)} />
+                  <ImageRedactor
+                    src={fresh ?? `data:image/jpeg;base64,${file.data}`}
+                    canvasClassName="block max-h-[70svh] max-w-full cursor-crosshair touch-none rounded-md"
+                    onChange={(dataUrl) => {
+                      setFresh(dataUrl);
+                      setRedacting(false);
+                      onRedact(index!, dataUrl);
+                    }}
+                  />
                 </div>
-              ) : view === "image" && url ? (
-                <img src={url} alt={file.name} className="absolute inset-0 size-full object-contain p-4" />
+              ) : view === "image" && (fresh || url) && !broken ? (
+                <img src={fresh ?? url} alt={file.name} onError={() => setBroken(true)} className="absolute inset-0 size-full object-contain p-4" />
               ) : view === "pdf" ? (
                 <PdfPages file={file} />
               ) : view === "text" ? (
