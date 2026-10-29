@@ -118,7 +118,7 @@ export function ConcludePanel({ caseId, onOpen }: { caseId: string; onOpen: Open
                   step === n ? "border-foreground/20 bg-card font-medium surface" : "border-transparent text-muted-foreground hover:text-foreground",
                 )}
               >
-                <span className={cn("grid size-5 place-items-center rounded-full text-[11px] font-semibold", complete ? "bg-protected text-background" : step === n ? "bg-foreground text-background" : "bg-muted text-muted-foreground")}>
+                <span className={cn("grid size-5 place-items-center rounded-full text-[0.6875rem] font-semibold", complete ? "bg-protected text-background" : step === n ? "bg-foreground text-background" : "bg-muted text-muted-foreground")}>
                   {complete ? <Check className="size-3" weight="bold" /> : n}
                 </span>
                 {label}
@@ -184,7 +184,7 @@ export function ConcludePanel({ caseId, onOpen }: { caseId: string; onOpen: Open
           >
             <div className="field">
               <Label htmlFor="c-summary">{ask.ask}</Label>
-              <Textarea id="c-summary" required autoFocus maxLength={10_000} value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="Say it the way you'd tell your editor." className="min-h-32 font-serif text-[16px] leading-relaxed" />
+              <Textarea id="c-summary" required autoFocus maxLength={10_000} value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="Say it the way you'd tell your editor." className="min-h-32 font-serif text-[1rem] leading-relaxed" />
             </div>
             <div className="field">
               <Label htmlFor="c-open">{ask.open}</Label>
@@ -205,7 +205,7 @@ export function ConcludePanel({ caseId, onOpen }: { caseId: string; onOpen: Open
                 return (
                   <label key={f.id} className="flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors has-[:checked]:border-protected/50 has-[:checked]:bg-protected-wash/40">
                     <Checkbox checked={picked.includes(f.id)} onCheckedChange={() => setPicked(picked.includes(f.id) ? picked.filter((x) => x !== f.id) : [...picked, f.id])} className="mt-0.5" />
-                    <span className="flex-1 font-serif text-[15px] leading-snug">{f.statement}</span>
+                    <span className="flex-1 font-serif text-[0.9375rem] leading-snug">{f.statement}</span>
                     <span className="flex shrink-0 flex-col items-end gap-0.5 text-xs">
                       <span className={cn(c.level === "corroborated" ? "text-protected" : "text-decoy")}>{c.level === "corroborated" ? `${c.sources.length} sources` : c.level === "single" ? "1 source" : "No source"}</span>
                       <span className={cn(f.tally.status === "supported" ? "text-protected" : f.tally.status === "disputed" ? "text-destructive" : "text-muted-foreground")}>{f.tally.status === "supported" ? "Team agrees" : f.tally.status === "disputed" ? "Team disagrees" : f.tally.status === "needs-evidence" ? "Needs evidence" : "Not reviewed"}</span>

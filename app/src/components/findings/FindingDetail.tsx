@@ -47,7 +47,7 @@ export function FindingDetail({ caseId, rec, finding: f, verdict: v, me, onOpen,
       }
     >
       <header className="grid gap-2">
-          <p className="font-serif text-[20px] leading-snug text-pretty">{f.statement}</p>
+          <p className="font-serif text-[1.25rem] leading-snug text-pretty">{f.statement}</p>
           <p className={cn("flex items-center gap-2 text-sm font-medium", TONE_TEXT[v.tone])}>
             <span className={cn("size-2 rounded-full", TONE_DOT[v.tone])} />
             {v.text}
@@ -60,7 +60,7 @@ export function FindingDetail({ caseId, rec, finding: f, verdict: v, me, onOpen,
         <ul className="grid gap-3">
           {observations.map((o) => (
             <li key={o.id} className="grid gap-1 border-l-2 pl-3">
-              <p className="font-serif text-[15px] leading-relaxed">{splitAi(o).text.slice(0, 500)}</p>
+              <p className="font-serif text-[0.9375rem] leading-relaxed">{splitAi(o).text.slice(0, 500)}</p>
               <div className="flex items-start gap-2">
               <p className="min-w-0 flex-1 pt-1 text-xs text-muted-foreground">
                 {rec.evidence

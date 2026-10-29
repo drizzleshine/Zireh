@@ -38,8 +38,8 @@ export function FileTile({ file, onOpen, onRemove, size = "md" }: { file: Attach
         ) : (
           <>
             <Icon className="size-6" />
-            <span className="text-[10px] font-medium tracking-wide">{ext(file.name)}</span>
-            {size === "md" && <span className="w-full truncate px-2 text-center text-[11px]">{file.name}</span>}
+            <span className="text-[0.625rem] font-medium tracking-wide">{ext(file.name)}</span>
+            {size === "md" && <span className="w-full truncate px-2 text-center text-[0.6875rem]">{file.name}</span>}
           </>
         )}
       </button>
@@ -115,15 +115,15 @@ export function FileViewer({ files, index, onIndex, onClose, onRedact }: { files
                   <ImageRedactor src={`data:image/jpeg;base64,${file.data}`} canvasClassName="block max-h-[70svh] max-w-full cursor-crosshair touch-none rounded-md" onChange={(dataUrl) => onRedact(index!, dataUrl)} />
                 </div>
               ) : view === "image" && url ? (
-                <img src={url} alt={file.name} className="max-h-full max-w-full object-contain p-4" />
+                <img src={url} alt={file.name} className="absolute inset-0 size-full object-contain p-4" />
               ) : view === "pdf" ? (
                 <PdfPages file={file} />
               ) : view === "text" ? (
-                <pre className="size-full overflow-auto p-6 font-mono text-[13px] leading-relaxed whitespace-pre-wrap">{file.text}</pre>
+                <pre className="absolute inset-0 overflow-auto p-6 font-mono text-[0.8125rem] leading-relaxed whitespace-pre-wrap">{file.text}</pre>
               ) : view === "audio" && url ? (
-                <audio src={url} controls className="w-[min(90%,480px)]" />
+                <audio src={url} controls className="w-[min(90%,30rem)]" />
               ) : view === "video" && url ? (
-                <video src={url} controls className="max-h-full max-w-full" />
+                <video src={url} controls className="absolute inset-0 size-full bg-black object-contain" />
               ) : (
                 <Unviewable file={file} />
               )}
@@ -170,7 +170,7 @@ function PdfPages({ file }: { file: Attachment }) {
     };
   }, [file]);
   if (failed) return <Unviewable file={file} />;
-  return <div ref={box} className="grid size-full content-start gap-4 overflow-auto p-6" />;
+  return <div ref={box} className="absolute inset-0 grid content-start gap-4 overflow-auto p-6" />;
 }
 
 function Unviewable({ file }: { file: Attachment }) {

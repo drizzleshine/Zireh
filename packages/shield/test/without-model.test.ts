@@ -3,15 +3,17 @@ import { describe, expect, it } from "vitest";
 import { compile, finish, NeedsLocalModel } from "../src/index.ts";
 
 describe("without an on-device model", () => {
-  const input = { task: "Is Ada Obi at risk after her report on Apapa port? Email ada@example.org", level: "standard" as const, table: [], salt: "s" };
+  const table = [{ original: "Ada Obi", placeholder: "[PERSON_1]", kind: "person" as const, hint: "a reporter" }];
+  const input = { task: "Is Ada Obi at risk after her report on Apapa port? Email ada@example.org", level: "standard" as const, table, salt: "s" };
 
-  it("hides every name-like phrase and pattern, and sends the task as one question", async () => {
+  it("hides only the hide list, guesses nothing, and sends the task as one question", async () => {
     const plan = await compile(undefined, input);
     const real = plan.pieces.filter((p) => p.role === "real");
     expect(real).toHaveLength(1);
     const outbound = JSON.stringify(plan.pieces.map((p) => p.messages));
-    for (const secret of ["Ada Obi", "Apapa", "ada@example.org"]) expect(outbound).not.toContain(secret);
-    expect(plan.table.map((p) => p.original)).toEqual(expect.arrayContaining(["Ada Obi", "ada@example.org"]));
+    expect(outbound).not.toContain("Ada Obi");
+    for (const unlisted of ["Apapa", "ada@example.org"]) expect(outbound).toContain(unlisted);
+    expect(plan.table.map((p) => p.original)).toEqual(["Ada Obi"]);
   });
 
   it("sends Standard as one question with no decoys", async () => {

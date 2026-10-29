@@ -25,7 +25,7 @@ export function TeamDialog({ caseId, onClose }: { caseId: string; onClose: () =>
                 {member.id === rec.case.createdBy && <Badge variant="secondary" className="font-normal">creator</Badge>}
                 {member.removedAt && <Badge variant="outline" className="font-normal text-muted-foreground">removed</Badge>}
               </p>
-              <p className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
+              <p className="flex items-center gap-1 font-mono text-[0.6875rem] text-muted-foreground">
                 {member.signingKey ? <ShieldCheck className="size-3 text-protected" /> : <KeyRound className="size-3" />}
                 {member.id.slice(0, 12)} · {member.signingKey ? "signs their edits" : "legacy unsigned"}
               </p>

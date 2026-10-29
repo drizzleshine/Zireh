@@ -51,7 +51,7 @@ export function FindingForm({ caseId, rec, me, accepted, finding, onDone }: { ca
       <div className="grid flex-1 content-start gap-5 p-4 md:p-6">
         <div className="grid gap-1.5">
           <Label htmlFor="nf-statement">What are you claiming?</Label>
-          <Textarea id="nf-statement" required autoFocus value={statement} onChange={(e) => setStatement(e.target.value)} placeholder="State it as you would print it." className="min-h-24 font-serif text-[16px]" />
+          <Textarea id="nf-statement" required autoFocus value={statement} onChange={(e) => setStatement(e.target.value)} placeholder="State it as you would print it." className="min-h-24 font-serif text-[1rem]" />
         </div>
         <div className="grid gap-2">
           <div className="flex items-baseline gap-2">
@@ -71,7 +71,7 @@ export function FindingForm({ caseId, rec, me, accepted, finding, onDone }: { ca
                     <label className="flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors has-[:checked]:border-protected/50 has-[:checked]:bg-protected-wash/40">
                       <Checkbox checked={picked.includes(o.id)} onCheckedChange={() => setPicked(picked.includes(o.id) ? picked.filter((x) => x !== o.id) : [...picked, o.id])} className="mt-0.5" />
                       <span className="grid gap-1">
-                        <span className="font-serif text-[15px] leading-snug">{splitAi(o).text.slice(0, 300)}</span>
+                        <span className="font-serif text-[0.9375rem] leading-snug">{splitAi(o).text.slice(0, 300)}</span>
                         <span className="text-xs text-muted-foreground">{from.map((e) => e.source ?? "no source").join(", ") || "No evidence cited"}</span>
                       </span>
                     </label>

@@ -1,4 +1,6 @@
 import { findingViews } from "@zireh/cases";
+import type { AppStatus } from "@zireh/schema";
+import { LocalAiNote } from "./LocalAiNote.tsx";
 import { ArrowRight, CaretLeft, MagnifyingGlass as Search, Check, Lightbulb, Plus } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { myMemberId, useStore } from "../store.ts";
@@ -17,7 +19,7 @@ import { FindingForm } from "./findings/FindingForm.tsx";
  * The claims your team would print, one line each with whether it's ready. Writing a
  * finding happens in the reading pane; checking new observations has its own panel.
  */
-export function FindingsPanel({ caseId, focus, onOpen }: { caseId: string; focus?: string | undefined; onOpen?: OpenItem }) {
+export function FindingsPanel({ caseId, focus, onOpen, status }: { caseId: string; focus?: string | undefined; onOpen?: OpenItem; status: AppStatus | undefined }) {
   const rec = useStore((s) => s.cases[caseId])!;
   const me = myMemberId(caseId);
   const findings = findingViews(rec);
@@ -105,10 +107,12 @@ export function FindingsPanel({ caseId, focus, onOpen }: { caseId: string; focus
           </SideList>
           {writing || findings.length === 0 ? (
             <Pane title="New finding" meta="Write the claim, then tick what proves it.">
+              <LocalAiNote status={status} className="mx-4 mt-4 md:mx-6" />
               <FindingForm caseId={caseId} rec={rec} me={me} accepted={accepted} onDone={(id) => { setWriting(false); if (id) setOpen(id); }} />
             </Pane>
           ) : current && editing === current.f.id ? (
             <Pane title="Edit finding" meta="Reword the claim or change what proves it.">
+              <LocalAiNote status={status} className="mx-4 mt-4 md:mx-6" />
               <FindingForm key={current.f.id} caseId={caseId} rec={rec} me={me} accepted={accepted} finding={current.f} onDone={() => setEditing(undefined)} />
             </Pane>
           ) : current ? (

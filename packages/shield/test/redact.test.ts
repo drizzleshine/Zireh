@@ -1,28 +1,6 @@
 import { scriptedModel } from "@zireh/llm";
 import { describe, expect, it } from "vitest";
-import { applyTable, detectPatterns, properNounCandidates, extendTable, findLeaks, redactText, restore, withHints } from "../src/redact/index.ts";
-
-describe("detectPatterns", () => {
-  it("finds contacts, ids and money without overlap", () => {
-    const found = detectPatterns("Mail ada@lab.org or call +234 803 555 0101; paid $4,500 to GB82WEST12345698765432.");
-    expect(found.map((d) => d.kind)).toEqual(["contact", "contact", "id", "money"]);
-    expect(found.map((d) => d.text)).toContain("ada@lab.org");
-  });
-});
-
-describe("detectPatterns: quotes", () => {
-  it("treats verbatim quotes of three or more words as identifying", () => {
-    const found = detectPatterns("She got a text saying 'Stop writing about the bay' and it's \"odd\".");
-    expect(found).toContainEqual({ text: "Stop writing about the bay", kind: "other" });
-    expect(found.some((d) => d.text === "odd")).toBe(false);
-  });
-});
-
-describe("properNounCandidates", () => {
-  it("finds capitalized names but not sentence-initial common words", () => {
-    expect(properNounCandidates("What laws protect journalists in Nigeria who report at Apapa port? She told Ada Obi.")).toEqual(["Nigeria", "Apapa", "Ada Obi"]);
-  });
-});
+import { applyTable, extendTable, findLeaks, redactText, redactWithTable, restore, withHints } from "../src/redact/index.ts";
 
 describe("pseudonym table", () => {
   it("is stable: known originals keep their placeholder, new ones continue numbering", () => {
@@ -58,15 +36,23 @@ describe("pseudonym table", () => {
 });
 
 describe("redactText", () => {
-  it("combines model entities with pattern detections and ignores invented entities", async () => {
+  it("hides only what the model finds in the text, ignoring invented entities", async () => {
     const model = scriptedModel((m) =>
       m[0]!.content.includes("general kind")
         ? JSON.stringify({ hints: {} })
-        : JSON.stringify({ entities: [{ text: "Dr. Okafor", kind: "person" }, { text: "Not In Text", kind: "org" }] }),
+        : JSON.stringify({ entities: [{ text: "Dr. Okafor", kind: "person" }, { text: "okafor@stmary.ng", kind: "contact" }, { text: "Not In Text", kind: "org" }] }),
     );
     const result = await redactText(model, "Dr. Okafor (okafor@stmary.ng) asked about it.", []);
     expect(result.text).toBe("[PERSON_1] ([CONTACT_1]) asked about it.");
     expect(result.added.map((p) => p.original).sort()).toEqual(["Dr. Okafor", "okafor@stmary.ng"]);
+  });
+
+  it("never guesses from capital letters or patterns", async () => {
+    const model = scriptedModel((m) => (m[0]!.content.includes("general kind") ? JSON.stringify({ hints: {} }) : JSON.stringify({ entities: [] })));
+    const text = "Ada Obi (ada@lab.org) reports from Apapa.";
+    expect((await redactText(model, text, [])).text).toBe(text);
+    expect(redactWithTable(text, []).text).toBe(text);
+    expect(redactWithTable(text, extendTable([], [{ text: "Ada Obi", kind: "person" }])).text).toBe("[PERSON_1] (ada@lab.org) reports from Apapa.");
   });
 
   it("asks for hints separately, keeps vague ones, drops ones containing the value, and ignores topics", async () => {
@@ -94,17 +80,6 @@ describe("redactText", () => {
       { text: "Apapa port", kind: "place", hint: "a port in Lagos" },
     ]);
     expect(table.find((p) => p.original === "Apapa port")!.hint).toBe("a location");
-  });
-
-  it("catches names the extraction missed with a classification pass", async () => {
-    const model = scriptedModel((m) => {
-      const sys = m[0]!.content;
-      if (sys.includes("say what it names")) return JSON.stringify({ items: [{ text: "Nigeria", kind: "place" }, { text: "Apapa", kind: "place" }] });
-      if (sys.includes("general kind")) return JSON.stringify({ hints: { Nigeria: "a country in West Africa", Apapa: "a port district" } });
-      return JSON.stringify({ entities: [] });
-    });
-    const r = await redactText(model, "What laws protect journalists in Nigeria who report at Apapa port?", []);
-    expect(r.text).toBe("What laws protect journalists in [PLACE_1] who report at [PLACE_2] port?");
   });
 
   it("ignores implausible identifiers from the model (no capital, no digit)", async () => {

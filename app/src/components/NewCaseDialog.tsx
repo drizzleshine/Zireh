@@ -38,7 +38,7 @@ export function NewCaseDialog({ onClose, onCreated }: { onClose: () => void; onC
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="nc-question">What are you trying to find out?</Label>
-          <Textarea id="nc-question" required maxLength={2000} value={question} onChange={(e) => setQuestion(e.target.value)} className="min-h-20 font-serif text-[15px]" />
+          <Textarea id="nc-question" required maxLength={2000} value={question} onChange={(e) => setQuestion(e.target.value)} className="min-h-20 font-serif text-[0.9375rem]" />
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="nc-name">Your name in this case</Label>

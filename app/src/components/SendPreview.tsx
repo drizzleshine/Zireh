@@ -1,4 +1,4 @@
-import { applyTable, extendTable, findLeaks, redactWithoutModel, withHints } from "@zireh/shield";
+import { applyTable, extendTable, findLeaks, redactWithTable, withHints } from "@zireh/shield";
 import type { EntityKind, Pseudonym } from "@zireh/schema";
 import { Warning as AlertTriangle, EyeSlash as EyeOff, PencilSimple } from "@phosphor-icons/react";
 import { useDeferredValue, useMemo, useState } from "react";
@@ -36,7 +36,7 @@ export function SendPreview({ caseId, task, context, table, localAi }: { caseId:
     if (!localAi) {
       // Same input the shield builds: context first, then the task, sharing one table.
       const joined = context.join("\n\n");
-      const red = redactWithoutModel(joined ? `${joined}\n\nTask: ${deferred}` : deferred, table);
+      const red = redactWithTable(joined ? `${joined}\n\nTask: ${deferred}` : deferred, table);
       const present = new Set(findLeaks(deferred, red.table).map((o) => o.toLowerCase()));
       const items = red.table
         .filter((p) => present.has(p.original.toLowerCase()))
@@ -45,7 +45,7 @@ export function SendPreview({ caseId, task, context, table, localAi }: { caseId:
     }
     const items = scan(deferred, table).map((h): Item => {
       const known = table.find((p) => p.original.toLowerCase() === h.text.toLowerCase());
-      return { original: known?.original ?? h.text, kind: known?.kind ?? h.kind, hint: known?.hint, sure: !h.guess, identity: !!known && identity(known.original) };
+      return { original: known?.original ?? h.text, kind: known?.kind ?? h.kind, hint: known?.hint, sure: true, identity: !!known && identity(known.original) };
     });
     return { items, wire: undefined };
   }, [deferred, context, table, team, localAi]);
@@ -74,7 +74,7 @@ export function SendPreview({ caseId, task, context, table, localAi }: { caseId:
       {wire !== undefined ? (
         <p className="rounded-lg bg-muted/60 px-3 py-2 leading-relaxed text-muted-foreground">
           <span className="font-medium text-foreground/80">The AI will see: </span>
-          <span className="font-serif text-[14px] text-foreground">“{wire}”</span>
+          <span className="font-serif text-[0.875rem] text-foreground">“{wire}”</span>
           {context.length > 0 && <span> Plus {context.length} evidence item{context.length === 1 ? "" : "s"}, hidden the same way.</span>}
         </p>
       ) : (

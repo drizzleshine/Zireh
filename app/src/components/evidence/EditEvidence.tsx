@@ -50,7 +50,7 @@ export function EditEvidence({ caseId, rec, evidence: e, onDone }: { caseId: str
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="ee-body">Text</Label>
-          <Textarea id="ee-body" required={!files.length} value={body} onChange={(ev) => setBody(ev.target.value)} className="min-h-40 font-serif text-[15px] leading-relaxed" />
+          <Textarea id="ee-body" required={!files.length} value={body} onChange={(ev) => setBody(ev.target.value)} className="min-h-40 font-serif text-[0.9375rem] leading-relaxed" />
         </div>
         {files.length > 0 && <p className="text-sm text-muted-foreground">Files stay exactly as received. To hide part of a picture, open it and use Redact.</p>}
       </div>

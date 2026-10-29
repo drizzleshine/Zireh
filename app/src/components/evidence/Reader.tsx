@@ -30,8 +30,7 @@ export function Reader({ caseId, evidence: e, query, table, onOpen, onEdit }: { 
   const [viewing, setViewing] = useState<number>();
   const text = textOf(e);
   const files = filesOf(e);
-  // Only what the pipeline is certain to hide; capitalization guesses stay in the intake view.
-  const hits = useMemo(() => scan(readableText(e), table).filter((h) => !h.guess), [e, table]);
+  const hits = useMemo(() => scan(readableText(e), table), [e, table]);
   const used = rec.observations.filter((o) => o.evidenceIds.includes(e.id) && o.status !== "rejected");
   const Icon = evidenceIcon(e);
   const url = /https?:\/\/[^\s]+/.exec(text)?.[0];
@@ -42,7 +41,7 @@ export function Reader({ caseId, evidence: e, query, table, onOpen, onEdit }: { 
       bodyClassName="grid gap-5 p-4 md:p-6"
       footer={
         <>
-          <span className="font-mono text-[11px] text-muted-foreground" title={e.sha256}>
+          <span className="font-mono text-[0.6875rem] text-muted-foreground" title={e.sha256}>
             sha256 {e.sha256.slice(0, 16)}…
           </span>
           <span className="ml-auto flex items-center gap-1">
@@ -103,7 +102,7 @@ export function Reader({ caseId, evidence: e, query, table, onOpen, onEdit }: { 
           <label htmlFor={`obs-${e.id}`} className="text-sm font-medium">
             What do you see in this?
           </label>
-          <Textarea id={`obs-${e.id}`} autoFocus required value={note} onChange={(ev) => setNote(ev.target.value)} className="min-h-20 bg-card font-serif text-[15px]" />
+          <Textarea id={`obs-${e.id}`} autoFocus required value={note} onChange={(ev) => setNote(ev.target.value)} className="min-h-20 bg-card font-serif text-[0.9375rem]" />
           <div className="flex justify-end gap-2">
             <Button
               type="button"
@@ -131,7 +130,7 @@ export function Reader({ caseId, evidence: e, query, table, onOpen, onEdit }: { 
               <span className="truncate">{url}</span>
             </a>
           )}
-          <p className="font-serif text-[16px] leading-relaxed whitespace-pre-wrap">
+          <p className="font-serif text-[1rem] leading-relaxed whitespace-pre-wrap">
             <Highlighted text={text.slice(0, 200_000)} hits={hits} query={query} />
           </p>
           {text.length > 200_000 && <p className="text-xs text-muted-foreground">Showing the first 200,000 characters.</p>}

@@ -57,7 +57,7 @@ export function ImageRedactor({ src, onChange, canvasClassName }: { src: string;
       <div className="relative justify-self-start leading-none">
         <canvas
           ref={canvas}
-          className={canvasClassName ?? "block max-h-[360px] max-w-[min(100%,520px)] cursor-crosshair touch-none rounded-md border"}
+          className={canvasClassName ?? "block max-h-[22.5rem] max-w-[min(100%,520px)] cursor-crosshair touch-none rounded-md border"}
           aria-label="Image. Drag to mark areas to hide."
           onPointerDown={(e) => {
             (e.target as HTMLElement).setPointerCapture(e.pointerId);

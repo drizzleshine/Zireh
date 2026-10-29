@@ -200,13 +200,13 @@ function Row({ r }: { r: Receipt }) {
         {salted && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="mb-1.5 inline-block rounded border border-dashed px-1.5 font-mono text-[11px] text-muted-foreground">case salt {salted[1]!.slice(0, 10)}…</span>
+              <span className="mb-1.5 inline-block rounded border border-dashed px-1.5 font-mono text-[0.6875rem] text-muted-foreground">case salt {salted[1]!.slice(0, 10)}…</span>
             </TooltipTrigger>
             <TooltipContent className="max-w-72">A random tag per case, so providers can't match your questions with anyone else's.</TooltipContent>
           </Tooltip>
         )}
-        <p className={cn("font-serif text-[15px] leading-relaxed whitespace-pre-wrap", !open && "line-clamp-3")}>{text}</p>
-        <p className="mt-1.5 truncate font-mono text-[11px] text-muted-foreground" title={r.payloadSha256}>sha256 {r.payloadSha256}</p>
+        <p className={cn("font-serif text-[0.9375rem] leading-relaxed whitespace-pre-wrap", !open && "line-clamp-3")}>{text}</p>
+        <p className="mt-1.5 truncate font-mono text-[0.6875rem] text-muted-foreground" title={r.payloadSha256}>sha256 {r.payloadSha256}</p>
         {failed && r.error && (
           <p className="mt-1 text-xs text-destructive" title={r.error}>
             Failed: {plainFailure(r.error)}
@@ -219,7 +219,7 @@ function Row({ r }: { r: Receipt }) {
             {open ? "Hide" : r.payloadWire ? "Complete request body" : "Show all"}
           </Button>
         )}
-        {open && r.payloadWire && <pre className="mt-1 max-h-80 overflow-auto rounded-md bg-muted p-3 text-[11px] leading-relaxed whitespace-pre-wrap break-all">{r.payloadWire}</pre>}
+        {open && r.payloadWire && <pre className="mt-1 max-h-80 overflow-auto rounded-md bg-muted p-3 text-[0.6875rem] leading-relaxed whitespace-pre-wrap break-all">{r.payloadWire}</pre>}
       </div>
       <Cost r={r} />
     </li>

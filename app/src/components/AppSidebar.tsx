@@ -74,7 +74,7 @@ export function AppSidebar({ status, hostError, selected, settingsOpen, onSelect
                   <rect x="5" y="21" width="18" height="4.5" rx="1.2" fill="currentColor" />
                 </svg>
               </span>
-              <span className="font-display text-[17px] font-semibold tracking-[-0.02em]">Zireh</span>
+              <span className="font-display text-[1.0625rem] font-semibold tracking-[-0.02em]">Zireh</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

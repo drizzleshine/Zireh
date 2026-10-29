@@ -156,7 +156,7 @@ describe("follow-ups in a thread", () => {
 describe("the step trace tells the truth", () => {
   it("without on-device AI, claims no leak score and counts only values in this question", async () => {
     const table = [{ original: "Old Name", placeholder: "[PERSON_1]", kind: "person" as const, hint: "a person" }];
-    const plan = await compile(undefined, { task: "Is Ada Obi safe?", level: "standard", table, salt: "s" });
+    const plan = await compile(undefined, { task: "Is Ada Obi safe?", level: "standard", table: [...table, { original: "Ada Obi", placeholder: "[PERSON_2]", kind: "person" as const, hint: "a reporter" }], salt: "s" });
     const redact = plan.trace.find((s) => s.stage === "redact")!;
     const leak = plan.trace.find((s) => s.stage === "leakcheck")!;
     expect(redact.title).toBe("Hid 1 value");

@@ -23,7 +23,8 @@ the graphics card (WebGPU, about 2.5 GB, downloaded once).
 5. **Send.** Each piece is its own request, paid with its own unlinkable ecash coins.
 6. **Reassemble** the real answers locally and put the names back.
 
-Without the on-device model, names are hidden by rule and each question goes out whole.
+Without the on-device model, only names on the case's hide list are hidden (nothing is guessed)
+and each question goes out whole.
 
 | Level | Leaves your browser | Decoys | Split |
 |---|---|---|---|
@@ -108,7 +109,7 @@ Set `VITE_HOST_URL` when building the app to use a deployed host.
 - **The topic still leaks.** Generalization hides who and where, not what the question is about.
 - **The device is the trust boundary.** Keys and coins sit unencrypted in browser storage;
   clearing site data deletes the coins, and backups don't include them yet.
-- **A small model can miss a name.** Pattern detectors and the leak floor back it up, and the
+- **A small model can miss a name.** The hide list and the leak floor back it up, and the
   privacy log shows exactly what was sent.
 
 ## License

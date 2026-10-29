@@ -1,4 +1,4 @@
-import { evidenceContext } from "../evidence.ts";
+import { evidenceContext, readableText } from "../evidence.ts";
 import { answerOf, onHistoryAdded, reconcileResearch, researchHistory, saveResearch, threadsOf, type Run, type StoredResearch, type Thread } from "../research-history.ts";
 import { restore, extendTable } from "@zireh/shield";
 import { newObservation } from "@zireh/cases";
@@ -240,10 +240,10 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp, onSett
     if (dismissed.includes("new")) setDismissed(dismissed.filter((id) => id !== "new"));
     setSlot(caseId, (s) => ({ ...s, thread: "new" }));
   };
-  const notice = noLocalAi ? (followUp ? "On-device AI is off, so follow-ups aren't rewritten to stand alone. Names are still hidden." : "On-device AI is off: every name-like word is hidden by rule, and only Standard is available.") : undefined;
+  const notice = noLocalAi ? (followUp ? "On-device AI is off, so follow-ups aren't rewritten to stand alone, and only names on your hide list are hidden." : "On-device AI is off: only names on your hide list are hidden, and only Standard is available.") : undefined;
   const noticeKey = thread?.id ?? "new";
 
-  const textEvidence = rec.evidence.filter((e) => e.kind !== "image");
+  const textEvidence = rec.evidence.filter((e) => readableText(e));
   // What this device already knows it will hide from the question; the model may find more.
   const identities = useIdentities(caseId);
   const table = useMemo(() => withIdentities(caseId, rec.pseudonyms), [caseId, rec.pseudonyms, identities]);
@@ -281,7 +281,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp, onSett
           {historyError && <p className="text-sm text-destructive" role="alert">{historyError}</p>}
           {/* Every thread opens with the same greeting, in the answer style. It is part of the view, not stored or sent. */}
           <div className="panel surface max-w-[85%]">
-            <p className="font-serif text-[17px] leading-relaxed">Hello, what can I help with?</p>
+            <p className="font-serif text-[1.0625rem] leading-relaxed">Hello, what can I help with?</p>
           </div>
           {thread ? (
             <ol className="grid gap-8" aria-label="Questions in this thread">
@@ -326,7 +326,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp, onSett
             }
           }}
           placeholder={followUp ? "Ask a follow-up…" : "Ask a question about your case…"}
-          className="min-h-24 resize-none border-0 bg-transparent px-4 pt-4 md:px-6 md:pt-6 font-serif text-[17px] leading-relaxed shadow-none focus-visible:ring-0 md:text-[17px] dark:bg-transparent"
+          className="min-h-24 resize-none border-0 bg-transparent px-4 pt-4 md:px-6 md:pt-6 font-serif text-[1.0625rem] leading-relaxed shadow-none focus-visible:ring-0 md:text-[1.0625rem] dark:bg-transparent"
         />
 
         {context.entries.length > 0 && (

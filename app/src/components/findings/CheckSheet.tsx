@@ -43,7 +43,7 @@ export function CheckSheet({ caseId, rec, drafts, start, open, onClose, onOpen }
                   {o.author.kind === "ai" ? `AI answer saved by ${memberName(rec, o.author.requestedBy)}` : `Noticed by ${memberName(rec, o.author.memberId)}`}
                 </p>
                 {parts.question && <p className="text-sm text-muted-foreground">Asked: {parts.question}</p>}
-                <p className="font-serif text-[17px] leading-relaxed whitespace-pre-wrap">{parts.text}</p>
+                <p className="font-serif text-[1.0625rem] leading-relaxed whitespace-pre-wrap">{parts.text}</p>
                 {o.author.kind === "ai" && <p className="text-xs text-decoy">An AI wrote this. Only accept what the evidence below actually supports.</p>}
               </div>
               <div className="grid gap-2">

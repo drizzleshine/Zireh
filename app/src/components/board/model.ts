@@ -23,9 +23,10 @@ export interface LinkData extends Record<string, unknown> {
 }
 export type LinkEdge = Edge<LinkData, "link">;
 
-export const CARD_W = 240;
-export const COLUMN_X: Record<Kind, number> = { evidence: 0, observation: 340, finding: 680 };
-export const ROW_H = 150;
+// Board units are pixels, so they follow the interface scale set on <html> (110%) by hand.
+export const CARD_W = 264;
+export const COLUMN_X: Record<Kind, number> = { evidence: 0, observation: 374, finding: 748 };
+export const ROW_H = 165;
 
 function evidenceCard(e: Evidence): Pick<CardData, "sub" | "detail" | "icon"> {
   const files = filesOf(e);

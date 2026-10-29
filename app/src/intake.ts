@@ -1,4 +1,3 @@
-import { detectPatterns, properNounCandidates } from "@zireh/shield";
 import { sha256Hex } from "@zireh/crypto";
 import { MAX_ATTACHMENT_BYTES, type Attachment, type EntityKind, type Pseudonym } from "@zireh/schema";
 import { formatBytes } from "./evidence.ts";
@@ -83,42 +82,22 @@ export function replaceImage(file: Attachment, dataUrl: string): Attachment {
 export interface Hit {
   readonly text: string;
   readonly kind: EntityKind;
-  /** Already in the case's hide list, so it is replaced in every question. */
-  readonly known: boolean;
-  /** Found by capitalization only; may be a false alarm. */
-  readonly guess: boolean;
 }
 
-const NOT_NAMES = new Set(
-  "january february march april may june july august september october november december monday tuesday wednesday thursday friday saturday sunday page evidence note document ai q a".split(" "),
-);
-
 /**
- * What this device can tell, without a model, would be hidden before any AI call: values in
- * the case's hide list, contact details, numbers, money, verbatim quotes, and likely names.
+ * Which hide-list values (and this device's source identities) appear in the text. Nothing is
+ * guessed here: finding new names is the on-device model's job, when a question is asked.
  */
 export function scan(text: string, table: readonly Pseudonym[]): Hit[] {
   if (!text || text.startsWith("data:")) return [];
-  const seen = new Set<string>();
-  const out: Hit[] = [];
-  const add = (hit: Hit) => {
-    const k = hit.text.toLowerCase();
-    if (hit.text.length < 2 || seen.has(k)) return;
-    seen.add(k);
-    out.push(hit);
-  };
   const lower = text.toLowerCase();
-  for (const p of table) if (lower.includes(p.original.toLowerCase())) add({ text: p.original, kind: p.kind, known: true, guess: false });
-  for (const d of detectPatterns(text)) add({ text: d.text, kind: d.kind, known: false, guess: false });
-  const sample = text.slice(0, 50_000);
-  for (const raw of properNounCandidates(sample)) {
-    const n = raw.replace(/['’]s$/, "");
-    if (NOT_NAMES.has(n.toLowerCase()) || n.split(/\s+/).every((w) => NOT_NAMES.has(w.toLowerCase()))) continue;
-    // A lone capitalized word only counts if it is also capitalized mid-sentence ("Call", "Payment" are not names).
-    if (!n.includes(" ") && !new RegExp(`[^.!?\\n]\\s${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(sample)) continue;
-    add({ text: n, kind: "person", known: false, guess: true });
-  }
-  return out;
+  const seen = new Set<string>();
+  return table.flatMap((p) => {
+    const k = p.original.toLowerCase();
+    if (p.original.length < 2 || seen.has(k) || !lower.includes(k)) return [];
+    seen.add(k);
+    return [{ text: p.original, kind: p.kind }];
+  });
 }
 
 /** Split text into plain and hit segments for highlighting. Longest matches win. */

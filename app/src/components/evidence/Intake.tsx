@@ -11,6 +11,7 @@ import { PANE_FOOTER } from "../Pane.tsx";
 import { SourcePicker } from "../Sources.tsx";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { FileTile, FileViewer } from "./Files.tsx";
@@ -23,6 +24,7 @@ import { ScanStrip } from "./ScanStrip.tsx";
 export function Intake({ caseId, table, files, setFiles, onAdded }: { caseId: string; table: readonly Pseudonym[]; files: Attachment[]; setFiles: (fn: (f: Attachment[]) => Attachment[]) => void; onAdded: (id: string) => void }) {
   const rec = useStore((s) => s.cases[caseId])!;
   const [text, setText, clearText] = useDraft(caseId, "evidence.intake", "");
+  const [title, setTitle, clearTitle] = useDraft(caseId, "evidence.intake.title", "");
   const [source, setSource] = useState<string>();
   const [over, setOver] = useState(false);
   const [reading, setReading] = useState(0);
@@ -56,9 +58,10 @@ export function Intake({ caseId, table, files, setFiles, onAdded }: { caseId: st
     if (!text.trim() && !files.length) return;
     setAdding(true);
     try {
-      const evidence = newEvidence(caseId, myMemberId(caseId), { title: titleFor(text, files).slice(0, 200), body: text.trim(), attachments: files });
+      const evidence = newEvidence(caseId, myMemberId(caseId), { title: (title.trim() || titleFor(text, files)).slice(0, 200), body: text.trim(), attachments: files });
       await save(caseId, "evidence", source ? { ...evidence, source } : evidence);
       clearText();
+      clearTitle();
       setFiles(() => []);
       setSource(undefined);
       toast.success("Added to the case file", { description: "Encrypted in this browser before syncing to your team." });
@@ -112,6 +115,14 @@ export function Intake({ caseId, table, files, setFiles, onAdded }: { caseId: st
           ))}
         </ul>
       )}
+      <Input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        maxLength={200}
+        placeholder={text.trim() || files.length ? `Title: ${titleFor(text, files)}` : "Title (optional)"}
+        aria-label="Title"
+        className="mx-4 mt-4 h-auto w-auto border-0 bg-transparent px-0 text-base font-semibold shadow-none focus-visible:ring-0 md:mx-6 md:mt-5 md:text-base dark:bg-transparent"
+      />
       <Textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -125,9 +136,9 @@ export function Intake({ caseId, table, files, setFiles, onAdded }: { caseId: st
         autoFocus
         placeholder="What is this, and where did it come from? Paste text or a link, or drop files."
         aria-label="New evidence"
-        className="min-h-32 resize-none border-0 bg-transparent px-4 pt-4 font-serif text-[17px] leading-relaxed shadow-none focus-visible:ring-0 md:px-6 md:pt-5 md:text-[17px] dark:bg-transparent"
+        className="min-h-32 resize-none border-0 bg-transparent px-4 pt-4 font-serif text-[1.0625rem] leading-relaxed shadow-none focus-visible:ring-0 md:px-6 md:pt-5 md:text-[1.0625rem] dark:bg-transparent"
       />
-      {live.length > 0 && <ScanStrip hits={live} caseId={caseId} table={table} className="px-4 pb-2 md:px-6" />}
+      {live.length > 0 && <ScanStrip hits={live} className="px-4 pb-2 md:px-6" />}
       <div className={PANE_FOOTER}>
         <input
           ref={fileInput}

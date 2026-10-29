@@ -1,6 +1,6 @@
 import { randomId } from "@zireh/crypto";
 import { directTransport, newCircuitTag, RelayClient } from "@zireh/relay-client";
-import { redactText, redactWithoutModel } from "@zireh/shield";
+import { redactText, redactWithTable } from "@zireh/shield";
 import { SyncClient, type Envelope } from "@zireh/sync";
 import { InviteSyncHost, PrivacyLevel, Pseudonym, SyncHost, TopupQuote, type AppStatus, type LocalModelState, type ResearchEvent } from "@zireh/schema";
 import { InsufficientFunds, Ledger, memoryLedgerStore, Wallet } from "@zireh/wallet";
@@ -177,7 +177,7 @@ export async function redact(texts: string[], table: readonly Pseudonym[]): Prom
   z.array(z.string().max(20_000)).min(1).max(100).parse(texts);
   let next = z.array(Pseudonym).parse(table);
   const useModel = await localModelOk();
-  for (const text of texts) if (text.trim()) next = (useModel ? await redactText(local, text, next) : redactWithoutModel(text, next)).table;
+  for (const text of texts) if (text.trim()) next = (useModel ? await redactText(local, text, next) : redactWithTable(text, next)).table;
   (await ledgerReady).record({ destination: "local", role: "real", payload: `Local redaction of ${texts.length} text(s) for publishing` });
   return { table: next };
 }
@@ -186,7 +186,7 @@ export async function search(query: string, table: readonly Pseudonym[], caseId?
   await ownWallet();
   await ledgerReady;
   const q = z.string().trim().min(2).max(400).parse(query);
-  const red = (await localModelOk()) ? await redactText(local, q, table) : redactWithoutModel(q, table);
+  const red = (await localModelOk()) ? await redactText(local, q, table) : redactWithTable(q, table);
   const call = await relay.prepareSearch(red.text, 5, { role: "real", ...(caseId ? { caseId } : {}) });
   const result = await relay.send(call, newCircuitTag());
   if (result.kind !== "search") throw new Error("unexpected result kind");

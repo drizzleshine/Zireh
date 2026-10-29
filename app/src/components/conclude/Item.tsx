@@ -19,7 +19,7 @@ export function Item({ state, title, need, detail, children }: { state: State; t
         <div className="grid min-w-0 flex-1 gap-0.5">
           <p className="flex items-center gap-2 text-sm font-medium">
             {title}
-            <span className={cn("rounded px-1.5 text-[10px] font-medium tracking-wide uppercase", need === "Required" ? "bg-foreground/10 text-foreground" : "text-muted-foreground")}>{need}</span>
+            <span className={cn("rounded px-1.5 text-[0.625rem] font-medium tracking-wide uppercase", need === "Required" ? "bg-foreground/10 text-foreground" : "text-muted-foreground")}>{need}</span>
           </p>
           <p className="text-xs text-muted-foreground">{detail}</p>
         </div>

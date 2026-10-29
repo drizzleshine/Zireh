@@ -43,45 +43,35 @@ export function SourcePicker({ rec, value, onChange, disabled, className, plain 
         <Command>
           <CommandInput placeholder="Codename or public record…" value={typed} onValueChange={setTyped} />
           <CommandList>
-            <CommandEmpty>Press the option below to use it.</CommandEmpty>
-            {custom && !existing.some((c) => c.toLowerCase() === custom.toLowerCase()) && (
-              <CommandGroup>
-                <CommandItem value={`__custom ${custom}`} onSelect={() => pick(custom.slice(0, 60))}>
-                  <Plus /> Use “{custom.slice(0, 60)}”
+            <CommandEmpty>No source by that name.</CommandEmpty>
+            <CommandGroup heading="Sources in this case">
+              {[...existing, ...(existing.includes("Public record") ? [] : ["Public record"])].map((c) => (
+                <CommandItem key={c} value={c} onSelect={() => pick(c)}>
+                  {c === "Public record" ? <Fingerprint /> : <UserRound />} {c}
+                  {value === c && <Check className="ml-auto" />}
                 </CommandItem>
-              </CommandGroup>
-            )}
-            {existing.length > 0 && (
-              <CommandGroup heading="Sources in this case">
-                {existing.map((c) => (
-                  <CommandItem key={c} value={c} onSelect={() => pick(c)}>
-                    <UserRound /> {c}
-                    {value === c && <Check className="ml-auto" />}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            )}
-            <CommandGroup heading="New">
-              <CommandItem value={`__new ${fresh}`} onSelect={() => pick(fresh)}>
-                <Plus /> New source: {fresh}
-              </CommandItem>
-              <CommandItem value="__public Public record" onSelect={() => pick("Public record")}>
-                <Fingerprint /> Public record
-              </CommandItem>
+              ))}
             </CommandGroup>
-            {value && (
-              <>
-                <CommandSeparator />
-                <CommandGroup>
-                  <CommandItem value="__none" onSelect={() => pick(undefined)} className="text-muted-foreground">
-                    No source recorded
-                  </CommandItem>
-                </CommandGroup>
-              </>
-            )}
+            <CommandSeparator />
+            <CommandGroup>
+              {custom && !existing.some((c) => c.toLowerCase() === custom.toLowerCase()) ? (
+                <CommandItem value={`__custom ${custom}`} onSelect={() => pick(custom.slice(0, 60))}>
+                  <Plus /> Add “{custom.slice(0, 60)}” as a source
+                </CommandItem>
+              ) : (
+                <CommandItem value={`__new ${fresh}`} onSelect={() => pick(fresh)}>
+                  <Plus /> Add a new source <span className="ml-auto text-xs text-muted-foreground">{fresh}</span>
+                </CommandItem>
+              )}
+              {value && (
+                <CommandItem value="__none" onSelect={() => pick(undefined)} className="text-muted-foreground">
+                  No source recorded
+                </CommandItem>
+              )}
+            </CommandGroup>
           </CommandList>
         </Command>
-        <p className="border-t px-3 py-2 text-[11px] leading-snug text-muted-foreground">Use a codename, never a real name. Your team only sees codenames.</p>
+        <p className="border-t px-3 py-2 text-[0.6875rem] leading-snug text-muted-foreground">Use a codename, never a real name. Your team only sees codenames.</p>
       </PopoverContent>
     </Popover>
   );
@@ -123,7 +113,7 @@ export function SourcesSheet({ caseId, rec, open, onOpenChange }: { caseId: stri
                 </div>
                 {codename !== "Public record" && (
                   <label className="grid gap-1">
-                    <span className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                    <span className="flex items-center gap-1 text-[0.6875rem] font-medium text-muted-foreground">
                       <Lock className="size-3" /> Real identity · this device only
                     </span>
                     <Input

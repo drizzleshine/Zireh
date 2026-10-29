@@ -32,7 +32,7 @@ export function CardNodeView({ data, selected }: NodeProps<CardNode>) {
       ))}
       {/* Whole-card drop target: end a new or moved cable anywhere on the card, not just on a dot. */}
       <Handle id="body" type="source" position={Position.Top} isConnectableStart={false} className="!absolute !inset-0 !size-auto !translate-none !rounded-lg !border-0 !bg-transparent !opacity-0" />
-      <div className={cn("mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide", data.kind === "finding" ? "text-primary-foreground/70" : "text-muted-foreground")}>
+      <div className={cn("mb-1.5 flex items-center gap-1.5 text-[0.6875rem] font-medium uppercase tracking-wide", data.kind === "finding" ? "text-primary-foreground/70" : "text-muted-foreground")}>
         <Icon className="size-3.5" />
         {data.sub}
         {data.comments > 0 && (
@@ -42,7 +42,7 @@ export function CardNodeView({ data, selected }: NodeProps<CardNode>) {
           </span>
         )}
       </div>
-      <p className="font-serif text-[15px] leading-snug text-pretty">{data.title}</p>
+      <p className="font-serif text-[0.9375rem] leading-snug text-pretty">{data.title}</p>
     </div>
   );
 }

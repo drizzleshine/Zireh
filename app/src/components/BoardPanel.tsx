@@ -172,12 +172,12 @@ function Board({ caseId, onOpen }: { caseId: string; onOpen: OpenItem }) {
 
   // Exactly the space under the case header (inset margins + header), so the page never scrolls.
   return (
-    <section className="flex h-[calc(100svh-7.25rem)] min-h-[480px] flex-col gap-3 px-4 py-3 md:px-6" aria-label="Case board">
+    <section className="flex h-[calc(100svh-7.25rem)] min-h-[30rem] flex-col gap-3 px-4 py-3 md:px-6" aria-label="Case board">
       <p className="shrink-0 text-sm text-muted-foreground">Evidence on the left, what people noticed in the middle, findings on the right. Drag from a card's edge to another card to link them.</p>
       <LinkActions.Provider value={{ rename, remove, editing, setEditing }}>
         {expanded && <div className="fixed inset-0 z-40 bg-black/35 backdrop-blur-[2px] animate-in fade-in-0 duration-300" onClick={toggle} aria-hidden="true" />}
         <div ref={slot} className="relative min-h-0 flex-1">
-        <div ref={frame} className={cn("overflow-hidden border bg-card", expanded ? "fixed inset-3 z-50 rounded-[22px] shadow-2xl md:inset-4" : "absolute inset-0 rounded-[22px]")} role={expanded ? "dialog" : undefined} aria-modal={expanded || undefined} aria-label={expanded ? "Case board, expanded" : undefined}>
+        <div ref={frame} className={cn("overflow-hidden border bg-card", expanded ? "fixed inset-3 z-50 rounded-[1.375rem] shadow-2xl md:inset-4" : "absolute inset-0 rounded-[1.375rem]")} role={expanded ? "dialog" : undefined} aria-modal={expanded || undefined} aria-label={expanded ? "Case board, expanded" : undefined}>
           <ReactFlow<CardNode, LinkEdge>
             nodes={nodes}
             edges={routed}
@@ -268,7 +268,7 @@ function Board({ caseId, onOpen }: { caseId: string; onOpen: OpenItem }) {
               />
               {selected.data.kind === "evidence" && <h3 className="px-4 pt-4 font-serif text-lg leading-snug md:px-5">{selected.data.title}</h3>}
               <div className="grid flex-1 content-start gap-4 overflow-y-auto p-4 text-sm md:px-5">
-                {selected.data.detail && <p className="whitespace-pre-wrap font-serif text-[15px] leading-relaxed text-foreground/90">{selected.data.detail}</p>}
+                {selected.data.detail && <p className="whitespace-pre-wrap font-serif text-[0.9375rem] leading-relaxed text-foreground/90">{selected.data.detail}</p>}
                 <div>
                   <p className="mb-1.5 text-xs font-medium text-muted-foreground">Links</p>
                   {selectedLinks.length === 0 ? (

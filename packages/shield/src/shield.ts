@@ -2,7 +2,7 @@ import { randomId, shuffle } from "@zireh/crypto";
 import { makeDecoys, stockDecoys, tooSimilar } from "./decoy.ts";
 import { checkLeak, generalize, passes, type LeakReport } from "./leakcheck.ts";
 import { abortableModel, type ChatModel } from "@zireh/llm";
-import { applyTable, findLeaks, redactText, redactWithoutModel, restore, withHints } from "./redact/index.ts";
+import { applyTable, findLeaks, redactText, redactWithTable, restore, withHints } from "./redact/index.ts";
 import { LEVELS, type ChatMessage, type OutboundPiece, type PrivacyLevel, type Pseudonym, type TraceStep } from "@zireh/schema";
 import { reassemble, splitTask, type Reassembled } from "./split.ts";
 
@@ -86,7 +86,7 @@ export class NeedsLocalModel extends Error {}
 
 /**
  * `local` is the on-device model, or undefined when none is connected. Without it nothing is
- * guessed: hiding is by pattern (see redactWithoutModel), the task goes out as one question with no
+ * guessed: only the hide list is applied (see redactWithTable), the task goes out as one question with no
  * rewrite, the leak check is the exact-match one, and decoys come from a fixed list.
  */
 export async function compile(local: ChatModel | undefined, input: ShieldInput, hooks: CompileHooks = {}): Promise<Plan> {
@@ -125,7 +125,7 @@ export async function compile(local: ChatModel | undefined, input: ShieldInput, 
   // Without the model only Standard can run: Local only needs it to answer, and Private and
   // Paranoid promise splitting and rewriting that pattern matching can't do.
   if (!local && input.level !== "standard") throw new NeedsLocalModel(`${input.level[0]!.toUpperCase()}${input.level.slice(1)} needs on-device AI. Turn it on in Settings, or use Standard.`);
-  const red = local ? await redactText(local, combined, input.table) : redactWithoutModel(combined, input.table);
+  const red = local ? await redactText(local, combined, input.table) : redactWithTable(combined, input.table);
   const redactedTask = applyTable(task, red.table);
   const described = withHints(red.text, red.table);
   hooks.onRedacted?.(red.table);
@@ -137,7 +137,7 @@ export async function compile(local: ChatModel | undefined, input: ShieldInput, 
     detail: red.added.length
       ? `New this time: ${red.added.map((p) => `${p.original} → ${p.hint ?? p.placeholder}`).join(", ")}` // trace stays on this device
       : "No new identifying values found.",
-    ...(local ? {} : { detail: `${red.added.length ? `New this time: ${red.added.map((p) => `${p.original} → ${p.hint ?? p.placeholder}`).join(", ")}. ` : ""}No on-device AI, so every name-like phrase was hidden.` }),
+    ...(local ? {} : { detail: `${red.added.length ? `New this time: ${red.added.map((p) => `${p.original} → ${p.hint ?? p.placeholder}`).join(", ")}. ` : ""}No on-device AI, so only names on the hide list were hidden.` }),
     before: combined,
     after: described,
   });

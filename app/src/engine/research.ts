@@ -71,7 +71,7 @@ export async function runResearch(
   try {
     req.signal?.throwIfAborted();
     const onStep = (step: TraceStep) => emit({ type: "step", step, atMs: Date.now() - started });
-    // On-device AI is optional: without it the pipeline hides by pattern and sends one plain question.
+    // On-device AI is optional: without it the pipeline applies the hide list only and sends one plain question.
     const local = deps.localModelOk && !(await deps.localModelOk()) ? undefined : deps.local;
     const plan = await compile(local, { task: req.task, context: req.context, level: req.level, table: req.table, salt: req.salt, ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}), ...(req.history?.length ? { history: req.history } : {}) }, {
       onStep,

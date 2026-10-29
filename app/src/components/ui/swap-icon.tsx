@@ -9,8 +9,8 @@ export function SwapIcon({ swapped, from, to, className }: { swapped: boolean; f
   const layer = "col-start-1 row-start-1 grid place-items-center transition-[opacity,scale,filter] duration-200 ease-[cubic-bezier(0.2,0,0,1)]"
   return (
     <span className={cn("inline-grid size-4 shrink-0 place-items-center", className)} aria-hidden="true">
-      <span className={cn(layer, swapped ? "scale-[0.25] opacity-0 blur-[4px]" : "scale-100 opacity-100 blur-0")}>{from}</span>
-      <span className={cn(layer, swapped ? "scale-100 opacity-100 blur-0" : "scale-[0.25] opacity-0 blur-[4px]")}>{to}</span>
+      <span className={cn(layer, swapped ? "scale-[0.25] opacity-0 blur-[0.25rem]" : "scale-100 opacity-100 blur-0")}>{from}</span>
+      <span className={cn(layer, swapped ? "scale-100 opacity-100 blur-0" : "scale-[0.25] opacity-0 blur-[0.25rem]")}>{to}</span>
     </span>
   )
 }

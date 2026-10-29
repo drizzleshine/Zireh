@@ -47,7 +47,7 @@ export function Turn({ record, live, running, detail, onDetail, onSave, onSend, 
   return (
     <li className="grid gap-3">
       <div className="grid justify-items-end gap-1">
-        <p className="max-w-[85%] rounded-2xl rounded-br-md bg-foreground px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap text-background">{run.task}</p>
+        <p className="max-w-[85%] rounded-2xl rounded-br-md bg-foreground px-4 py-3 text-[0.9375rem] leading-relaxed whitespace-pre-wrap text-background">{run.task}</p>
         {standalone && standalone !== run.task && (
           <p className="max-w-[85%] text-right text-xs text-muted-foreground">
             Asked as: “{standalone}”
@@ -59,13 +59,13 @@ export function Turn({ record, live, running, detail, onDetail, onSave, onSend, 
         {answer ? (
           <div className="grid gap-3">
             {run.done ? (
-              <div className="font-serif text-[17px] leading-relaxed whitespace-pre-wrap text-pretty">
+              <div className="font-serif text-[1.0625rem] leading-relaxed whitespace-pre-wrap text-pretty">
                 <Cited text={run.done.outcome.answer} invalid={run.done.outcome.citations.invalidCitations} />
               </div>
             ) : (
               <>
                 <p className="text-xs text-muted-foreground">The full answer didn't arrive, but these parts did.</p>
-                <p className="font-serif text-[17px] leading-relaxed whitespace-pre-wrap">{answer}</p>
+                <p className="font-serif text-[1.0625rem] leading-relaxed whitespace-pre-wrap">{answer}</p>
               </>
             )}
             {run.done && run.done.outcome.citations.invalidCitations.length > 0 && (

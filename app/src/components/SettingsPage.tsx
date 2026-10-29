@@ -45,7 +45,7 @@ export function SettingsPage({ status, onRefresh, onTopUp, onImport }: Props) {
               onClick={() => setTheme(t.id)}
               aria-pressed={theme === t.id}
               className={cn(
-                "group grid gap-3 rounded-[20px] border bg-card p-3 text-left text-sm transition-[border-color,box-shadow] hover:border-foreground/30 focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none",
+                "group grid gap-3 rounded-[1.25rem] border bg-card p-3 text-left text-sm transition-[border-color,box-shadow] hover:border-foreground/30 focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none",
                 theme === t.id && "border-protected ring-[3px] ring-protected/15",
               )}
             >
@@ -181,7 +181,7 @@ function LocalModel({ status, onRefresh }: { status: AppStatus | undefined; onRe
       {model?.error && <p className="max-w-[60ch] text-destructive">{model.error}</p>}
       {state !== "ready" && (
         <p className="max-w-[60ch] rounded-lg bg-muted/60 px-3 py-2 text-muted-foreground">
-          <span className="font-medium text-foreground">Without it:</span> every name-like word is hidden by rule and reads as “a name” unless you describe it, each question goes out whole, without splitting or decoys, and only Standard is available.
+          <span className="font-medium text-foreground">Without it:</span> only names on your hide list are hidden (nothing is guessed), each question goes out whole, without splitting or decoys, and only Standard is available.
         </p>
       )}
     </div>

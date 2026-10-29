@@ -2,7 +2,8 @@ import { CaretLeft, DotsThree as MoreHorizontal, MagnifyingGlass as Search, User
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { custodyCsv } from "../evidence.ts";
-import type { Attachment } from "@zireh/schema";
+import type { AppStatus, Attachment } from "@zireh/schema";
+import { LocalAiNote } from "./LocalAiNote.tsx";
 import { filesOf, readableText } from "../evidence.ts";
 import { useIdentities, withIdentities } from "../sources.ts";
 import { useStore } from "../store.ts";
@@ -21,7 +22,7 @@ import { Intake } from "./evidence/Intake.tsx";
 import { Reader } from "./evidence/Reader.tsx";
 import { EditEvidence } from "./evidence/EditEvidence.tsx";
 
-export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus?: string | undefined; onOpen: OpenItem }) {
+export function EvidencePanel({ caseId, focus, onOpen, status }: { caseId: string; focus?: string | undefined; onOpen: OpenItem; status: AppStatus | undefined }) {
   const rec = useStore((s) => s.cases[caseId])!;
   const [files, setFiles] = useState<Attachment[]>([]);
   const [query, setQuery] = useState("");
@@ -157,10 +158,12 @@ export function EvidencePanel({ caseId, focus, onOpen }: { caseId: string; focus
         </SideList>
         {intakeOpen ? (
           <Pane title="New evidence" meta="Text and files are read and encrypted in this browser.">
+            <LocalAiNote status={status} className="mx-4 mt-4 md:mx-6" />
             <Intake caseId={caseId} table={table} files={files} setFiles={setFiles} onAdded={(id) => { setAdding(false); setChosen(id); }} />
           </Pane>
         ) : current && editing === current.id ? (
           <Pane title="Edit evidence" meta={current.title}>
+            <LocalAiNote status={status} className="mx-4 mt-4 md:mx-6" />
             <EditEvidence key={current.id} caseId={caseId} rec={rec} evidence={current} onDone={() => setEditing(undefined)} />
           </Pane>
         ) : current ? (

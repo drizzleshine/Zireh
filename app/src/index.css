@@ -119,7 +119,9 @@
     @apply border-border outline-ring/50;
   }
   /* Overscroll (rubber-band) shows the canvas: match the frame around the page, not white. */
+  /* Everything is sized in rem, so this one value scales the whole interface. */
   html {
+    font-size: 110%;
     background: var(--sidebar);
   }
   body {

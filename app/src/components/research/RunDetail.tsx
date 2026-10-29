@@ -73,7 +73,7 @@ export function RunDetail({ run, running }: { run: Run; running: boolean }) {
             <ol className="mt-3 grid gap-0 border-l pl-5" aria-label="What happened">
               {run.steps.map(({ step, atMs }, i) => (
                 <li key={i} className="relative pb-3 last:pb-0">
-                  <span className="absolute -left-[25px] top-1.5 size-2 rounded-full bg-protected ring-4 ring-background" />
+                  <span className="absolute -left-[1.5625rem] top-1.5 size-2 rounded-full bg-protected ring-4 ring-background" />
                   <div className="flex items-baseline gap-3">
                     <span className="text-sm font-medium">{step.title}</span>
                     <span className="ml-auto text-xs text-muted-foreground tabular-nums" title="Time since you asked">+{(atMs / 1000).toFixed(1)} s</span>

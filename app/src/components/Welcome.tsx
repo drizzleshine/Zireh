@@ -92,7 +92,7 @@ function Specimen() {
       <div key={i} className="grid">
         <div className="grid gap-2 p-5 md:p-7">
           <span className="text-xs font-medium text-muted-foreground">You write</span>
-          <p className="font-serif text-xl leading-relaxed md:text-[22px]">
+          <p className="font-serif text-xl leading-relaxed md:text-[1.375rem]">
             {ex.asked.split(/(\[[^\]]+\])/).map((part, n) =>
               part.startsWith("[") ? (
                 <span key={n} className="ink" style={{ ["--i" as string]: hidden++, ["--ink-delay" as string]: "700ms" }}>
@@ -110,7 +110,7 @@ function Specimen() {
             {ex.sent}
           </p>
           <p className="arrive flex items-baseline gap-2 rounded-lg bg-decoy-wash px-3 py-2 font-serif leading-relaxed" style={{ ["--i" as string]: 20 }}>
-            <span className="font-sans text-[11px] font-semibold tracking-wide text-decoy uppercase">decoy</span>
+            <span className="font-sans text-[0.6875rem] font-semibold tracking-wide text-decoy uppercase">decoy</span>
             {ex.decoy}
           </p>
         </div>

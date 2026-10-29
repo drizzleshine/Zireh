@@ -57,7 +57,7 @@ export function TimelinePanel({ caseId, onOpen }: { caseId: string; onOpen: Open
                   <span className="relative mt-5 size-2 rounded-full bg-muted-foreground/40 ring-4 ring-background" />
                 </div>
                 <button type="button" onClick={() => onOpen("evidence", e.evidence.id)} className="card my-2 gap-2 text-left surface transition-colors hover:bg-muted/30">
-                  <p className="font-serif text-[15px] leading-relaxed">{e.text}</p>
+                  <p className="font-serif text-[0.9375rem] leading-relaxed">{e.text}</p>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <FileText className="size-3.5" /> {e.evidence.title}

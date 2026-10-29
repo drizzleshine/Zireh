@@ -68,7 +68,7 @@ export function LinkEdgeView({ id, sourceX, sourceY, targetX, targetY, sourcePos
                 </Button>
               </form>
             ) : (
-              <span className={cn("flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[11px] font-medium text-protected shadow-sm", selected && "border-protected")}>
+              <span className={cn("flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[0.6875rem] font-medium text-protected shadow-sm", selected && "border-protected")}>
                 <button type="button" onDoubleClick={() => data?.mine && setEditing(id)} onClick={() => selected && data?.mine && setEditing(id)} title={data?.mine ? "Double-click to rename" : `${data?.by}'s cable. Only they can change it.`}>
                   {data?.label || "linked"}
                 </button>

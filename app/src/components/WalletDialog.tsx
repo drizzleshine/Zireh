@@ -175,7 +175,7 @@ export function Payment({ quote, status, error, busy, onSimulate, onForget, onRe
             {quote.zec} ZEC
           </button>
           <div className="flex items-start gap-2">
-            <code className="flex-1 break-all rounded bg-muted p-2 text-[11px] leading-relaxed">{quote.address}</code>
+            <code className="flex-1 break-all rounded bg-muted p-2 text-[0.6875rem] leading-relaxed">{quote.address}</code>
             <Button size="icon" variant="outline" className="size-8" aria-label="Copy address" onClick={() => copy(quote.address, "Address")}>
               <Copy />
             </Button>

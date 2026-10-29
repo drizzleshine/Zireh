@@ -137,14 +137,14 @@ export function CaseView({ caseId, status, tab, focus, onTab, onOpen, onBalanceC
           <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
           <Popover>
             <PopoverTrigger asChild>
-              <button type="button" className="flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 font-display text-[15px] font-semibold tracking-[-0.01em] hover:bg-muted" aria-label="About this case">
+              <button type="button" className="flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 font-display text-[0.9375rem] font-semibold tracking-[-0.01em] hover:bg-muted" aria-label="About this case">
                 <span className="truncate">{rec.case.title}</span>
                 <CaretDown className="size-3.5 shrink-0 text-muted-foreground" />
               </button>
             </PopoverTrigger>
             <PopoverContent align="start" className="grid w-[min(28rem,calc(100vw-2rem))] gap-2">
               <p className="text-xs font-medium text-muted-foreground">What you're trying to find out</p>
-              <p className="font-serif text-[15px] leading-relaxed text-pretty">{rec.case.question}</p>
+              <p className="font-serif text-[0.9375rem] leading-relaxed text-pretty">{rec.case.question}</p>
               <p className="text-xs text-muted-foreground">
                 Opened {new Date(rec.case.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })} · {members.length === 1 ? "just you" : `${members.length} people`}
               </p>
@@ -162,11 +162,11 @@ export function CaseView({ caseId, status, tab, focus, onTab, onOpen, onBalanceC
           <div className="ml-auto flex items-center gap-2">
             <button type="button" onClick={() => setTeam(true)} disabled={ws?.needsInvite} className="hidden -space-x-2 sm:flex" aria-label="Manage members">
               {members.slice(0, 4).map((m) => (
-                <span key={m.id} title={m.name} className="flex size-7 items-center justify-center rounded-full border-2 border-background bg-secondary text-[11px] font-semibold">
+                <span key={m.id} title={m.name} className="flex size-7 items-center justify-center rounded-full border-2 border-background bg-secondary text-[0.6875rem] font-semibold">
                   {initials(m.name)}
                 </span>
               ))}
-              {members.length > 4 && <span className="flex size-7 items-center justify-center rounded-full border-2 border-background bg-muted text-[11px]">+{members.length - 4}</span>}
+              {members.length > 4 && <span className="flex size-7 items-center justify-center rounded-full border-2 border-background bg-muted text-[0.6875rem]">+{members.length - 4}</span>}
             </button>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -216,7 +216,7 @@ export function CaseView({ caseId, status, tab, focus, onTab, onOpen, onBalanceC
                     aria-selected={tab === t}
                     onClick={() => onTab(t)}
                     className={cn(
-                      "relative -mb-px flex h-10 shrink-0 items-center gap-1.5 border-b-2 border-transparent font-display text-[14px] font-medium text-muted-foreground transition-colors hover:text-foreground",
+                      "relative -mb-px flex h-10 shrink-0 items-center gap-1.5 border-b-2 border-transparent font-display text-[0.875rem] font-medium text-muted-foreground transition-colors hover:text-foreground",
                       tab === t && "border-protected text-foreground",
                     )}
                   >
@@ -225,7 +225,7 @@ export function CaseView({ caseId, status, tab, focus, onTab, onOpen, onBalanceC
                     {b && (
                       <span
                         className={cn(
-                          "min-w-5 rounded-full px-1.5 text-center text-[11px] leading-5 tabular-nums",
+                          "min-w-5 rounded-full px-1.5 text-center text-[0.6875rem] leading-5 tabular-nums",
                           b.tone === "warn" ? "bg-decoy-wash text-decoy" : b.tone === "bad" ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground",
                         )}
                       >
@@ -261,10 +261,10 @@ export function CaseView({ caseId, status, tab, focus, onTab, onOpen, onBalanceC
       <Suspense fallback={<div className="mx-auto grid w-full max-w-6xl gap-3 px-4 pt-6 md:px-10">{[0, 1, 2].map((i) => <div key={i} className="h-24 animate-pulse rounded-xl bg-muted" />)}</div>}>
       <div className={cn("case-body mx-auto w-full", tab === "board" ? "max-w-none" : "max-w-6xl")}>
         {!ws?.needsInvite && tab === "research" && <ResearchPanel caseId={caseId} status={status} onBalanceChange={onBalanceChange} onTopUp={onTopUp} onSettings={onSettings} />}
-        {!ws?.needsInvite && tab === "evidence" && <EvidencePanel caseId={caseId} focus={focus} onOpen={onOpen} />}
+        {!ws?.needsInvite && tab === "evidence" && <EvidencePanel caseId={caseId} focus={focus} onOpen={onOpen} status={status} />}
         {!ws?.needsInvite && tab === "board" && <BoardPanel caseId={caseId} onOpen={onOpen} />}
         {!ws?.needsInvite && tab === "timeline" && <TimelinePanel caseId={caseId} onOpen={onOpen} />}
-        {!ws?.needsInvite && tab === "findings" && <FindingsPanel caseId={caseId} focus={focus} onOpen={onOpen} />}
+        {!ws?.needsInvite && tab === "findings" && <FindingsPanel caseId={caseId} focus={focus} onOpen={onOpen} status={status} />}
         {!ws?.needsInvite && tab === "conclude" && <ConcludePanel caseId={caseId} onOpen={onOpen} />}
         {!ws?.needsInvite && tab === "log" && <LogPanel caseId={caseId} />}
       </div>

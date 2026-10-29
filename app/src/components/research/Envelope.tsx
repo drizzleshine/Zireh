@@ -16,19 +16,19 @@ export function Envelope({ piece, index }: { piece: PieceState; index: number })
       {m && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="justify-self-start rounded border border-dashed px-1.5 font-mono text-[11px] text-muted-foreground">case salt {m[1]!.slice(0, 10)}…</span>
+            <span className="justify-self-start rounded border border-dashed px-1.5 font-mono text-[0.6875rem] text-muted-foreground">case salt {m[1]!.slice(0, 10)}…</span>
           </TooltipTrigger>
           <TooltipContent className="max-w-64">A random tag per case, so providers can't match your questions with anyone else's.</TooltipContent>
         </Tooltip>
       )}
-      <p className="font-serif text-[15px] leading-snug">{m ? m[2] : piece.wire}</p>
+      <p className="font-serif text-[0.9375rem] leading-snug">{m ? m[2] : piece.wire}</p>
       {piece.messages && (
         <Collapsible>
           <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
             <ChevronRight className="size-3 transition-transform group-data-[state=open]:rotate-90" /> All request messages
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <pre className="mt-2 max-h-60 overflow-auto rounded-md bg-background/60 p-2 text-[11px] whitespace-pre-wrap">{piece.messages.map((message) => `${message.role}: ${message.content}`).join("\n\n")}</pre>
+            <pre className="mt-2 max-h-60 overflow-auto rounded-md bg-background/60 p-2 text-[0.6875rem] whitespace-pre-wrap">{piece.messages.map((message) => `${message.role}: ${message.content}`).join("\n\n")}</pre>
           </CollapsibleContent>
         </Collapsible>
       )}

@@ -109,7 +109,7 @@ impl HealthCheck {
     }
 
     async fn probe(&self) -> bool {
-        let mut req = self.client.get(format!("{}/models", self.base_url.trim_end_matches('/'))).timeout(Duration::from_secs(3));
+        let mut req = self.client.get(format!("{}/models", self.base_url.trim_end_matches('/'))).timeout(Duration::from_secs(8)); // some providers take 2-3 s to list models
         if let Some(key) = &self.api_key {
             req = req.bearer_auth(key);
         }

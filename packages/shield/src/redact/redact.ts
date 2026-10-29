@@ -1,7 +1,7 @@
 import { chatJson, type ChatModel } from "@zireh/llm";
 import { EntityKind, type Pseudonym } from "@zireh/schema";
 import { z } from "zod";
-import { COMMON, detectPatterns, detectQuotes, properNounCandidates, type Detection } from "./detect.ts";
+import { COMMON, type Detection } from "./detect.ts";
 import { applyTable, extendTable } from "./table.ts";
 
 const Entities = z.object({
@@ -14,13 +14,6 @@ date tied to an event, ID or account number, contact detail, and exact money amo
 Copy each one exactly as written. Do not list topics, activities, job titles or common nouns.
 Kinds: person, org, place, id, contact, date, money.
 Reply with JSON only: {"entities":[{"text":"...","kind":"person"}]}`;
-
-const Classified = z.object({
-  items: z.array(z.object({ text: z.string(), kind: z.string() })).max(200),
-});
-
-const CLASSIFY_PROMPT = `For each listed phrase, say what it names in the text: person, org, place, or none (not a name).
-Reply with JSON only: {"items":[{"text":"...","kind":"place"}]}`;
 
 const Hints = z.object({ hints: z.record(z.string(), z.string().max(80)) });
 
@@ -42,7 +35,7 @@ function plausible(text: string, kind: string): boolean {
   }
   if (kind === "date") return /\d/.test(text) || MONTHS.test(text);
   if (kind === "id" || kind === "money") return /\d/.test(text);
-  return true; // contact: patterns already cover the common forms
+  return true;
 }
 
 /** Only identifiers are hidden; "other" from the model is usually a topic, which the provider needs. */
@@ -55,8 +48,8 @@ export interface RedactResult {
 }
 
 /**
- * Pseudonymize `text` with the case table. Pattern detectors always run; the local model
- * adds names, places and organizations. If the model fails, this throws: callers fail closed.
+ * Pseudonymize `text` with the case table plus whatever the on-device model finds. Nothing is
+ * guessed from capital letters or patterns. If the model fails, this throws: callers fail closed.
  */
 export async function redactText(
   model: ChatModel,
@@ -77,26 +70,7 @@ export async function redactText(
   const fromModel: Detection[] = found.entities
     .filter((e) => HIDDEN_KINDS.has(e.kind) && lower.includes(e.text.trim().toLowerCase()) && plausible(e.text, e.kind))
     .map((e) => ({ text: e.text.trim(), kind: e.kind }));
-  // Second pass: capitalized phrases the extraction missed, classified by the model.
-  const covered = (phrase: string) => fromModel.some((d) => d.text.toLowerCase().includes(phrase.toLowerCase()) || phrase.toLowerCase().includes(d.text.toLowerCase()));
-  const candidates = properNounCandidates(text).filter((c) => !covered(c) && !table.some((p) => p.original.toLowerCase() === c.toLowerCase()));
-  const classified: Detection[] = [];
-  if (candidates.length > 0) {
-    const reply = await chatJson(
-      model,
-      [
-        { role: "system", content: CLASSIFY_PROMPT },
-        { role: "user", content: `Text: ${text}\nPhrases: ${candidates.join("; ")}` },
-      ],
-      Classified,
-      { maxTokens: 400, temperature: 0 },
-    );
-    for (const item of reply.items) {
-      const kind = item.kind.toLowerCase();
-      if ((kind === "person" || kind === "org" || kind === "place") && candidates.includes(item.text)) classified.push({ text: item.text, kind });
-    }
-  }
-  const detections = [...detectPatterns(text), ...fromModel, ...classified];
+  const detections = fromModel;
 
   // Vague descriptions for values the table doesn't know yet: a separate, focused call.
   const known = new Set(table.map((p) => p.original.toLowerCase()));
@@ -126,11 +100,9 @@ export async function redactText(
 }
 
 /**
- * Redaction without the on-device model: every pattern, quote and capitalized phrase is hidden.
- * Stricter than the model (which keeps harmless names), and never guesses.
+ * Without the on-device model only the case's hide list (and this device's source identities)
+ * is applied. Nothing is guessed: names the team hasn't listed go out as written.
  */
-export function redactWithoutModel(text: string, table: readonly Pseudonym[]): RedactResult {
-  const detections: Detection[] = [...detectPatterns(text), ...detectQuotes(text), ...properNounCandidates(text).map((t) => ({ text: t, kind: "other" as const, hint: "a name" }))];
-  const next = extendTable(table, detections);
-  return { text: applyTable(text, next), table: next, added: next.slice(table.length) };
+export function redactWithTable(text: string, table: readonly Pseudonym[]): RedactResult {
+  return { text: applyTable(text, table), table: [...table], added: [] };
 }

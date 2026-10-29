@@ -117,11 +117,11 @@ function Measures() {
       {marks.map((m) =>
         m.kind === "gap" ? (
           <div key={m.key} className="absolute border-y border-dashed border-[oklch(0.62_0.24_300/0.55)] bg-[oklch(0.65_0.2_300/0.10)]" style={{ top: m.top, left: m.left, width: m.width, height: m.height }}>
-            <span className={`absolute top-1/2 left-1 -translate-y-1/2 rounded-full px-1.5 font-mono text-[10px] leading-4 text-white shadow ${tone(m.value)}`}>{m.value}</span>
+            <span className={`absolute top-1/2 left-1 -translate-y-1/2 rounded-full px-1.5 font-mono text-[0.625rem] leading-4 text-white shadow ${tone(m.value)}`}>{m.value}</span>
           </div>
         ) : (
           <div key={m.key} className="absolute bg-[oklch(0.75_0.15_200/0.18)]" style={{ top: m.top, left: m.left, width: m.width, height: m.height }}>
-            <span className={`absolute top-0 left-0 rounded-br-md px-1 font-mono text-[9px] leading-3.5 text-white ${tone(m.value)}`}>{m.value}</span>
+            <span className={`absolute top-0 left-0 rounded-br-md px-1 font-mono text-[0.5625rem] leading-3.5 text-white ${tone(m.value)}`}>{m.value}</span>
           </div>
         ),
       )}
