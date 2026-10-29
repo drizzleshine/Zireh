@@ -133,6 +133,10 @@ describe("invite sync-host location", () => {
       expect(() => inviteFragment({ caseId: "a".repeat(32), caseKey: generateCaseKey(), host })).toThrow();
     }
   });
+  it("keeps a host's path prefix, without a trailing slash", () => {
+    const invite = { caseId: "a".repeat(32), caseKey: generateCaseKey(), host: "https://api.example.org/a/host-id/" };
+    expect(parseInvite(`http://127.0.0.1:7878/#${inviteFragment(invite)}`)?.host).toBe("https://api.example.org/a/host-id");
+  });
   it("never writes a loopback host into an invite and rejects one on parse", () => {
     for (const host of ["http://127.0.0.1:11434", "http://localhost:8788"]) {
       expect(() => inviteFragment({ caseId: "a".repeat(32), caseKey: generateCaseKey(), host })).toThrow();

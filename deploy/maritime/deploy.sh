@@ -13,7 +13,7 @@ stage="$(mktemp -d)/host"
 
 "$here/stage.sh" "$stage"
 upload="$(maritime agents upload-source "$stage" --json)"
-key="$(jq -r '.uploadS3Key // .upload_key // .key // .s3Key // empty' <<<"$upload")"
+key="$(jq -r '[.. | objects | (.uploadS3Key // .s3Key // .upload_key // empty)] | first // empty' <<<"$upload")"
 [ -n "$key" ] || { echo "Couldn't find the upload key in: $upload" >&2; exit 1; }
 
 jq -n --arg name "$name" --arg key "$key" '{

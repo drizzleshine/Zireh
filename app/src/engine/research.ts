@@ -120,6 +120,7 @@ export async function runResearch(
       audit: { role: piece.role, pieceId: piece.id, runId, ...(req.caseId ? { caseId: req.caseId } : {}) },
     })));
     const unsent = new Set(calls);
+    const realFailures: string[] = []; // why real pieces failed, so the person hears the actual reason
     try {
       await pool(
         plan.pieces.map((piece, index) => ({ piece, call: calls[index]! })),
@@ -152,6 +153,7 @@ export async function runResearch(
               continue; // same requestId: the relay answers from its store if it already ran
             }
             deps.ledger.advance(call.requestId, "failed", { error: (err as Error).message });
+            if (piece.role === "real") realFailures.push((err as Error).message);
             emit({ type: "piece", id: piece.id, status: "failed", circuit, error: (err as Error).message });
             return;
           }
@@ -173,6 +175,7 @@ export async function runResearch(
       ].join(" "),
     });
     if (req.signal?.aborted) { cancelled(); return; }
+    if (realFailures.length && plan.pieces.every((p) => p.role !== "real" || !answers.has(p.id))) throw new Error(`no real piece was answered: ${realFailures[0]}`);
     const outcome = await finish(local, plan, answers, onStep, req.signal);
     emit({
       type: "done",

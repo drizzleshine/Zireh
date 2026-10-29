@@ -1,0 +1,16 @@
+# Only the browser app and its packages are built on Vercel. Local keys, data, secrets and
+# the Rust host never leave this machine.
+.env
+.env.*
+!.env.example
+.zireh/
+.claude/
+context/
+host/
+deploy/
+docs/
+node_modules/
+**/node_modules/
+**/dist/
+target/
+*.log

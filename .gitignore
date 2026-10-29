@@ -13,3 +13,4 @@ target/
 
 # Local notes and retired code, never committed
 /context/
+.vercel
