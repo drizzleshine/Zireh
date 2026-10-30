@@ -30,7 +30,9 @@ deploy/maritime/secrets.sh  # copies LLM_* from .env, sets RELAY_DEMO=1, restart
   `LLM_EXTRA_BODY`, and the host then refuses to start (the VM crash-loops). `secrets.sh` reads
   values as written.
 - `RELAY_DEMO=1` is required while top-ups are simulated or testnet: anyone can press
-  "Mark as paid", and the cap (20,000,000 credits, about $20 a day) limits what they can spend.
+  "Mark as paid", and the caps limit what they can spend: `RELAY_DEMO_QUOTE_LIMIT` per top-up
+  (20,000,000 credits, $20) and `RELAY_DEMO_DAILY_LIMIT` per UTC day (100,000,000 credits, $100).
+  The daily limit applies separately to quotes (paid or not) and to provider spend.
 - For real Zcash testnet top-ups, also set the viewing key:
   `maritime agents env set <id> ZCASH_UFVK=uviewtest1... ZCASH_BIRTHDAY=<height>`, then `maritime agents restart <id>`.
 
