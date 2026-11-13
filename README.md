@@ -78,8 +78,30 @@ AI provider unless `RELAY_DEMO=1`, which caps provider spend per day.
 
 Any OpenAI-compatible provider: Nebius Token Factory with Nemotron models by default, or Meta's
 Model API, OpenRouter, vLLM and others via `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODELS` and
-`LLM_EXTRA_BODY` (see `.env.example`). Without a key the host runs in a labeled local-dev mode
-against Ollama. Optional web search goes through Tavily.
+`LLM_EXTRA_BODY` (see `.env.example`). Point `LLM_BASE_URL` at NEAR AI Cloud and the host also
+checks that the answer came from a sealed model (below). Without a key the host runs in a labeled
+local-dev mode against Ollama. Optional web search goes through Tavily.
+
+## NEAR Hackathon
+
+Cases, the board, the coins and Zcash were already on `main`. This branch adds the NEAR piece:
+a cloud question can be answered inside a NEAR AI trusted execution environment, and the app
+checks the receipt.
+
+When `LLM_BASE_URL` is `https://cloud-api.near.ai/v1`, the host sends the question to a TEE-hosted
+model (`Qwen/Qwen3.8-27B` if `LLM_MODELS` is unset, with reasoning turned off). It then checks a
+fresh attestation, NVIDIA's verdict on the GPU, and a signature over the exact request and
+response bytes. The research view lists each check on the request the provider saw. A failed
+check still shows the answer, marked failed. Any other provider works as before and shows no
+receipt. The host still sees the generalized question, because it places the call. The receipt
+is about the model operator.
+
+Do this, and see that:
+
+1. Copy `.env.example` to `.env`. Set `LLM_BASE_URL=https://cloud-api.near.ai/v1`, `LLM_API_KEY` to a [NEAR AI](https://cloud.near.ai) key, and `RELAY_DEMO=1`.
+2. `pnpm install`, then `pnpm dev`. The host listens on port 8788 and the app on port 5173.
+3. Create a case, open the wallet, choose **Mark as paid**, then ask one question on Research.
+4. The answer is on the thread. Under **What the provider saw**, the same request shows **Verified sealed model** and seven passing checks: attestation, both nonces, NVIDIA, signature kind `provider_tee`, matching hashes, and the attested TEE key.
 
 ## Layout
 

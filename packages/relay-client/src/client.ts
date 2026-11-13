@@ -15,6 +15,7 @@ import {
   type Proof,
   type SearchHit,
   type Settlement,
+  type TeeReport,
   type Usage,
 } from "@zireh/schema";
 import { newCircuitTag, type Transport } from "./transport.ts";
@@ -65,7 +66,7 @@ export function moneyPendingStore(money: MoneyStore): PendingStore {
 
 
 export type CallResult =
-  | { readonly answerExpired?: boolean; readonly kind: "chat"; readonly requestId: string; readonly content: string; readonly model: string; readonly usage: Usage; readonly charged: number; readonly bill: BillCheck }
+  | { readonly answerExpired?: boolean; readonly kind: "chat"; readonly requestId: string; readonly content: string; readonly model: string; readonly usage: Usage; readonly charged: number; readonly bill: BillCheck; readonly tee?: TeeReport }
   | { readonly answerExpired?: boolean; readonly kind: "search"; readonly requestId: string; readonly hits: SearchHit[]; readonly charged: number };
 
 export interface RelayObserver {
@@ -349,7 +350,7 @@ export class RelayClient {
       if (call.kind === "chat") {
         const res = await this.request(fetchFn, call.path, ChatPaidResponse, call.body);
         const bill = checkBill(call.price!, call.messages!, res.answerExpired ? undefined : res.content, res.settlement.usage, res.settlement.charged, (call.body.request as { max_tokens: number }).max_tokens);
-        const result: CallResult = { answerExpired: res.answerExpired ?? false, kind: "chat", requestId: call.requestId, content: res.content, model: res.model, usage: res.settlement.usage, charged: res.settlement.charged, bill };
+        const result: CallResult = { answerExpired: res.answerExpired ?? false, kind: "chat", requestId: call.requestId, content: res.content, model: res.model, usage: res.settlement.usage, charged: res.settlement.charged, bill, ...(res.tee ? { tee: res.tee } : {}) };
         this.settle(call, res.settlement, result);
         this.notifyCompletion(call.requestId, recovered);
         await this.acknowledge(call.requestId);

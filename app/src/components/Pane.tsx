@@ -17,7 +17,7 @@ export function Pane({ title, count, meta, actions, footer, className, bodyClass
   children?: ReactNode;
 } & Omit<React.HTMLAttributes<HTMLElement>, "title">) {
   return (
-    <section className={cn("grid overflow-clip rounded-2xl bg-card surface", className)} {...rest}>
+    <section className={cn("grid min-w-0 overflow-clip rounded-2xl bg-card surface", className)} {...rest}>
       {(title || actions) && <PaneHeader title={title} count={count} meta={meta} actions={actions} />}
       {children !== undefined && <div className={cn("min-w-0", bodyClassName)}>{children}</div>}
       {footer && <div className={PANE_FOOTER}>{footer}</div>}

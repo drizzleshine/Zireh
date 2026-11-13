@@ -1,3 +1,4 @@
+import type { TeeReport } from "./relay.ts";
 import type { Pseudonym, TraceStep } from "./privacy.ts";
 
 /** Contract between the in-browser engine (wallet, privacy pipeline, on-device model) and the UI. */
@@ -41,7 +42,7 @@ export type ResearchEvent =
       readonly pieces: readonly PlannedPiece[];
       readonly blocked: readonly { question: string; score: number; inferences: string[] }[];
     }
-  | { readonly type: "piece"; readonly id: string; readonly status: "sent" | "answered" | "failed"; readonly circuit?: string; readonly ms?: number; readonly charged?: number; readonly error?: string }
+  | { readonly type: "piece"; readonly id: string; readonly status: "sent" | "answered" | "failed"; readonly circuit?: string; readonly ms?: number; readonly charged?: number; readonly error?: string; readonly tee?: TeeReport }
   | {
       readonly type: "done";
       readonly outcome: { readonly answer: string; readonly redactedAnswer: string; readonly citations: Citations };

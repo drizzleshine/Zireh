@@ -168,7 +168,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp, onSett
           else if (e.type === "piece")
             update((r) => {
               const i = r.pieces.findIndex((p) => p.id === e.id);
-              if (i >= 0) r.pieces[i] = { ...r.pieces[i]!, status: e.status, ...(e.circuit ? { circuit: e.circuit } : {}), ...(e.ms ? { ms: e.ms } : {}), ...(e.charged !== undefined ? { charged: e.charged } : {}), ...(e.error ? { error: e.error } : {}) };
+              if (i >= 0) r.pieces[i] = { ...r.pieces[i]!, status: e.status, ...(e.circuit ? { circuit: e.circuit } : {}), ...(e.ms ? { ms: e.ms } : {}), ...(e.charged !== undefined ? { charged: e.charged } : {}), ...(e.error ? { error: e.error } : {}), ...(e.tee ? { tee: e.tee } : {}) };
             });
           else if (e.type === "done") {
             update((r) => {
@@ -274,7 +274,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp, onSett
         <ThreadList threads={threads} openId={thread?.id} liveId={running ? run?.threadId : undefined} onOpen={openThreadId} />
 
         {/* The open thread in its own frame, like the reading pane in Evidence and Findings. */}
-        <Pane bodyClassName="grid gap-6 p-4 md:p-6">
+        <Pane bodyClassName="grid gap-6 p-4 md:p-6 [&>*]:min-w-0">
           <p className="text-center text-xs text-muted-foreground">
             {new Date(thread ? (thread.turns[0]!.run.askedAt ?? thread.turns[0]!.updatedAt) : Date.now()).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </p>
@@ -326,7 +326,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp, onSett
             }
           }}
           placeholder={followUp ? "Ask a follow-up…" : "Ask a question about your case…"}
-          className="min-h-24 resize-none border-0 bg-transparent px-4 pt-4 md:px-6 md:pt-6 font-serif text-[1.0625rem] leading-relaxed shadow-none focus-visible:ring-0 md:text-[1.0625rem] dark:bg-transparent"
+          className="field-sizing-fixed min-h-24 w-full max-w-full resize-none border-0 bg-transparent px-4 pt-4 font-serif text-[1.0625rem] leading-relaxed shadow-none focus-visible:ring-0 md:px-6 md:pt-6 md:text-[1.0625rem] dark:bg-transparent"
         />
 
         {context.entries.length > 0 && (

@@ -3,7 +3,6 @@
 
 use std::{
     fs,
-    os::unix::fs::DirBuilderExt,
     path::Path,
     sync::{Arc, Mutex, MutexGuard},
 };
@@ -84,7 +83,14 @@ impl Store {
     pub fn open(path: &str) -> rusqlite::Result<Store> {
         if path != ":memory:" {
             let parent = Path::new(path).parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-            fs::DirBuilder::new().recursive(true).mode(0o700).create(parent).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+            let mut dir = fs::DirBuilder::new();
+            dir.recursive(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                dir.mode(0o700);
+            }
+            dir.create(parent).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         }
         let conn = Connection::open(path)?;
         conn.execute_batch(SCHEMA)?;

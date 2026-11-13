@@ -9,6 +9,7 @@
 //! Payments: simulated unless ZCASH_UFVK (or ZCASH_UFVK_FILE) is set, then real shielded Zcash on
 //! ZCASH_NETWORK (testnet unless set), watched in-process with that viewing key.
 
+use super::tee::is_near_gateway;
 use crate::features::mint::pricing::ModelPrice;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -94,7 +95,7 @@ impl RelayConfig {
         }
         let demo = if demo { Some((limit(&get, "RELAY_DEMO_QUOTE_LIMIT", 5_000_000)?, limit(&get, "RELAY_DEMO_DAILY_LIMIT", 20_000_000)?)) } else { None };
         let models = trimmed(&get, "LLM_MODELS");
-        let prices = parse_models(models.clone())?;
+        let mut prices = parse_models(models.clone())?;
         let upstream = match api_key {
             Some(api_key) => Upstream::Hosted { base_url: trimmed(&get, "LLM_BASE_URL").unwrap_or_else(|| "https://api.tokenfactory.nebius.com/v1".into()), api_key },
             None => Upstream::LocalDev {
@@ -102,13 +103,18 @@ impl RelayConfig {
                 local_model: if models.is_some() { prices[0].model.clone() } else { "nemotron-3-nano:4b".into() },
             },
         };
+        // NEAR AI's own TEE model. Reasoning is off so the answer is the text the signature covers.
+        let near = matches!(&upstream, Upstream::Hosted { base_url, .. } if is_near_gateway(base_url));
+        if near && models.is_none() {
+            prices = vec![with_margin("Qwen/Qwen3.8-27B", 0.04, 1.35)];
+        }
         let extra_body = match trimmed(&get, "LLM_EXTRA_BODY") {
             Some(raw) => match serde_json::from_str(&raw) {
                 Ok(serde_json::Value::Object(map)) => map,
                 _ => return Err("LLM_EXTRA_BODY must be a JSON object".into()),
             },
             // A local Nemotron answers in about a second with reasoning off, and its bills stay checkable.
-            None if matches!(upstream, Upstream::LocalDev { .. }) => serde_json::Map::from_iter([("reasoning_effort".into(), "none".into())]),
+            None if near || matches!(upstream, Upstream::LocalDev { .. }) => serde_json::Map::from_iter([("reasoning_effort".into(), "none".into())]),
             None => serde_json::Map::new(),
         };
         let number = |key: &str, fallback: f64| -> Result<f64, String> {
@@ -194,5 +200,14 @@ mod tests {
         assert_eq!(mainnet.demo, None);
         assert!(from(&[("ZCASH_UFVK", "x"), ("ZCASH_NETWORK", "regtest")]).is_err());
         assert!(from(&[("RELAY_DEMO", "1"), ("RELAY_DEMO_QUOTE_LIMIT", "0")]).is_err());
+    }
+
+    #[test]
+    fn near_gateway_defaults_to_a_verifiable_model() {
+        let c = from(&[("LLM_API_KEY", "k"), ("RELAY_DEMO", "1"), ("LLM_BASE_URL", "https://cloud-api.near.ai/v1")]).unwrap();
+        assert_eq!(c.prices[0].model, "Qwen/Qwen3.8-27B");
+        assert_eq!(c.extra_body["reasoning_effort"], "none");
+        let named = from(&[("LLM_API_KEY", "k"), ("RELAY_DEMO", "1"), ("LLM_BASE_URL", "https://cloud-api.near.ai/v1"), ("LLM_MODELS", "Qwen/Qwen3.6-35B-A3B-FP8")]).unwrap();
+        assert_eq!(named.prices[0].model, "Qwen/Qwen3.6-35B-A3B-FP8");
     }
 }

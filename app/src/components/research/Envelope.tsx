@@ -32,6 +32,20 @@ export function Envelope({ piece, index }: { piece: PieceState; index: number })
           </CollapsibleContent>
         </Collapsible>
       )}
+      {piece.tee && (
+        <ul className="grid gap-1 border-t pt-2 text-xs" aria-label="Sealed model receipt">
+          <li className={cn("font-medium", piece.tee.passed ? "text-protected" : "text-destructive")}>{piece.tee.passed ? "Verified sealed model" : "Sealed-model check failed"}</li>
+          {piece.tee.checks.map((check) => (
+            <li key={check.name} className="grid grid-cols-[1rem_1fr] gap-1.5 text-muted-foreground">
+              <span className={check.pass ? "text-protected" : "text-destructive"}>{check.pass ? "✓" : "×"}</span>
+              <span>
+                {check.name}
+                {check.detail && <span className="mt-0.5 block font-mono text-[0.6875rem]">{check.detail}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <span className={cn("flex items-center gap-1 font-medium", decoy ? "text-decoy" : "text-foreground")}>
           {decoy && <Shuffle className="size-3" />}

@@ -30,8 +30,8 @@ another file). Real environment variables win.
 | `RELAY_DATA_DIR` | `.zireh/relay` | `mint-keys.json`, `relay.db` and (with real payments) `payments.db`. Losing it voids every coin. |
 | `LLM_API_KEY` | unset | Key for any OpenAI-compatible provider. Unset: local-dev mode against Ollama. |
 | `LLM_BASE_URL` | `https://api.tokenfactory.nebius.com/v1` with a key, `http://127.0.0.1:11434/v1` without | The provider's OpenAI-compatible base URL (`/chat/completions` and `/models` under it). |
-| `LLM_MODELS` | two Nemotron models on Token Factory; `nemotron-3-nano:4b` in local-dev | `id:usdIn:usdOut,…` per 1M tokens, or an id alone for $0.30 / $0.90; a 20% margin is added. In local-dev only the first is used. |
-| `LLM_EXTRA_BODY` | `{"reasoning_effort":"none"}` in local-dev, nothing otherwise | JSON object merged into every chat request, e.g. `{"reasoning_effort":"minimal"}`. |
+| `LLM_MODELS` | two Nemotron models on Token Factory; `Qwen/Qwen3.8-27B` when the base URL is NEAR AI Cloud; `nemotron-3-nano:4b` in local-dev | `id:usdIn:usdOut,…` per 1M tokens, or an id alone for $0.30 / $0.90; a 20% margin is added. In local-dev only the first is used. |
+| `LLM_EXTRA_BODY` | `{"reasoning_effort":"none"}` in local-dev and for NEAR AI Cloud, nothing otherwise | JSON object merged into every chat request, e.g. `{"reasoning_effort":"minimal"}`. NEAR AI Cloud replies include a sealed-model receipt (`tee`). |
 | `TAVILY_API_KEY` | unset | Enables `/v1/search`. `TAVILY_URL` overrides the endpoint. `RELAY_SEARCH_PRICE` (9600 credits) sets the price. |
 | `RELAY_DEMO` | unset | `1` caps spend per UTC day: `RELAY_DEMO_QUOTE_LIMIT` (5,000,000) and `RELAY_DEMO_DAILY_LIMIT` (20,000,000) credits. Required for paid providers unless payments are real mainnet Zcash. |
 | `ZCASH_UFVK` / `ZCASH_UFVK_FILE` | unset | Viewing key for real top-ups (never a spending key). Unset: simulated payments. |

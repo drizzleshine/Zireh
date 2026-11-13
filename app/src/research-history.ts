@@ -1,4 +1,4 @@
-import type { PlannedPiece, PrivacyLevel, Pseudonym, ResearchEvent, TraceStep } from "@zireh/schema";
+import type { PlannedPiece, PrivacyLevel, Pseudonym, ResearchEvent, TeeReport, TraceStep } from "@zireh/schema";
 import { database, Keys } from "./persistence.ts";
 import { api } from "./api.ts";
 
@@ -9,6 +9,7 @@ export interface PieceState extends PlannedPiece {
   ms?: number;
   charged?: number;
   error?: string;
+  tee?: TeeReport;
 }
 
 export interface Run {

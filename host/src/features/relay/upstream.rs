@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
 
+use super::tee::{self, is_near_gateway};
 use super::validate::ChatMessage;
 
 #[derive(Clone, Debug)]
@@ -35,6 +36,8 @@ pub struct ChatResult {
     pub content: String,
     pub model: String,
     pub usage: Usage,
+    /// Present when the provider is NEAR AI Cloud: the sealed-model receipt, pass or fail.
+    pub tee: Option<Value>,
 }
 
 /// One model behind `/chat/completions`.
@@ -56,8 +59,12 @@ impl ChatUpstream {
         if let Some(t) = temperature {
             body.insert("temperature".into(), json!(t));
         }
+        // The signature covers these exact bytes, so the body is serialized once and sent as-is.
+        let request_body = serde_json::to_string(&Value::Object(body)).map_err(|e| e.to_string())?;
+        let near = is_near_gateway(&self.base_url);
+        let prepared = if near { Some(tee::prepare(&self.client, &self.base_url, self.api_key.as_deref(), &self.model).await) } else { None };
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
-        let mut req = self.client.post(url).json(&Value::Object(body));
+        let mut req = self.client.post(url).header(reqwest::header::CONTENT_TYPE, "application/json").body(request_body.clone());
         if let Some(key) = &self.api_key {
             req = req.bearer_auth(key);
         }
@@ -67,7 +74,12 @@ impl ChatUpstream {
             let text = res.text().await.unwrap_or_default();
             return Err(format!("{}: HTTP {} {text}", self.model, status.as_u16()));
         }
-        let body: Value = res.json().await.map_err(|e| e.to_string())?;
+        let response_text = res.text().await.map_err(|e| e.to_string())?;
+        let body: Value = serde_json::from_str(&response_text).map_err(|e| e.to_string())?;
+        let tee = match prepared {
+            Some(prepared) => Some(tee::complete(&self.client, &self.base_url, self.api_key.as_deref(), &self.model, &request_body, &response_text, prepared).await),
+            None => None,
+        };
         let usage = &body["usage"];
         Ok(ChatResult {
             content: body["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string(),
@@ -77,6 +89,7 @@ impl ChatUpstream {
                 completion_tokens: usage["completion_tokens"].as_u64().unwrap_or(0),
                 reasoning_tokens: usage["completion_tokens_details"]["reasoning_tokens"].as_u64(),
             },
+            tee,
         })
     }
 }

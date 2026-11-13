@@ -143,7 +143,7 @@ export async function runResearch(
             spent += result.charged;
             settled.add(piece.id);
             answers.set(piece.id, result.content);
-            emit({ type: "piece", id: piece.id, status: "answered", circuit, ms: Date.now() - t0, charged: result.charged });
+            emit({ type: "piece", id: piece.id, status: "answered", circuit, ms: Date.now() - t0, charged: result.charged, ...(result.tee ? { tee: result.tee } : {}) });
             return;
           } catch (err) {
             const retryable = err instanceof RelayCallError && err.retryable && err.code !== "settlement_disputed";

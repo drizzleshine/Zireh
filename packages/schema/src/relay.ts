@@ -58,11 +58,26 @@ export const Settlement = z.object({
 });
 export type Settlement = z.infer<typeof Settlement>;
 
+/** One line of a NEAR AI sealed-model receipt. Absent unless the relay called NEAR AI Cloud. */
+export const TeeCheck = z.object({
+  name: z.string(),
+  pass: z.boolean(),
+  detail: z.string(),
+});
+export type TeeCheck = z.infer<typeof TeeCheck>;
+
+export const TeeReport = z.object({
+  passed: z.boolean(),
+  checks: z.array(TeeCheck),
+});
+export type TeeReport = z.infer<typeof TeeReport>;
+
 export const ChatPaidResponse = z.object({
   answerExpired: z.boolean().optional(),
   content: z.string(),
   model: z.string(),
   settlement: Settlement,
+  tee: TeeReport.optional(),
 });
 export type ChatPaidResponse = z.infer<typeof ChatPaidResponse>;
 

@@ -4,6 +4,7 @@
 
 pub mod config;
 pub mod store;
+pub mod tee;
 pub mod upstream;
 pub mod validate;
 pub mod watcher;
@@ -254,7 +255,11 @@ impl Relay {
                 let m = &self.models[model];
                 m.upstream.chat(&request.messages, request.max_tokens, request.temperature).await.map(|r| {
                     let cost = actual_cost(&m.price, r.usage.prompt_tokens, r.usage.completion_tokens);
-                    (json!({ "content": r.content, "model": r.model }), cost, r.usage)
+                    let mut body = json!({ "content": r.content, "model": r.model });
+                    if let Some(tee) = r.tee {
+                        body["tee"] = tee;
+                    }
+                    (body, cost, r.usage)
                 })
             }
             Work::Search { query, max_results } => match &self.search {

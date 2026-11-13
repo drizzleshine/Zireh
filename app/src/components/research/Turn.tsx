@@ -45,9 +45,9 @@ export function Turn({ record, live, running, detail, onDetail, onSave, onSend, 
           : "Nothing was sent";
 
   return (
-    <li className="grid gap-3">
-      <div className="grid justify-items-end gap-1">
-        <p className="max-w-[85%] rounded-2xl rounded-br-md bg-foreground px-4 py-3 text-[0.9375rem] leading-relaxed whitespace-pre-wrap text-background">{run.task}</p>
+    <li className="grid min-w-0 gap-3">
+      <div className="grid w-full min-w-0 justify-items-end gap-1">
+        <p className="max-w-[85%] min-w-0 rounded-2xl rounded-br-md bg-foreground px-4 py-3 text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap text-background">{run.task}</p>
         {standalone && standalone !== run.task && (
           <p className="max-w-[85%] text-right text-xs text-muted-foreground">
             Asked as: “{standalone}”
@@ -55,7 +55,7 @@ export function Turn({ record, live, running, detail, onDetail, onSave, onSend, 
         )}
       </div>
 
-      <div className="panel surface">
+      <div className="panel surface min-w-0">
         {answer ? (
           <div className="grid gap-3">
             {run.done ? (
