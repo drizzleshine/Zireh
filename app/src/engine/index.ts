@@ -73,7 +73,7 @@ if (typeof window !== "undefined") {
 /* On-device model: nothing downloads until the user asks once; after that it starts with the page. */
 
 const MODEL_PREF = "zireh:local-model";
-let model: { state: LocalModelState; percent?: number; error?: string } = { state: "off" };
+let model: { state: LocalModelState; percent?: number; phase?: "download" | "start"; error?: string } = { state: "off" };
 
 export async function startLocalModel(): Promise<void> {
   if (model.state === "loading" || model.state === "ready") return;
@@ -85,7 +85,7 @@ export async function startLocalModel(): Promise<void> {
   try { localStorage.setItem(MODEL_PREF, "on"); } catch { /* the choice just isn't remembered */ }
   model = { state: "loading", percent: 0 };
   try {
-    await local.load((percent) => { model = { state: "loading", percent }; });
+    await local.load((percent, phase) => { model = { state: "loading", percent, ...(phase ? { phase } : {}) }; });
     model = { state: "ready" };
   } catch (err) {
     model = { state: "failed", error: (err as Error).message };
@@ -110,7 +110,7 @@ export async function status(): Promise<AppStatus> {
     relayCheck = {
       at: Date.now(),
       result: relay.info(true).then(
-        (info): AppStatus["relay"] => ({ ok: true, ...(info.upstreamOk !== undefined ? { upstreamOk: info.upstreamOk } : {}), network: info.network, models: info.prices.map((p) => p.model), search: info.searchEnabled }),
+        (info): AppStatus["relay"] => ({ ok: true, ...(info.upstreamOk !== undefined ? { upstreamOk: info.upstreamOk } : {}), ...(info.sealed !== undefined ? { sealed: info.sealed } : {}), network: info.network, models: info.prices.map((p) => p.model), search: info.searchEnabled }),
         (err: Error): AppStatus["relay"] => ({ ok: false, models: [], error: err.message }),
       ),
     };

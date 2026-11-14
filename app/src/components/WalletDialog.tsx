@@ -128,7 +128,7 @@ export function WalletDialog({ onClose, onBalanceChange }: { onClose: () => void
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-          <p className="text-xs text-muted-foreground">Roughly {Math.round((usd * 1_000_000) / 500).toLocaleString()} questions at the Standard level. Unused coins stay yours.</p>
+          <p className="text-xs text-muted-foreground">Roughly {Math.round((usd * 1_000_000) / 500).toLocaleString()} questions at the Direct level. Unused coins stay yours.</p>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={onClose}>

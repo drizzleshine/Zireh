@@ -13,7 +13,7 @@ export type ToWorker =
   | { type: "interrupt" };
 
 export type FromWorker =
-  | { type: "progress"; percent: number }
+  | { type: "progress"; percent: number; phase?: "download" | "start" }
   | { type: "ready" }
   | { type: "done"; id: number; text: string; promptTokens: number; completionTokens: number }
   | { type: "error"; id?: number; message: string };
@@ -26,15 +26,15 @@ export interface WorkerLike {
 
 export interface WorkerModel extends ChatModel {
   /** Download (first time) and start the model. Safe to call more than once. */
-  load(onProgress?: (percent: number) => void): Promise<void>;
+  load(onProgress?: (percent: number, phase?: "download" | "start") => void): Promise<void>;
 }
 
 export function workerModel(worker: WorkerLike, id: string): WorkerModel {
   let next = 0;
   let loading: Promise<void> | undefined;
-  const progress = new Set<(percent: number) => void>();
+  const progress = new Set<(percent: number, phase?: "download" | "start") => void>();
   worker.addEventListener("message", ({ data }) => {
-    if (data.type === "progress") for (const report of progress) report(data.percent);
+    if (data.type === "progress") for (const report of progress) report(data.percent, data.phase);
   });
 
   const load = (onProgress?: (percent: number) => void) => {

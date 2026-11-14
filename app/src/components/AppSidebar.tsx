@@ -58,8 +58,9 @@ export function AppSidebar({ status, hostError, selected, settingsOpen, onSelect
   // Only the relay decides whether Zireh can work. On-device AI is an optional extra.
   // A reachable relay whose AI is down can't answer anything, so it is not "Ready".
   const aiDown = !!status?.relay.ok && status.relay.upstreamOk === false;
+  const near = !!status?.relay.sealed;
   const relay: Health = hostError ? "bad" : !status ? "idle" : !status.relay.ok ? "bad" : aiDown ? "warn" : "ok";
-  const summary = hostError ? "Can't connect" : relay === "ok" ? "Ready" : relay === "warn" ? "The AI isn't answering" : relay === "bad" ? "Can't reach the relay" : "Connecting…";
+  const summary = hostError ? "Can't connect" : relay === "ok" ? (near ? "NEAR AI" : "Ready") : relay === "warn" ? (near ? "NEAR AI isn't answering" : "The AI isn't answering") : relay === "bad" ? "Can't reach the relay" : "Connecting…";
 
   return (
     <Sidebar collapsible="icon" variant="inset">
@@ -169,7 +170,7 @@ export function AppSidebar({ status, hostError, selected, settingsOpen, onSelect
                     <div className="flex items-center gap-2">
                       <Dot state={relay} />
                       Relay
-                      <span className="ml-auto text-xs text-muted-foreground">{!status ? "…" : aiDown ? "up, AI not answering" : status.relay.ok ? (status.relay.network === "simulated" ? "test money" : (status.relay.network ?? "ok")) : "unreachable"}</span>
+                      <span className="ml-auto text-xs text-muted-foreground">{!status ? "…" : aiDown ? (near ? "NEAR AI isn't answering" : "up, AI not answering") : status.relay.ok ? (near ? "NEAR AI sealed model" : status.relay.network === "simulated" ? "test money" : (status.relay.network ?? "ok")) : "unreachable"}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Cpu className={cn("size-3.5", status?.localModel.ok ? "text-protected" : "text-muted-foreground")} />

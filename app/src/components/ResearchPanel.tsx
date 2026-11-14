@@ -84,7 +84,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp, onSett
     saveQuestion(t);
   };
   const setLevel = (l: PrivacyLevel) => setDraft({ level: l, reviewBeforeSend: l === "paranoid" });
-  // Without on-device AI only Standard can run; the other levels promise work only the model can do.
+  // Without on-device AI only Direct can run; the other levels promise work only the model can do.
   const noLocalAi = !!status && !status.localModel.ok;
   const blocked = (l: PrivacyLevel) => noLocalAi && l !== "standard";
   useEffect(() => {
@@ -128,7 +128,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp, onSett
         return answer ? [{ question: t.run.task, answer: answer.slice(0, 8000) }] : [];
       })
       .slice(-4);
-    // A level this device can't run never goes out; it falls back to Standard.
+    // A level this device can't run never goes out; it falls back to Direct.
     const sendLevel: PrivacyLevel = blocked(level) ? "standard" : level;
     const current: Run = { threadId, askedAt: new Date().toISOString(), evidenceIds: context.entries.map((entry) => entry.id), sourceTable: JSON.stringify(rec.pseudonyms), task, level: sendLevel, steps: [], table: [], pieces: [], blocked: [] };
     const controller = new AbortController();
@@ -240,7 +240,13 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp, onSett
     if (dismissed.includes("new")) setDismissed(dismissed.filter((id) => id !== "new"));
     setSlot(caseId, (s) => ({ ...s, thread: "new" }));
   };
-  const notice = noLocalAi ? (followUp ? "On-device AI is off, so follow-ups aren't rewritten to stand alone, and only names on your hide list are hidden." : "On-device AI is off: only names on your hide list are hidden, and only Standard is available.") : undefined;
+  const notice = noLocalAi
+    ? status?.relay.sealed
+      ? "You can ask now. Direct sends this question to a NEAR AI sealed model as you wrote it."
+      : followUp
+        ? "On-device AI is off, so follow-ups aren't rewritten to stand alone. Direct still sends the question as you wrote it."
+        : "On-device AI is off. Direct sends the question as you wrote it. Private and Paranoid need the download."
+    : undefined;
   const noticeKey = thread?.id ?? "new";
 
   const textEvidence = rec.evidence.filter((e) => readableText(e));
@@ -261,7 +267,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp, onSett
 
   return (
     <section className="page pb-4" aria-label="Research">
-      <PageBar hint="Ask about your case. Each question goes out on its own, so the AI never sees the conversation.">
+      <PageBar hint={status?.relay.sealed ? "Direct sends the question as you wrote it to a NEAR AI sealed model. After an answer, the thread says NEAR AI, and “See what was sent” lists the receipt." : "Ask about your case. Each question goes out on its own, so the AI never sees the conversation."}>
         {thread && (
           <Button size="sm" onClick={newThread}>
             <Plus /> New thread
@@ -342,7 +348,7 @@ export function ResearchPanel({ caseId, status, onBalanceChange, onTopUp, onSett
             ))}
           </div>
         )}
-        {level !== "local" && <SendPreview caseId={caseId} task={task} context={contextTexts} table={table} localAi={!noLocalAi} />}
+        {level !== "local" && <SendPreview caseId={caseId} task={task} context={contextTexts} table={table} localAi={!noLocalAi} plain={level === "standard"} />}
         {context.entries.filter((entry) => entry.truncated).map((entry) => (
           <p className="px-4 pb-2 text-xs text-muted-foreground md:px-6" key={entry.id}>
             {entry.title}: research uses the first {entry.used.toLocaleString()} of {entry.total.toLocaleString()} characters. The whole source stays in Evidence.

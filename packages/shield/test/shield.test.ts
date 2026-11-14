@@ -42,15 +42,15 @@ describe("compile", () => {
     expect(plan.localAnswer).toBe("local answer");
   });
 
-  it("standard level sends one redacted, salted piece and no decoys", async () => {
+  it("standard level sends the question as written, with no decoys", async () => {
     const plan = await compile(fakeLocal({ entities }), { task, level: "standard", table: [], salt });
     expect(plan.pieces).toHaveLength(1);
     const piece = plan.pieces[0]!;
     expect(piece.role).toBe("real");
     expect(piece.messages[0]!.content).toBe(SYSTEM_PROMPT);
-    // Hidden values reach the provider only as vague descriptions (generic ones here).
-    expect(piece.messages[1]!.content).toBe(`Session ${salt}\n\nIs a person at risk after publishing a location port report?`);
-    expect(JSON.stringify(plan.pieces)).not.toMatch(/Ada|Lagos/);
+    expect(piece.messages[1]!.content).toBe(`Session ${salt}\n\n${task}`);
+    expect(JSON.stringify(plan.pieces)).toMatch(/Ada Obi/);
+    expect(JSON.stringify(plan.pieces)).toMatch(/Lagos/);
   });
 
   it("paranoid level splits, adds 3 decoys per piece, and never salts", async () => {
@@ -93,7 +93,7 @@ describe("compile", () => {
 
   it("fails closed when redaction fails", async () => {
     const broken = scriptedModel(() => "no json");
-    await expect(compile(broken, { task, level: "standard", table: [], salt })).rejects.toThrow();
+    await expect(compile(broken, { task, level: "private", table: [], salt })).rejects.toThrow();
   });
 });
 
@@ -136,15 +136,14 @@ it("uses distinct cover questions across the whole split plan", async () => {
 describe("follow-ups in a thread", () => {
   const history = [{ question: "Who runs Harbor Line Freight?", answer: "Public filings list a single director." }];
 
-  it("sends the standalone rewrite, never the conversation", async () => {
+  it("sends a follow-up as written and never the conversation", async () => {
     const local = fakeLocal({ standalone: "Who owns the parent company of a regional freight firm?", leak: () => 0 });
     const plan = await compile(local, { task: "And who owns their parent?", history, level: "standard", table: [], salt: "s" });
     const outbound = JSON.stringify(plan.pieces.map((p) => p.messages));
-    expect(outbound).toContain("parent company of a regional freight firm");
+    expect(outbound).toContain("And who owns their parent?");
     expect(outbound).not.toContain("single director");
-    expect(outbound).not.toContain("And who owns their parent?");
     expect(plan.task).toBe("And who owns their parent?");
-    expect(plan.trace[0]!.stage).toBe("standalone");
+    expect(plan.trace.some((t) => t.stage === "standalone")).toBe(false);
   });
 
   it("without history, skips the rewrite", async () => {
@@ -154,14 +153,12 @@ describe("follow-ups in a thread", () => {
 });
 
 describe("the step trace tells the truth", () => {
-  it("without on-device AI, claims no leak score and counts only values in this question", async () => {
+  it("without on-device AI, sends the question as written and does not hide names", async () => {
     const table = [{ original: "Old Name", placeholder: "[PERSON_1]", kind: "person" as const, hint: "a person" }];
     const plan = await compile(undefined, { task: "Is Ada Obi safe?", level: "standard", table: [...table, { original: "Ada Obi", placeholder: "[PERSON_2]", kind: "person" as const, hint: "a reporter" }], salt: "s" });
     const redact = plan.trace.find((s) => s.stage === "redact")!;
-    const leak = plan.trace.find((s) => s.stage === "leakcheck")!;
-    expect(redact.title).toBe("Hid 1 value");
-    expect(leak.title).toBe("No hidden value left in the text");
-    expect(leak.detail).toMatch(/exact match only/);
+    expect(redact.title).toBe("Nothing hidden");
+    expect(JSON.stringify(plan.pieces)).toContain("Ada Obi");
     expect(plan.pieces.every((p) => p.leakScore === undefined)).toBe(true);
     expect(plan.trace.find((s) => s.stage === "route")!.title).toBe("Will go to the cloud model");
   });

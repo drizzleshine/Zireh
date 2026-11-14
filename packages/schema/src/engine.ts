@@ -6,8 +6,8 @@ import type { Pseudonym, TraceStep } from "./privacy.ts";
 export type LocalModelState = "off" | "loading" | "ready" | "failed" | "unsupported";
 
 export interface AppStatus {
-  readonly localModel: { readonly id: string; readonly ok: boolean; readonly state: LocalModelState; readonly percent?: number; readonly error?: string };
-  readonly relay: { readonly ok: boolean; readonly upstreamOk?: boolean; readonly network?: string; readonly models: string[]; readonly search?: boolean; readonly error?: string };
+  readonly localModel: { readonly id: string; readonly ok: boolean; readonly state: LocalModelState; readonly percent?: number; readonly phase?: "download" | "start"; readonly error?: string };
+  readonly relay: { readonly ok: boolean; readonly upstreamOk?: boolean; readonly network?: string; readonly models: string[]; readonly search?: boolean; readonly sealed?: boolean; readonly error?: string };
   readonly balance: number;
   readonly pendingCalls: number;
   /** Another tab holds the wallet; this one can't spend until it closes. */

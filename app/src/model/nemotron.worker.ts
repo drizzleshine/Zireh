@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
-import { InterruptableStoppingCriteria, pipeline, TextStreamer, type TextGenerationPipeline } from "@huggingface/transformers";
+import { env, InterruptableStoppingCriteria, pipeline, TextStreamer, type TextGenerationPipeline } from "@huggingface/transformers";
+import { installResumeCache } from "./resume.ts";
 import type { FromWorker, ToWorker } from "@zireh/llm";
 
 /**
@@ -15,13 +16,21 @@ const stop = new InterruptableStoppingCriteria();
 let generator: Promise<TextGenerationPipeline> | undefined;
 
 const load = () =>
-  (generator ??= pipeline("text-generation", MODEL_ID, {
-    dtype: "q4",
-    device: "webgpu",
-    progress_callback: (p: { status: string; progress?: number }) => {
-      if (p.status === "progress_total" && typeof p.progress === "number") send({ type: "progress", percent: p.progress });
-    },
-  }).catch((err: unknown) => {
+  (generator ??= (async () => {
+    await installResumeCache(env);
+    let weights = false;
+    return pipeline("text-generation", MODEL_ID, {
+      dtype: "q4",
+      device: "webgpu",
+      progress_callback: (p: { status: string; file?: string; progress?: number }) => {
+        if (p.status === "initiate" && p.file?.includes(".onnx")) weights = true;
+        if (p.status === "progress_total" && typeof p.progress === "number") {
+          send({ type: "progress", percent: p.progress, phase: p.progress >= 100 && weights ? "start" : "download" });
+        }
+        if (p.status === "ready") send({ type: "progress", percent: 100, phase: "start" });
+      },
+    });
+  })().catch((err: unknown) => {
     generator = undefined; // let the next load try again
     throw err;
   }) as Promise<TextGenerationPipeline>);

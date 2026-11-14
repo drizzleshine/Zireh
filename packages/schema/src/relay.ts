@@ -12,6 +12,8 @@ export const RelayInfo = z.object({
   network: z.enum(["testnet", "mainnet", "simulated"]),
   /** Whether the AI behind the relay answered its last health check. Absent from older relays. */
   upstreamOk: z.boolean().optional(),
+  /** The chat model runs inside a NEAR AI trusted execution environment. Absent from older relays. */
+  sealed: z.boolean().optional(),
 });
 export type RelayInfo = z.infer<typeof RelayInfo>;
 

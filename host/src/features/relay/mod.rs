@@ -296,6 +296,7 @@ impl Relay {
         if let Some(h) = &self.health {
             info["upstreamOk"] = h.ok().await.into();
         }
+        info["sealed"] = self.models.iter().any(|m| tee::is_near_gateway(&m.upstream.base_url)).into();
         json(200, info)
     }
 

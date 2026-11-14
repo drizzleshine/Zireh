@@ -2,7 +2,7 @@ import { randomId, shuffle } from "@zireh/crypto";
 import { makeDecoys, stockDecoys, tooSimilar } from "./decoy.ts";
 import { checkLeak, generalize, passes, type LeakReport } from "./leakcheck.ts";
 import { abortableModel, type ChatModel } from "@zireh/llm";
-import { applyTable, findLeaks, redactText, redactWithTable, restore, withHints } from "./redact/index.ts";
+import { applyTable, findLeaks, redactText, restore, withHints } from "./redact/index.ts";
 import { LEVELS, type ChatMessage, type OutboundPiece, type PrivacyLevel, type Pseudonym, type TraceStep } from "@zireh/schema";
 import { reassemble, splitTask, type Reassembled } from "./split.ts";
 
@@ -85,9 +85,8 @@ export interface CompileHooks {
 export class NeedsLocalModel extends Error {}
 
 /**
- * `local` is the on-device model, or undefined when none is connected. Without it nothing is
- * guessed: only the hide list is applied (see redactWithTable), the task goes out as one question with no
- * rewrite, the leak check is the exact-match one, and decoys come from a fixed list.
+ * `local` is the on-device model, or undefined when none is connected. Direct never uses it:
+ * the question is sent as written. The other levels need it to hide names, split, and check leaks.
  */
 export async function compile(local: ChatModel | undefined, input: ShieldInput, hooks: CompileHooks = {}): Promise<Plan> {
   hooks.signal?.throwIfAborted();
@@ -100,6 +99,24 @@ export async function compile(local: ChatModel | undefined, input: ShieldInput, 
     onStep?.(s);
   };
   const maxTokens = input.maxTokens ?? DEFAULT_MAX_TOKENS;
+
+  // Direct has no on-device step. The question goes out as written.
+  if (input.level === "standard") {
+    step({
+      stage: "redact",
+      title: "Nothing hidden",
+      detail: "Direct sends the question as written. Names are not hidden.",
+      before: input.task,
+      after: input.task,
+    });
+    step({ stage: "route", title: "Will go to the cloud model", detail: "Direct. Nothing has been sent yet." });
+    const piece: OutboundPiece = { id: randomId(), role: "real", question: input.task, messages: buildMessages(input.task, input.salt), maxTokens };
+    step({ stage: "split", title: "Kept as one question", detail: input.task });
+    step({ stage: "leakcheck", title: "Not checked", detail: "Direct does not look for names." });
+    step({ stage: "decoy", title: "No decoys", detail: "This level sends no cover traffic." });
+    step({ stage: "order", title: "Prompt layout", detail: "Shared system prompt, then a per-case salt, then the content." });
+    return { level: input.level, task: input.task, redactedTask: input.task, table: [...input.table], pieces: [piece], blocked: [], trace };
+  }
 
   // 0. standalone — a follow-up is rewritten here, on this device, into a question that makes
   // sense alone. Only that goes on: the provider never sees the conversation, so questions from
@@ -122,10 +139,8 @@ export async function compile(local: ChatModel | undefined, input: ShieldInput, 
   // 1. redact — task and context share one table so placeholders agree everywhere.
   const contextText = (input.context ?? []).join("\n\n");
   const combined = contextText ? `${contextText}\n\nTask: ${task}` : task;
-  // Without the model only Standard can run: Local only needs it to answer, and Private and
-  // Paranoid promise splitting and rewriting that pattern matching can't do.
-  if (!local && input.level !== "standard") throw new NeedsLocalModel(`${input.level[0]!.toUpperCase()}${input.level.slice(1)} needs on-device AI. Turn it on in Settings, or use Standard.`);
-  const red = local ? await redactText(local, combined, input.table) : redactWithTable(combined, input.table);
+  if (!local) throw new NeedsLocalModel(`${input.level[0]!.toUpperCase()}${input.level.slice(1)} needs on-device AI. Turn it on in Settings, or use Direct.`);
+  const red = await redactText(local, combined, input.table);
   const redactedTask = applyTable(task, red.table);
   const described = withHints(red.text, red.table);
   hooks.onRedacted?.(red.table);
@@ -137,7 +152,6 @@ export async function compile(local: ChatModel | undefined, input: ShieldInput, 
     detail: red.added.length
       ? `New this time: ${red.added.map((p) => `${p.original} → ${p.hint ?? p.placeholder}`).join(", ")}` // trace stays on this device
       : "No new identifying values found.",
-    ...(local ? {} : { detail: `${red.added.length ? `New this time: ${red.added.map((p) => `${p.original} → ${p.hint ?? p.placeholder}`).join(", ")}. ` : ""}No on-device AI, so only names on the hide list were hidden.` }),
     before: combined,
     after: described,
   });

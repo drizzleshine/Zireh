@@ -33,6 +33,7 @@ export function Turn({ record, live, running, detail, onDetail, onSave, onSend, 
   const awaiting = live && running && !!run.prepared && !run.approved && !run.cancelling;
   const broke = !!run.error && /insufficient|not enough|balance/i.test(run.error);
   const answered = run.pieces.filter((p) => p.role === "real" && p.status === "answered").length;
+  const near = run.pieces.find((p) => p.role === "real" && p.tee);
 
   const receipt = run.example
     ? `Example for this demo · nothing was sent · would go out as ${real} question${real === 1 ? "" : "s"}${decoys ? ` + ${decoys} decoy${decoys === 1 ? "" : "s"}` : ""}`
@@ -121,6 +122,12 @@ export function Turn({ record, live, running, detail, onDetail, onSave, onSend, 
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">No answer was saved for this question.</p>
+        )}
+
+        {near?.tee && (
+          <p className={cn("text-[0.6875rem] leading-tight font-normal", near.tee.passed ? "text-protected/65" : "text-destructive/75")}>
+            {near.tee.passed ? "NEAR AI · verified sealed model" : "NEAR AI · sealed-model check failed"}
+          </p>
         )}
 
         <div className="footer">

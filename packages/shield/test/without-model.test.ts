@@ -6,22 +6,23 @@ describe("without an on-device model", () => {
   const table = [{ original: "Ada Obi", placeholder: "[PERSON_1]", kind: "person" as const, hint: "a reporter" }];
   const input = { task: "Is Ada Obi at risk after her report on Apapa port? Email ada@example.org", level: "standard" as const, table, salt: "s" };
 
-  it("hides only the hide list, guesses nothing, and sends the task as one question", async () => {
+  it("sends the question as written, including names on the hide list", async () => {
     const plan = await compile(undefined, input);
     const real = plan.pieces.filter((p) => p.role === "real");
     expect(real).toHaveLength(1);
     const outbound = JSON.stringify(plan.pieces.map((p) => p.messages));
-    expect(outbound).not.toContain("Ada Obi");
-    for (const unlisted of ["Apapa", "ada@example.org"]) expect(outbound).toContain(unlisted);
+    expect(outbound).toContain("Ada Obi");
+    expect(outbound).toContain("Apapa");
+    expect(outbound).toContain("ada@example.org");
     expect(plan.table.map((p) => p.original)).toEqual(["Ada Obi"]);
   });
 
-  it("sends Standard as one question with no decoys", async () => {
+  it("sends Direct as one question with no decoys", async () => {
     const plan = await compile(undefined, input);
     expect(plan.pieces.filter((p) => p.role === "decoy")).toHaveLength(0);
   });
 
-  it("refuses every level but Standard, since they need the model", async () => {
+  it("refuses every level but Direct, since they need the model", async () => {
     for (const level of ["local", "private", "paranoid"] as const) await expect(compile(undefined, { ...input, level })).rejects.toBeInstanceOf(NeedsLocalModel);
   });
 
@@ -34,8 +35,7 @@ describe("without an on-device model", () => {
   it("shows the real answer with names restored", async () => {
     const plan = await compile(undefined, { ...input, level: "standard" });
     const real = plan.pieces.find((p) => p.role === "real")!;
-    const placeholder = plan.table.find((p) => p.original === "Ada Obi")!.placeholder;
-    const outcome = await finish(undefined, plan, new Map([[real.id, `${placeholder} should vary her routes.`]]));
-    expect(outcome.answer).toBe("Ada Obi should vary her routes.");
+    const outcome = await finish(undefined, plan, new Map([[real.id, "She should vary her routes."]]));
+    expect(outcome.answer).toBe("She should vary her routes.");
   });
 });

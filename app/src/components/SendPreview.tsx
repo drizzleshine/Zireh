@@ -26,12 +26,13 @@ interface Item {
  * Without on-device AI this is exact: it runs the same rules the pipeline will. With it, the model
  * can hide more and rewrites the question, so only the certain part is shown.
  */
-export function SendPreview({ caseId, task, context, table, localAi }: { caseId: string; task: string; context: readonly string[]; table: readonly Pseudonym[]; localAi: boolean }) {
+export function SendPreview({ caseId, task, context, table, localAi, plain }: { caseId: string; task: string; context: readonly string[]; table: readonly Pseudonym[]; localAi: boolean; plain?: boolean }) {
   const team = useStore((s) => s.cases[caseId]?.pseudonyms ?? []);
   const deferred = useDeferredValue(task);
 
   const { items, wire } = useMemo(() => {
     if (!deferred.trim()) return { items: [] as Item[], wire: undefined };
+    if (plain) return { items: [] as Item[], wire: deferred };
     const identity = (original: string) => !team.some((p) => p.original.toLowerCase() === original.toLowerCase());
     if (!localAi) {
       // Same input the shield builds: context first, then the task, sharing one table.
@@ -48,7 +49,7 @@ export function SendPreview({ caseId, task, context, table, localAi }: { caseId:
       return { original: known?.original ?? h.text, kind: known?.kind ?? h.kind, hint: known?.hint, sure: true, identity: !!known && identity(known.original) };
     });
     return { items, wire: undefined };
-  }, [deferred, context, table, team, localAi]);
+  }, [deferred, context, table, team, localAi, plain]);
 
   if (!items.length && !wire) return null;
   const vague = items.filter((i) => i.sure && i.hint === "a name").length;

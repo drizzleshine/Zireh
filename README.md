@@ -23,13 +23,12 @@ the graphics card (WebGPU, about 2.5 GB, downloaded once).
 5. **Send.** Each piece is its own request, paid with its own unlinkable ecash coins.
 6. **Reassemble** the real answers locally and put the names back.
 
-Without the on-device model, only names on the case's hide list are hidden (nothing is guessed)
-and each question goes out whole.
+Without the on-device model, Direct is the level that still runs: the question goes out as you wrote it, and names are not hidden. Private, Paranoid, and Local only need the model.
 
 | Level | Leaves your browser | Decoys | Split |
 |---|---|---|---|
 | Local only | nothing | – | – |
-| Standard | one generalized question | 0 | no |
+| Direct | the question as written | 0 | no |
 | Private | several independent questions | 1 | yes |
 | Paranoid | same, stricter leak check, review before send | 3 | yes |
 

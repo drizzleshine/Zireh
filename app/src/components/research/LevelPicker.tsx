@@ -1,4 +1,4 @@
-import { Check, Cpu, LockSimple as Lock, Shuffle, CaretUpDown, ShieldCheck } from "@phosphor-icons/react";
+import { Check, Cpu, LockSimple as Lock, PaperPlaneTilt, Shuffle, CaretUpDown } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { PrivacyLevel } from "@zireh/schema";
 import { LEVEL_COPY } from "../levels.ts";
@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-const LEVEL_ICON: Record<PrivacyLevel, typeof Cpu> = { local: Cpu, standard: ShieldCheck, private: Shuffle, paranoid: Lock };
+const LEVEL_ICON: Record<PrivacyLevel, typeof Cpu> = { local: Cpu, standard: PaperPlaneTilt, private: Shuffle, paranoid: Lock };
 
 /** The privacy level as one compact button; the choices and what each does open in a short list. */
 export function LevelPicker({ level, blocked, onChange, onSettings }: { level: PrivacyLevel; blocked: (l: PrivacyLevel) => boolean; onChange: (l: PrivacyLevel) => void; onSettings: (() => void) | undefined }) {

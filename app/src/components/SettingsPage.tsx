@@ -148,7 +148,8 @@ function LocalModel({ status, onRefresh }: { status: AppStatus | undefined; onRe
     return () => clearInterval(t);
   }, [loading, onRefresh]);
   const percent = Math.round(model?.percent ?? 0);
-  const label = state === "ready" ? "Running in this browser" : loading ? `Downloading… ${percent}%` : state === "unsupported" ? "Can't run in this browser" : state === "failed" ? "Didn't start" : "Off";
+  const starting = loading && model?.phase === "start";
+  const label = state === "ready" ? "Running in this browser" : starting ? "Downloaded. Starting on your graphics card…" : loading ? `Downloading… ${percent}%` : state === "unsupported" ? "Can't run in this browser" : state === "failed" ? "Didn't start" : "Off";
   return (
     <div className="panel surface gap-4 text-sm">
       <div className="flex flex-wrap items-center gap-3">
@@ -177,11 +178,18 @@ function LocalModel({ status, onRefresh }: { status: AppStatus | undefined; onRe
       <p className="max-w-[60ch] text-muted-foreground">
         NVIDIA Nemotron 3 Nano, a free AI model that runs inside this browser and protects each question before it leaves: it tells people from places and companies, writes a fitting description for each, rewrites follow-ups, splits questions up and adds decoys.
       </p>
-      {state === "off" && <p className="max-w-[60ch] text-muted-foreground">The first start downloads about 2.5 GB, once; the browser keeps it after that. It needs a computer with a graphics card and a recent Chrome or Edge.</p>}
+      {state === "off" && <p className="max-w-[60ch] text-muted-foreground">The first start downloads about 2.5 GB. Direct works without it and sends the question as you wrote it. If a download stops, what already arrived stays on this computer and the next start continues from there. After the files are here, starting the model on your graphics card can sit at the end of the bar for a minute.</p>}
       {model?.error && <p className="max-w-[60ch] text-destructive">{model.error}</p>}
+      {loading && (
+        <p className="max-w-[60ch] text-muted-foreground">
+          {starting
+            ? "The files are on this computer. The graphics card is loading them now."
+            : "You can leave this and ask a question. If this stops, the next start continues where it left off."}
+        </p>
+      )}
       {state !== "ready" && (
         <p className="max-w-[60ch] rounded-lg bg-muted/60 px-3 py-2 text-muted-foreground">
-          <span className="font-medium text-foreground">Without it:</span> only names on your hide list are hidden (nothing is guessed), each question goes out whole, without splitting or decoys, and only Standard is available.
+          <span className="font-medium text-foreground">Without it:</span> Direct sends each question whole, as you wrote it. Private and Paranoid, which hide names, split questions, and add decoys, stay unavailable.
         </p>
       )}
     </div>
